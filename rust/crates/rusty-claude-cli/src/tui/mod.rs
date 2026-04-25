@@ -2,6 +2,7 @@ pub mod diff_view;
 pub mod permission;
 pub mod status_bar;
 pub mod terminal;
+pub mod theme;
 pub mod thinking;
 pub mod timeline;
 pub mod tool_panel;
@@ -16,6 +17,7 @@ pub use permission::{
 };
 pub use status_bar::StatusBar;
 pub use terminal::TerminalSize;
+pub use theme::Theme;
 pub use thinking::{format_thinking_completed, render_thinking_inline, ThinkingFrames};
 pub use timeline::ToolCallTimeline;
 pub use tool_panel::{collapse_tool_output, CollapsedToolOutput, ToolDisplayConfig};
