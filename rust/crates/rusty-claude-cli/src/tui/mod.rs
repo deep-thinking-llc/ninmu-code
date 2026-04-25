@@ -1,6 +1,7 @@
 pub mod diff_view;
 pub mod permission;
 pub mod status_bar;
+pub mod thinking;
 pub mod tool_panel;
 
 pub use diff_view::{
@@ -12,4 +13,5 @@ pub use permission::{
     PermissionDecision,
 };
 pub use status_bar::StatusBar;
+pub use thinking::{format_thinking_completed, render_thinking_inline, ThinkingFrames};
 pub use tool_panel::{collapse_tool_output, CollapsedToolOutput, ToolDisplayConfig};

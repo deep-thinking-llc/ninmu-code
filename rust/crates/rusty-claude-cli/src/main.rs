@@ -5229,7 +5229,7 @@ UU conflicted.rs",
             AssistantEvent::TextDelta(text) if text == "Final answer"
         ));
         let rendered = String::from_utf8(out).expect("utf8");
-        assert!(rendered.contains("▶ Thinking (6 chars hidden)"));
+        assert!(rendered.contains("Reasoning (6 chars)"));
         assert!(!rendered.contains("step 1"));
     }
 

@@ -2875,13 +2875,7 @@ pub(crate) fn render_thinking_block_summary(
     char_count: Option<usize>,
     redacted: bool,
 ) -> Result<(), RuntimeError> {
-    let summary = if redacted {
-        "\n\u{25b6} Thinking block hidden by provider\n".to_string()
-    } else if let Some(char_count) = char_count {
-        format!("\n\u{25b6} Thinking ({char_count} chars hidden)\n")
-    } else {
-        "\n\u{25b6} Thinking hidden\n".to_string()
-    };
+    let summary = crate::tui::thinking::render_thinking_inline(char_count, redacted);
     write!(out, "{summary}")
         .and_then(|()| out.flush())
         .map_err(|error| RuntimeError::new(error.to_string()))
