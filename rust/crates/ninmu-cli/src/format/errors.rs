@@ -54,7 +54,7 @@ pub(crate) fn format_unknown_option(option: &str) -> String {
         message.push_str(suggestion);
         message.push('?');
     }
-    message.push_str("\nRun `claw --help` for usage.");
+    message.push_str("\nRun `ninmu --help` for usage.");
     message
 }
 
@@ -69,7 +69,7 @@ pub(crate) fn format_unknown_direct_slash_command(name: &str) -> String {
         message.push('\n');
         message.push_str(note);
     }
-    message.push_str("\nRun `claw --help` for CLI usage, or start `claw` and use /help.");
+    message.push_str("\nRun `ninmu --help` for CLI usage, or start `ninmu` and use /help.");
     message
 }
 
@@ -91,7 +91,7 @@ pub(crate) fn format_unknown_slash_command(name: &str) -> String {
 pub(crate) fn omc_compatibility_note_for_unknown_slash_command(name: &str) -> Option<&'static str> {
     name.starts_with("oh-my-claudecode:")
         .then_some(
-            "Compatibility note: `/oh-my-claudecode:*` is a Claude Code/OMC plugin command. `claw` does not yet load plugin slash commands, Claude statusline stdin, or OMC session hooks.",
+            "Compatibility note: `/oh-my-claudecode:*` is a Claude Code/OMC plugin command. `ninmu` does not yet load plugin slash commands, Claude statusline stdin, or OMC session hooks.",
         )
 }
 
@@ -309,7 +309,7 @@ pub(crate) fn format_context_window_blocked_error(
     lines.push("Recovery".to_string());
     lines.push("  Compact          /compact".to_string());
     lines.push(format!(
-        "  Resume compact   claw --resume {session_id} /compact"
+        "  Resume compact   ninmu --resume {session_id} /compact"
     ));
     lines.push("  Fresh session    /clear --confirm".to_string());
     lines.push(

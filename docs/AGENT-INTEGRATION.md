@@ -1,6 +1,6 @@
 # Agent Integration Guide
 
-How to consume Claw Code from your agent framework, orchestration tool, or custom code.
+How to consume Ninmu Code from your agent framework, orchestration tool, or custom code.
 
 ---
 
@@ -20,9 +20,9 @@ How to consume Claw Code from your agent framework, orchestration tool, or custo
 
 ```toml
 [dependencies]
-sdk = { path = "../claw-code/rust/crates/sdk" }
-runtime = { path = "../claw-code/rust/crates/runtime" }
-api = { path = "../claw-code/rust/crates/api" }
+sdk = { path = "../ninmu-code/rust/crates/sdk" }
+runtime = { path = "../ninmu-code/rust/crates/runtime" }
+api = { path = "../ninmu-code/rust/crates/api" }
 ```
 
 ### Create a session
@@ -143,7 +143,7 @@ registry.collect_tools(&mut tools);
 
 ## 2. CLI
 
-The `claw` binary is designed for both interactive use and programmatic consumption.
+The `ninmu` binary is designed for both interactive use and programmatic consumption.
 
 ### Structured JSON output
 
@@ -151,51 +151,51 @@ Every output-producing command supports `--output-format json`:
 
 ```bash
 # Get structured status
-claw --output-format json status
+ninmu --output-format json status
 
 # One-shot prompt with JSON output
-claw --output-format json prompt "list all TODO comments in the codebase"
+ninmu --output-format json prompt "list all TODO comments in the codebase"
 ```
 
 ### Session management
 
 ```bash
 # Create and run
-claw prompt "implement feature X"
+ninmu prompt "implement feature X"
 
 # Resume by ID or "latest"
-claw --resume latest
-claw --resume abc123
+ninmu --resume latest
+ninmu --resume abc123
 
 # List sessions
-claw --output-format json status  # includes session list
+ninmu --output-format json status  # includes session list
 ```
 
 ### Custom providers
 
 ```bash
 # Use a model from models.json
-claw --model ollama/llama3.1:8b prompt "summarize this project"
+ninmu --model ollama/llama3.1:8b prompt "summarize this project"
 
 # Use OpenAI with custom base URL
-OPENAI_BASE_URL=https://openrouter.ai/api/v1 claw --model openai/gpt-4o prompt "hello"
+OPENAI_BASE_URL=https://openrouter.ai/api/v1 ninmu --model openai/gpt-4o prompt "hello"
 
 # Use DashScope (Alibaba Qwen)
-claw --model qwen-plus prompt "translate to English"
+ninmu --model qwen-plus prompt "translate to English"
 ```
 
 ### CI/automation usage
 
 ```bash
 # Non-interactive: run a task and exit
-claw prompt "run the test suite and fix any failures"
+ninmu prompt "run the test suite and fix any failures"
 
 # Capture JSON output for processing
-result=$(claw --output-format json prompt "analyze code quality")
+result=$(ninmu --output-format json prompt "analyze code quality")
 echo "$result" | jq '.summary'
 
 # Health check before running
-claw doctor || exit 1
+ninmu doctor || exit 1
 ```
 
 ---

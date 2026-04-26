@@ -1,11 +1,11 @@
 # Mock LLM parity harness
 
-This milestone adds a deterministic Anthropic-compatible mock service plus a reproducible CLI harness for the Rust `claw` binary.
+This milestone adds a deterministic Anthropic-compatible mock service plus a reproducible CLI harness for the Rust `ninmu` binary.
 
 ## Artifacts
 
 - `crates/mock-anthropic-service/` — mock `/v1/messages` service
-- `crates/rusty-claude-cli/tests/mock_parity_harness.rs` — end-to-end clean-environment harness
+- `crates/ninmu-cli/tests/mock_parity_harness.rs` — end-to-end clean-environment harness
 - `scripts/run_mock_parity_harness.sh` — convenience wrapper
 
 ## Scenarios

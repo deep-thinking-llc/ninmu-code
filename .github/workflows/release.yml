@@ -26,12 +26,12 @@ jobs:
         include:
           - name: linux-x64
             os: ubuntu-latest
-            bin: claw
-            artifact_name: claw-linux-x64
+            bin: ninmu
+            artifact_name: ninmu-linux-x64
           - name: macos-arm64
             os: macos-14
-            bin: claw
-            artifact_name: claw-macos-arm64
+            bin: ninmu
+            artifact_name: ninmu-macos-arm64
     defaults:
       run:
         working-directory: rust
@@ -45,7 +45,7 @@ jobs:
           workspaces: rust -> target
 
       - name: Build release binary
-        run: cargo build --release -p rusty-claude-cli
+        run: cargo build --release -p ninmu-cli
 
       - name: Package artifact
         shell: bash

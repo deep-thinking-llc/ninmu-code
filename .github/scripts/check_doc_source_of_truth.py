@@ -17,11 +17,11 @@ FILES = [
 FILES.extend(sorted((ROOT / 'docs').rglob('*.md')) if (ROOT / 'docs').exists() else [])
 
 FORBIDDEN = {
-    r'github\.com/Yeachan-Heo/claw-code(?!-parity)': 'replace old claw-code GitHub links with ultraworkers/claw-code',
-    r'github\.com/code-yeongyu/claw-code': 'replace stale alternate claw-code GitHub links with ultraworkers/claw-code',
+    r'github\.com/Yeachan-Heo/claw-code(?!-parity)': 'replace old claw-code GitHub links with deep-thinking-llc/ninmu-code',
+    r'github\.com/code-yeongyu/claw-code': 'replace stale alternate claw-code GitHub links with deep-thinking-llc/ninmu-code',
     r'discord\.gg/6ztZB9jvWq': 'replace the stale UltraWorkers Discord invite with the current invite',
-    r'api\.star-history\.com/svg\?repos=Yeachan-Heo/claw-code': 'update star-history embeds to ultraworkers/claw-code',
-    r'star-history\.com/#Yeachan-Heo/claw-code': 'update star-history links to ultraworkers/claw-code',
+    r'api\.star-history\.com/svg\?repos=Yeachan-Heo/claw-code': 'update star-history embeds to deep-thinking-llc/ninmu-code',
+    r'star-history\.com/#Yeachan-Heo/claw-code': 'update star-history links to deep-thinking-llc/ninmu-code',
     r'assets/clawd-hero\.jpeg': 'rename stale hero asset references to assets/claw-hero.jpeg',
     r'assets/instructkr\.png': 'remove stale instructkr image references',
 }

@@ -122,7 +122,7 @@ pub(crate) enum CliAction {
     Init {
         output_format: CliOutputFormat,
     },
-    // #146: `claw config` and `claw diff` are pure-local read-only
+    // #146: `ninmu config` and `ninmu diff` are pure-local read-only
     // introspection commands; wire them as standalone CLI subcommands.
     Config {
         section: Option<String>,
@@ -200,7 +200,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
                     && matches!(rest[0].as_str(), "prompt" | "commit" | "pr" | "issue") =>
             {
                 // `--help` following a subcommand that would otherwise forward
-                // the arg to the API (e.g. `claw prompt --help`) should show
+                // the arg to the API (e.g. `ninmu prompt --help`) should show
                 // top-level help instead. Subcommands that consume their own
                 // args (agents, mcp, plugins, skills) and local help-topic
                 // subcommands (status, sandbox, doctor, init, state, export,
@@ -311,7 +311,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 index += 1;
             }
             "-p" => {
-                // Claw Code compat: -p "prompt" = one-shot prompt
+                // Ninmu Code compat: -p "prompt" = one-shot prompt
                 let prompt = args[index + 1..].join(" ");
                 if prompt.trim().is_empty() {
                     return Err("-p requires a prompt string".to_string());
@@ -330,7 +330,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 });
             }
             "--print" => {
-                // Claw Code compat: --print makes output non-interactive
+                // Ninmu Code compat: --print makes output non-interactive
                 output_format = CliOutputFormat::Text;
                 index += 1;
             }
@@ -445,8 +445,8 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
             output_format,
         }),
         // #145: `plugins` was routed through the prompt fallback because no
-        // top-level parser arm produced CliAction::Plugins. That made `claw
-        // plugins` (and `claw plugins --help`, `claw plugins list`, ...)
+        // top-level parser arm produced CliAction::Plugins. That made `ninmu
+        // plugins` (and `ninmu plugins --help`, `ninmu plugins list`, ...)
         // attempt an Anthropic network call, surfacing the misleading error
         // `missing Anthropic credentials` even though the command is purely
         // local introspection. Mirror `agents`/`mcp`/`skills`: action is the
@@ -457,7 +457,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
             let target = tail.get(1).cloned();
             if tail.len() > 2 {
                 return Err(format!(
-                    "unexpected extra arguments after `claw plugins {}`: {}",
+                    "unexpected extra arguments after `ninmu plugins {}`: {}",
                     tail[..2].join(" "),
                     tail[2..].join(" ")
                 ));
@@ -471,7 +471,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
         // #146: `config` is pure-local read-only introspection (merges
         // `.claw.json` + `.claw/settings.json` from disk, no network, no
         // state mutation). Previously callers had to spin up a session with
-        // `claw --resume SESSION.jsonl /config` to see their own config,
+        // `ninmu --resume SESSION.jsonl /config` to see their own config,
         // which is synthetic friction. Accepts an optional section name
         // (env|hooks|model|plugins) matching the slash command shape.
         "config" => {
@@ -479,7 +479,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
             let section = tail.first().cloned();
             if tail.len() > 1 {
                 return Err(format!(
-                    "unexpected extra arguments after `claw config {}`: {}",
+                    "unexpected extra arguments after `ninmu config {}`: {}",
                     tail[0],
                     tail[1..].join(" ")
                 ));
@@ -494,7 +494,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
         "diff" => {
             if rest.len() > 1 {
                 return Err(format!(
-                    "unexpected extra arguments after `claw diff`: {}",
+                    "unexpected extra arguments after `ninmu diff`: {}",
                     rest[1..].join(" ")
                 ));
             }
@@ -562,21 +562,21 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
                         message.push_str(&line);
                     }
                     message.push_str(
-                        "\nRun `claw --help` for the full list. If you meant to send a prompt literally, use `claw prompt <text>`.",
+                        "\nRun `ninmu --help` for the full list. If you meant to send a prompt literally, use `ninmu prompt <text>`.",
                     );
                     return Err(message);
                 }
             }
             // #147: guard empty/whitespace-only prompts at the fallthrough
             // path the same way `"prompt"` arm above does. Without this,
-            // `claw ""`, `claw "   "`, and `claw "" ""` silently route to
+            // `ninmu ""`, `ninmu "   "`, and `ninmu "" ""` silently route to
             // the Anthropic call and surface a misleading
             // `missing Anthropic credentials` error (or burn API tokens on
             // an empty prompt when credentials are present).
             let joined = rest.join(" ");
             if joined.trim().is_empty() {
                 return Err(
-                    "empty prompt: provide a subcommand (run `claw --help`) or a non-empty prompt string"
+                    "empty prompt: provide a subcommand (run `ninmu --help`) or a non-empty prompt string"
                         .to_string(),
                 );
             }
@@ -709,11 +709,11 @@ pub(crate) fn bare_slash_command_guidance(command_name: &str) -> Option<String> 
         .find(|spec| spec.name == command_name)?;
     let guidance = if slash_command.resume_supported {
         format!(
-            "`claw {command_name}` is a slash command. Use `claw --resume SESSION.jsonl /{command_name}` or start `claw` and run `/{command_name}`."
+            "`ninmu {command_name}` is a slash command. Use `ninmu --resume SESSION.jsonl /{command_name}` or start `ninmu` and run `/{command_name}`."
         )
     } else {
         format!(
-            "`claw {command_name}` is a slash command. Start `claw` and run `/{command_name}` inside the REPL."
+            "`ninmu {command_name}` is a slash command. Start `ninmu` and run `/{command_name}` inside the REPL."
         )
     };
     Some(guidance)
@@ -721,7 +721,7 @@ pub(crate) fn bare_slash_command_guidance(command_name: &str) -> Option<String> 
 
 pub(crate) fn removed_auth_surface_error(command_name: &str) -> String {
     format!(
-        "`claw {command_name}` has been removed. Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead."
+        "`ninmu {command_name}` has been removed. Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead."
     )
 }
 
@@ -733,7 +733,7 @@ pub(crate) fn parse_acp_args(
         [] => Ok(CliAction::Acp { output_format }),
         [subcommand] if subcommand == "serve" => Ok(CliAction::Acp { output_format }),
         _ => Err(String::from(
-            "unsupported ACP invocation. Use `claw acp`, `claw acp serve`, `claw --acp`, or `claw -acp`.",
+            "unsupported ACP invocation. Use `ninmu acp`, `ninmu acp serve`, `ninmu --acp`, or `ninmu -acp`.",
         )),
     }
 }
@@ -814,7 +814,7 @@ pub(crate) fn parse_direct_slash_cli_action(
         Ok(Some(command)) => Err({
             let _ = command;
             format!(
-                "slash command {command_name} is interactive-only. Start `claw` and run it there, or use `claw --resume SESSION.jsonl {command_name}` / `claw --resume {latest} {command_name}` when the command is marked [resume] in /help.",
+                "slash command {command_name} is interactive-only. Start `ninmu` and run it there, or use `ninmu --resume SESSION.jsonl {command_name}` / `ninmu --resume {latest} {command_name}` when the command is marked [resume] in /help.",
                 command_name = rest[0],
                 latest = LATEST_SESSION_REFERENCE,
             )
@@ -1058,9 +1058,9 @@ pub(crate) fn enforce_broad_cwd_policy(
     if is_interactive {
         // Interactive mode: print warning and ask for confirmation
         eprintln!(
-            "Warning: claw is running from a very broad directory ({}).\n\
+            "Warning: ninmu is running from a very broad directory ({}).\n\
              The agent can read and search everything under this path.\n\
-             Consider running from inside your project: cd /path/to/project && claw",
+             Consider running from inside your project: cd /path/to/project && ninmu",
             cwd.display()
         );
         eprint!("Continue anyway? [y/N]: ");
@@ -1077,10 +1077,10 @@ pub(crate) fn enforce_broad_cwd_policy(
     } else {
         // Non-interactive mode: exit with error (JSON or text)
         let message = format!(
-            "claw is running from a very broad directory ({}). \
+            "ninmu is running from a very broad directory ({}). \
              The agent can read and search everything under this path. \
              Use --allow-broad-cwd to proceed anyway, \
-             or run from inside your project: cd /path/to/project && claw",
+             or run from inside your project: cd /path/to/project && ninmu",
             cwd.display()
         );
         match output_format {
