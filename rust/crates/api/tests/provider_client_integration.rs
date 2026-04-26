@@ -185,3 +185,52 @@ fn provider_client_detects_ollama_via_base_url_env() {
 
     assert_eq!(client.provider_kind(), ProviderKind::Ollama);
 }
+
+#[test]
+fn provider_client_fallback_chain_skips_failed_models() {
+    let _lock = env_lock();
+    let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", Some("sk-ant-test"));
+    let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", None);
+    let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+    let _xai = EnvVarGuard::set("XAI_API_KEY", None);
+
+    let fallbacks = vec!["claude-sonnet-4-6".to_string()];
+    let (client, model) = ProviderClient::from_model_chain("deepseek-chat", &fallbacks)
+        .expect("should fall back to Anthropic");
+
+    assert_eq!(model, "claude-sonnet-4-6");
+    assert_eq!(client.provider_kind(), ProviderKind::Anthropic);
+}
+
+#[test]
+fn provider_client_fallback_chain_errors_when_all_exhausted() {
+    let _lock = env_lock();
+    let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", None);
+    let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", None);
+    let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+    let _xai = EnvVarGuard::set("XAI_API_KEY", None);
+    let _ollama = EnvVarGuard::set("OLLAMA_BASE_URL", None);
+
+    let fallbacks = vec!["deepseek-reasoner".to_string()];
+    let err = ProviderClient::from_model_chain("deepseek-chat", &fallbacks)
+        .expect_err("all models should fail when no credentials");
+
+    assert!(
+        matches!(err, ApiError::MissingCredentials { .. }),
+        "expected MissingCredentials, got {err:?}"
+    );
+}
+
+#[test]
+fn provider_client_fallback_uses_primary_when_available() {
+    let _lock = env_lock();
+    let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", Some("sk-ds-test"));
+    let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", None);
+
+    let fallbacks = vec!["claude-sonnet-4-6".to_string()];
+    let (client, model) = ProviderClient::from_model_chain("deepseek-chat", &fallbacks)
+        .expect("primary should succeed");
+
+    assert_eq!(model, "deepseek-chat");
+    assert_eq!(client.provider_kind(), ProviderKind::DeepSeek);
+}
