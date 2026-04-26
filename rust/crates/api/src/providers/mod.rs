@@ -1410,4 +1410,34 @@ NO_EQUALS_LINE
         // max_tokens_for_model should reflect the hardcoded value
         assert_eq!(max_tokens_for_model("deepseek-chat"), 8_192);
     }
+
+    #[test]
+    fn detect_provider_from_qwen_api_key() {
+        let _lock = env_lock();
+        let _qwen = EnvVarGuard::set("QWEN_API_KEY", Some("sk-qwen-test"));
+        let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", None);
+        let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+        let _xai = EnvVarGuard::set("XAI_API_KEY", None);
+        let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", None);
+
+        assert_eq!(
+            detect_provider_kind("unknown-model"),
+            ProviderKind::Qwen,
+            "QWEN_API_KEY should route unknown models to Qwen"
+        );
+    }
+
+    #[test]
+    fn anthropic_auth_takes_priority_over_deepseek() {
+        let _lock = env_lock();
+        let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", Some("sk-ant-test"));
+        let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", Some("sk-ds-test"));
+        let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+
+        // Anthropic should win over DeepSeek in the auth-sniffer order
+        assert_eq!(
+            detect_provider_kind("unknown-model"),
+            ProviderKind::Anthropic
+        );
+    }
 }

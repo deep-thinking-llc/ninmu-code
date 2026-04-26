@@ -2588,4 +2588,54 @@ mod tests {
 
         std::env::remove_var("OLLAMA_API_KEY");
     }
+
+    #[test]
+    fn strip_routing_prefix_handles_new_providers() {
+        // deepseek/ prefix stripped
+        assert_eq!(
+            super::strip_routing_prefix("deepseek/deepseek-chat"),
+            "deepseek-chat"
+        );
+        // ollama/ prefix stripped
+        assert_eq!(
+            super::strip_routing_prefix("ollama/llama3.1:8b"),
+            "llama3.1:8b"
+        );
+        // vllm/ prefix stripped
+        assert_eq!(
+            super::strip_routing_prefix("vllm/meta-llama/Llama-3.1-8B"),
+            "meta-llama/Llama-3.1-8B"
+        );
+        // Semicolon in model name is not stripped
+        assert_eq!(
+            super::strip_routing_prefix("meta-llama/Llama-3.1-8B"),
+            "meta-llama/Llama-3.1-8B"
+        );
+        // No prefix, unchanged
+        assert_eq!(
+            super::strip_routing_prefix("deepseek-chat"),
+            "deepseek-chat"
+        );
+    }
+
+    #[test]
+    fn read_base_url_uses_fallback_env_var() {
+        let _lock = env_lock();
+        std::env::remove_var("QWEN_BASE_URL");
+        std::env::set_var("OPENAI_BASE_URL", "https://fallback.test/v1");
+
+        let url = super::read_base_url(OpenAiCompatConfig::qwen());
+        assert_eq!(url, "https://fallback.test/v1");
+
+        std::env::remove_var("OPENAI_BASE_URL");
+    }
+
+    #[test]
+    fn read_base_url_returns_default_when_all_absent() {
+        let _lock = env_lock();
+        std::env::remove_var("DEEPSEEK_BASE_URL");
+
+        let url = super::read_base_url(OpenAiCompatConfig::deepseek());
+        assert!(url.contains("api.deepseek.com"));
+    }
 }

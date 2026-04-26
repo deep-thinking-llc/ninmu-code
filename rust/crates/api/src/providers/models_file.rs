@@ -676,4 +676,48 @@ mod tests {
             std::fs::remove_dir_all(&dir).expect("cleanup");
         }
     }
+
+    #[test]
+    fn custom_metadata_maps_new_api_values_to_correct_provider_kind() {
+        let _lock = models_lock();
+        clear_custom_models();
+
+        let dir = std::env::temp_dir().join(format!(
+            "models-metadata-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let models_path = dir.join("models.json");
+
+        // Test that api: "deepseek" → ProviderKind::DeepSeek
+        std::fs::write(
+            &models_path,
+            r#"{"providers":{"ds":{"baseUrl":"https://api.deepseek.com/v1","api":"deepseek","apiKey":"sk-test","models":[{"id":"deepseek-chat"}]}}}"#,
+        )
+        .expect("write");
+        super::load_custom_models(&models_path).expect("load");
+        let meta = super::custom_metadata_for_model("deepseek-chat")
+            .expect("should find deepseek-chat via custom model");
+        assert_eq!(meta.provider, ProviderKind::DeepSeek);
+        assert_eq!(meta.auth_env, "DEEPSEEK_API_KEY");
+
+        clear_custom_models();
+
+        // api: "ollama" → ProviderKind::Ollama
+        std::fs::write(
+            &models_path,
+            r#"{"providers":{"ol":{"baseUrl":"http://localhost:11434/v1","api":"ollama","apiKey":"ollama","models":[{"id":"llama3.1:8b"}]}}}"#,
+        )
+        .expect("write");
+        super::load_custom_models(&models_path).expect("load");
+        let meta =
+            super::custom_metadata_for_model("llama3.1:8b").expect("should find ollama model");
+        assert_eq!(meta.provider, ProviderKind::Ollama);
+
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
 }
