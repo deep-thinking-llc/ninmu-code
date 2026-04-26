@@ -78,31 +78,43 @@ impl SecretScrubber {
         let mut matches = Vec::new();
 
         for (prefix, name, min_len) in Self::known_prefixes() {
-            let mut start = 0;
-            while let Some(pos) = output[start..].find(prefix) {
-                let match_start = start + pos;
-                let after = &output[match_start + prefix.len()..];
-                // Find the end of the secret (whitespace, quote, or end-of-line).
-                let mut secret_len = prefix.len();
-                for ch in after.chars() {
+            let mut byte_start = 0usize;
+            while let Some(pos) = output.as_bytes()[byte_start..].windows(prefix.len()).position(|w| w == prefix.as_bytes()) {
+                let match_byte_start = byte_start + pos;
+                let prefix_byte_len = prefix.len();
+
+                // Find end of secret: whitespace, quote, or end of string
+                let rest = &output[match_byte_start + prefix_byte_len..];
+                let mut secret_char_len = prefix.chars().count();
+                let mut secret_byte_len = prefix_byte_len;
+                for ch in rest.chars() {
                     if ch.is_ascii_whitespace() || ch == '"' || ch == '\'' || ch == '\n' || ch == '\r' {
                         break;
                     }
-                    secret_len += 1;
+                    secret_char_len += 1;
+                    secret_byte_len += ch.len_utf8();
                 }
-                if secret_len < prefix.len() + min_len {
-                    start = match_start + 1;
+
+                if secret_char_len < prefix.chars().count() + min_len {
+                    byte_start = match_byte_start.saturating_add(1);
                     continue;
                 }
-                let visible = self.max_preview.min(prefix.len());
-                let preview = &output[match_start..match_start + visible];
+
+                let visible_chars = self.max_preview.min(prefix.chars().count());
+                let preview = output[match_byte_start..]
+                    .chars()
+                    .take(visible_chars)
+                    .collect::<String>();
                 let replacement = format!("{preview}[REDACTED]");
-                output.replace_range(match_start..match_start + secret_len, &replacement);
+                output.replace_range(
+                    match_byte_start..match_byte_start + secret_byte_len,
+                    &replacement,
+                );
                 matches.push(SecretMatch {
                     kind: name.to_string(),
-                    chars_replaced: secret_len,
+                    chars_replaced: secret_char_len,
                 });
-                start = match_start + replacement.len();
+                byte_start = match_byte_start + replacement.len();
             }
         }
         (output, matches)
@@ -126,8 +138,12 @@ impl SecretScrubber {
             .cloned()
             .map(|(k, v)| {
                 if secret_suffixes.iter().any(|s| k.to_ascii_uppercase().ends_with(s)) {
-                    let visible = v.chars().take(4).collect::<String>();
-                    (k, format!("{visible}[REDACTED]"))
+                    if v.len() <= 6 {
+                        (k, "[REDACTED]".to_string())
+                    } else {
+                        let visible = v.chars().take(4).collect::<String>();
+                        (k, format!("{visible}[REDACTED]"))
+                    }
                 } else {
                     (k, v)
                 }
