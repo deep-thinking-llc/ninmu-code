@@ -64,11 +64,7 @@ pub struct ResourceLock {
 impl ResourceLock {
     /// Try to acquire one or more resources for a task.
     /// Returns the set of already-locked resources if any conflict.
-    pub fn acquire(
-        &mut self,
-        task_id: &str,
-        resources: &[String],
-    ) -> Result<(), HashSet<String>> {
+    pub fn acquire(&mut self, task_id: &str, resources: &[String]) -> Result<(), HashSet<String>> {
         let mut conflicts = HashSet::new();
         for res in resources {
             if let Some(owner) = self.locks.get(res) {
@@ -240,11 +236,7 @@ impl AgentOrchestrator {
     }
 
     /// Submit a task to a specific agent.
-    pub fn submit(
-        &mut self,
-        agent_id: &str,
-        mut task: AgentTask,
-    ) -> Result<String, String> {
+    pub fn submit(&mut self, agent_id: &str, mut task: AgentTask) -> Result<String, String> {
         let _agent = self
             .agents
             .get(agent_id)
@@ -272,7 +264,11 @@ impl AgentOrchestrator {
             .or_default()
             .push_back(task_id.clone());
 
-        self.emit(EventType::SessionStarted, Severity::Info, format!("task {task_id} queued for agent '{agent_id}'"));
+        self.emit(
+            EventType::SessionStarted,
+            Severity::Info,
+            format!("task {task_id} queued for agent '{agent_id}'"),
+        );
 
         Ok(task_id)
     }
@@ -296,7 +292,7 @@ impl AgentOrchestrator {
         agent.running.push(next_id.clone());
 
         self.emit(
-            EventType::TurnComplete,
+            EventType::Custom("task_started".to_string()),
             Severity::Info,
             format!("task {next_id} started on agent '{agent_id}'"),
         );
@@ -321,13 +317,13 @@ impl AgentOrchestrator {
         task.locked_resources = self.resources.held_by(task_id);
         self.resources.release_by_task(task_id);
 
-        let agent_id = task.assigned_agent.clone();
-        if let Some(agent) = self.agents.get_mut(&agent_id) {
+        let agent_id = &task.assigned_agent;
+        if let Some(agent) = self.agents.get_mut(agent_id) {
             agent.running.retain(|id| id != task_id);
         }
 
         self.emit(
-            EventType::ReviewApproved,
+            EventType::Custom("task_completed".to_string()),
             Severity::Info,
             format!("task {task_id} completed"),
         );
@@ -349,15 +345,16 @@ impl AgentOrchestrator {
         task.state = TaskState::Failed;
         task.finished_at_ms = Some(now_ms());
         task.error = Some(error.to_string());
+        task.locked_resources = self.resources.held_by(task_id);
         self.resources.release_by_task(task_id);
 
-        let agent_id = task.assigned_agent.clone();
-        if let Some(agent) = self.agents.get_mut(&agent_id) {
+        let agent_id = &task.assigned_agent;
+        if let Some(agent) = self.agents.get_mut(agent_id) {
             agent.running.retain(|id| id != task_id);
         }
 
         self.emit(
-            EventType::ProviderError,
+            EventType::Custom("task_failed".to_string()),
             Severity::Error,
             format!("task {task_id} failed: {error}"),
         );
@@ -378,6 +375,8 @@ impl AgentOrchestrator {
 
         task.state = TaskState::Cancelled;
         task.finished_at_ms = Some(now_ms());
+        task.locked_resources.clear();
+        self.resources.release_by_task(task_id);
 
         let agent_id = task.assigned_agent.clone();
         if let Some(queue) = self.queues.get_mut(&agent_id) {
@@ -385,7 +384,7 @@ impl AgentOrchestrator {
         }
 
         self.emit(
-            EventType::SessionEnded,
+            EventType::Custom("task_cancelled".to_string()),
             Severity::Warning,
             format!("task {task_id} cancelled"),
         );
@@ -399,10 +398,25 @@ impl AgentOrchestrator {
         task_id: &str,
         resources: &[String],
     ) -> Result<(), HashSet<String>> {
+        let task = self
+            .tasks
+            .get(task_id)
+            .ok_or_else(|| HashSet::from_iter(std::iter::once(task_id.to_string())))?;
+        if task.state != TaskState::Running {
+            let mut msg = HashSet::new();
+            msg.insert(format!(
+                "task '{task_id}' is not running (state: {:?})",
+                task.state
+            ));
+            return Err(msg);
+        }
         match self.resources.acquire(task_id, resources) {
             Ok(()) => {
                 if let Some(task) = self.tasks.get_mut(task_id) {
-                    task.locked_resources = resources.to_vec();
+                    task.locked_resources
+                        .extend(resources.iter().cloned());
+                    task.locked_resources.sort();
+                    task.locked_resources.dedup();
                 }
                 Ok(())
             }
@@ -508,7 +522,9 @@ mod tests {
         let mut orch = AgentOrchestrator::new();
         orch.register_agent(AgentDefinition::new("explore", "Explorer"));
 
-        let id = orch.submit("explore", make_task("find files")).expect("submit");
+        let id = orch
+            .submit("explore", make_task("find files"))
+            .expect("submit");
         let task = orch.get_task(&id).expect("task exists");
         assert_eq!(task.state, TaskState::Queued);
         assert_eq!(orch.queue_len("explore"), 1);
@@ -571,7 +587,8 @@ mod tests {
 
         let id = orch.submit("explore", make_task("x")).expect("submit");
         orch.start_next("explore");
-        orch.acquire_resources(&id, &["src/main.rs".to_string()]).expect("lock");
+        orch.acquire_resources(&id, &["src/main.rs".to_string()])
+            .expect("lock");
 
         orch.fail(&id, "crashed").expect("fail");
 
@@ -613,7 +630,8 @@ mod tests {
         orch.start_next("a1");
         orch.start_next("a2");
 
-        orch.acquire_resources(&id1, &["file.rs".to_string()]).expect("lock1");
+        orch.acquire_resources(&id1, &["file.rs".to_string()])
+            .expect("lock1");
         let conflict = orch.acquire_resources(&id2, &["file.rs".to_string()]);
         assert!(conflict.is_err());
 
@@ -684,5 +702,102 @@ mod tests {
         let mut orch = AgentOrchestrator::new();
         orch.global_context().set("key", "value");
         assert_eq!(orch.global_context().get("key"), Some("value".to_string()));
+    }
+
+    #[test]
+    fn acquire_resources_rejects_non_running_task() {
+        let mut orch = AgentOrchestrator::new();
+        orch.register_agent(AgentDefinition::new("explore", "Explorer"));
+        let id = orch.submit("explore", make_task("x")).expect("submit");
+        let result = orch.acquire_resources(&id, &["f.rs".to_string()]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn multiple_acquire_appends_resources() {
+        let mut orch = AgentOrchestrator::new();
+        orch.register_agent(AgentDefinition::new("explore", "Explorer"));
+        let id = orch.submit("explore", make_task("x")).expect("submit");
+        orch.start_next("explore");
+        orch.acquire_resources(&id, &["a.rs".to_string()]).expect("1");
+        orch.acquire_resources(&id, &["b.rs".to_string()]).expect("2");
+        let task = orch.get_task(&id).unwrap();
+        assert!(task.locked_resources.contains(&"a.rs".to_string()));
+        assert!(task.locked_resources.contains(&"b.rs".to_string()));
+    }
+
+    #[test]
+    fn resource_lock_rolling_acquire_atomicity() {
+        let mut lock = ResourceLock::default();
+        lock.acquire("t1", &["a.rs".to_string(), "b.rs".to_string()])
+            .expect("lock");
+        // Partial-acquire: t2 wants both b and c. "b" is taken, so NO locks should apply.
+        let conflict = lock.acquire("t2", &["b.rs".to_string(), "c.rs".to_string()]);
+        assert!(conflict.is_err());
+        assert!(conflict.unwrap_err().contains("b.rs"));
+        // Verify t2 did NOT acquire c.rs either.
+        assert_eq!(lock.held_by("t2").len(), 0);
+    }
+
+    #[test]
+    fn resource_lock_idempotent_reacquire() {
+        let mut lock = ResourceLock::default();
+        lock.acquire("t1", &["a.rs".to_string()]).expect("1");
+        lock.acquire("t1", &["a.rs".to_string()]).expect("2");
+        assert_eq!(lock.held_by("t1"), vec!["a.rs"]);
+    }
+
+    #[test]
+    fn queue_len_unregistered_agent_returns_zero() {
+        let orch = AgentOrchestrator::new();
+        assert_eq!(orch.queue_len("nonexistent"), 0);
+    }
+
+    #[test]
+    fn get_task_missing_returns_none() {
+        let orch = AgentOrchestrator::new();
+        assert!(orch.get_task("no-such-task").is_none());
+    }
+
+    #[test]
+    fn task_and_agent_count_after_lifecycle() {
+        let mut orch = AgentOrchestrator::new();
+        orch.register_agent(AgentDefinition::new("a", "A"));
+        orch.register_agent(AgentDefinition::new("b", "B"));
+        assert_eq!(orch.agent_count(), 2);
+
+        let id1 = orch.submit("a", make_task("x")).expect("1");
+        let _id2 = orch.submit("a", make_task("y")).expect("2");
+        assert_eq!(orch.task_count(), 2);
+
+        orch.start_next("a");
+        orch.complete(&id1, "ok").expect("complete");
+
+        // task stays in map even after completion
+        assert_eq!(orch.task_count(), 2);
+    }
+
+    #[test]
+    fn cancel_on_completed_task_fails() {
+        let mut orch = AgentOrchestrator::new();
+        orch.register_agent(AgentDefinition::new("a", "A"));
+        let id = orch.submit("a", make_task("x")).expect("1");
+        orch.start_next("a");
+        orch.complete(&id, "ok").expect("complete");
+        assert!(orch.cancel(&id).is_err());
+        assert!(orch.cancel(&id).unwrap_err().contains("not queued"));
+    }
+
+    #[test]
+    fn fail_captures_locked_resources() {
+        let mut orch = AgentOrchestrator::new();
+        orch.register_agent(AgentDefinition::new("a", "A"));
+        let id = orch.submit("a", make_task("x")).expect("submit");
+        orch.start_next("a");
+        orch.acquire_resources(&id, &["f.rs".to_string()]).expect("lock");
+        orch.fail(&id, "boom").expect("fail");
+        let task = orch.get_task(&id).unwrap();
+        assert!(task.locked_resources.contains(&"f.rs".to_string()));
+        assert_eq!(orch.resources.lock_count(), 0);
     }
 }

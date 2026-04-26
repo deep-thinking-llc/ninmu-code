@@ -404,28 +404,6 @@ impl NotificationDispatcher {
 }
 
 // ---------------------------------------------------------------------------
-// Extension trait helpers
-// ---------------------------------------------------------------------------
-
-trait NotificationExt {
-    fn name(&self) -> &str;
-    fn event_label(&self) -> String;
-}
-
-impl NotificationExt for Notification {
-    fn name(&self) -> &str {
-        &self.id
-    }
-
-    fn event_label(&self) -> String {
-        match &self.event {
-            EventType::Custom(s) => s.clone(),
-            _ => format!("{:?}", self.event).to_lowercase(),
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
