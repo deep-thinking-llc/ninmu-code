@@ -1,0 +1,52 @@
+# Claw Agent — Docker Compose configuration
+#
+# Start: docker compose -f deploy/docker-compose.yml up -d
+# Logs:  docker compose -f deploy/docker-compose.yml logs -f
+# Shell: docker compose -f deploy/docker-compose.yml exec claw bash
+
+services:
+  claw:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: claw-agent
+    restart: unless-stopped
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - claw-data:/workspace
+      # Mount the current project into the agent
+      - ${PWD}:/workspace/project
+    working_dir: /workspace/project
+    stdin_open: true
+    tty: true
+    networks:
+      - claw
+
+  # Optional: Sidecar for the JSON-RPC server
+  claw-rpc:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    container_name: claw-rpc
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6688:6688"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    volumes:
+      - claw-data:/workspace
+      - ${PWD}:/workspace/project
+    working_dir: /workspace/project
+    entrypoint: ["claw"]
+    command: ["rpc"]
+    networks:
+      - claw
+
+volumes:
+  claw-data:
+
+networks:
+  claw:
+    driver: bridge
