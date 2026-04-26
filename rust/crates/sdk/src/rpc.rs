@@ -419,11 +419,6 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
-    fn make_server(_input: &str) -> RpcServer<io::StdinLock<'static>, io::StdoutLock<'static>> {
-        // We test with Cursor-based I/O in integration tests.
-        // Unit tests focus on request parsing and response formatting.
-        unreachable!()
-    }
 
     #[test]
     fn parses_session_create_request() {
