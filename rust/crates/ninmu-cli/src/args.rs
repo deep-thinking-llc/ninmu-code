@@ -3,6 +3,7 @@ use std::env;
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 
+use api::{prefix_model_for_provider, provider_kind_from_str};
 use runtime::PermissionMode;
 
 use crate::format::{
@@ -27,6 +28,7 @@ const CLI_OPTION_SUGGESTIONS: &[&str] = &[
     "--version",
     "-V",
     "--model",
+    "--provider",
     "--output-format",
     "--permission-mode",
     "--dangerously-skip-permissions",
@@ -174,9 +176,8 @@ impl CliOutputFormat {
 #[allow(clippy::too_many_lines)]
 pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
     let mut model = DEFAULT_MODEL.to_string();
-    // #148: when user passes --model/--model=, capture the raw input so we
-    // can attribute source: "flag" later. None means no flag was supplied.
     let mut model_flag_raw: Option<String> = None;
+    let mut provider: Option<String> = None;
     let mut output_format = CliOutputFormat::Text;
     let mut permission_mode_override = None;
     let mut wants_help = false;
@@ -228,6 +229,22 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 validate_model_syntax(value)?;
                 model = resolve_model_alias_with_config(value);
                 model_flag_raw = Some(value.to_string()); // #148
+                index += 1;
+            }
+            "--provider" => {
+                let val = args.get(index + 1).ok_or("missing value for --provider")?;
+                if provider_kind_from_str(val).is_none() {
+                    return Err(format!("unknown provider '{val}'"));
+                }
+                provider = Some(val.to_string());
+                index += 2;
+            }
+            flag if flag.starts_with("--provider=") => {
+                let val = &flag[12..];
+                if provider_kind_from_str(val).is_none() {
+                    return Err(format!("unknown provider '{val}'"));
+                }
+                provider = Some(val.to_string());
                 index += 1;
             }
             "--output-format" => {
@@ -381,6 +398,13 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
     }
 
     let allowed_tools = crate::normalize_allowed_tools(&allowed_tool_values)?;
+
+    // Apply --provider flag: prepend provider prefix to model name
+    if let Some(ref provider_name) = provider {
+        if let Some(kind) = provider_kind_from_str(provider_name) {
+            model = prefix_model_for_provider(&model, kind);
+        }
+    }
 
     if rest.is_empty() {
         let permission_mode = permission_mode_override.unwrap_or_else(default_permission_mode);
