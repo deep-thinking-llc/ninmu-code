@@ -9,6 +9,10 @@ pub mod anthropic;
 pub mod models_file;
 pub mod openai_compat;
 
+/// Identifies which AI provider backend to use for a given model.
+///
+/// Used for routing and credential detection. New providers are added here
+/// and wired through [`detect_provider_kind`] and [`metadata_for_model`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProviderKind {
     Anthropic,
@@ -20,14 +24,23 @@ pub enum ProviderKind {
     Vllm,
 }
 
+/// Static metadata for a recognized provider: where to find credentials
+/// and which base URL to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ProviderMetadata {
     pub provider: ProviderKind,
+    /// Environment variable name for the API key (e.g. `"ANTHROPIC_API_KEY"`).
     pub auth_env: &'static str,
+    /// Environment variable name for overriding the base URL.
     pub base_url_env: &'static str,
+    /// Default base URL when the env var is not set.
     pub default_base_url: &'static str,
 }
 
+/// Hardcoded token limits for a model (context window + max output).
+///
+/// Used by [`preflight_message_request`] to reject requests that would
+/// exceed the model's context window before sending them to the provider.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModelTokenLimit {
     pub max_output_tokens: u32,
@@ -396,6 +409,8 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
     }
 }
 
+/// Validate that a request won't exceed the model's context window before
+/// sending it. Returns an error when estimated tokens exceed the limit.
 pub fn preflight_message_request(request: &MessageRequest) -> Result<(), ApiError> {
     let Some(limit) = model_token_limit(&request.model) else {
         return Ok(());
@@ -1372,5 +1387,35 @@ NO_EQUALS_LINE
 
         // max_tokens_for_model should reflect the hardcoded value
         assert_eq!(max_tokens_for_model("deepseek-chat"), 8_192);
+    }
+
+    #[test]
+    fn detect_provider_from_qwen_api_key() {
+        let _lock = env_lock();
+        let _qwen = EnvVarGuard::set("QWEN_API_KEY", Some("sk-qwen-test"));
+        let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", None);
+        let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+        let _xai = EnvVarGuard::set("XAI_API_KEY", None);
+        let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", None);
+
+        assert_eq!(
+            detect_provider_kind("unknown-model"),
+            ProviderKind::Qwen,
+            "QWEN_API_KEY should route unknown models to Qwen"
+        );
+    }
+
+    #[test]
+    fn anthropic_auth_takes_priority_over_deepseek() {
+        let _lock = env_lock();
+        let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", Some("sk-ant-test"));
+        let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", Some("sk-ds-test"));
+        let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+
+        // Anthropic should win over DeepSeek in the auth-sniffer order
+        assert_eq!(
+            detect_provider_kind("unknown-model"),
+            ProviderKind::Anthropic
+        );
     }
 }

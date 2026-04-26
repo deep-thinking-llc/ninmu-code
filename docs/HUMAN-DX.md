@@ -1,6 +1,6 @@
 # Human Experience Design
 
-How humans review, approve, and orchestrate agent work in Claw Code.
+How humans review, approve, and orchestrate agent work in Ninmu Code.
 
 ---
 
@@ -101,7 +101,7 @@ Humans should never need to actively check on agents. The system pushes informat
 ### Email report example
 
 ```
-Subject: [Claw] Phase 2 Complete — "Add authentication" (3/5 phases done)
+Subject: [Ninmu] Phase 2 Complete — "Add authentication" (3/5 phases done)
 
 Phase 2: Add authentication
   Status: COMPLETE ✓
@@ -118,7 +118,7 @@ Changes:
 Tests: 12/12 passed
 Risk: HIGH (auth changes)
 
-Preview: https://claw.preview/abc123 (expires in 24h)
+Preview: https://ninmu.preview/abc123 (expires in 24h)
          ↑ Live deployment — click to verify
 
 [Approve Changes] [View Full Diff] [Request Changes]
@@ -133,11 +133,11 @@ Daily Digest — April 25, 2026
 
 3 agents active across 2 projects
 
-Project: claw-code
+Project: ninmu-code
   Phase 3/5 complete (60%)
   47 files changed, 1,203 insertions, 89 deletions
   134 tests passing, 0 failing
-  Preview: https://claw.preview/abc123
+  Preview: https://ninmu.preview/abc123
 
 Project: api-gateway
   Phase 1/2 complete (50%)
@@ -183,10 +183,10 @@ For teams that want to preview agent work without exposing it publicly:
 
 ```bash
 # Agent triggers:
-claw deploy preview -- tailscale
+ninmu deploy preview -- tailscale
 
 # Output:
-# Preview available at: https://claw-auth-feature.tail1234.ts.net
+# Preview available at: https://ninmu-auth-feature.tail1234.ts.net
 # Expires: 2026-04-26T12:00:00Z (24h)
 # Phase: "Add authentication" (phase 2/5)
 ```
@@ -217,7 +217,7 @@ Deployments are tied to the project's phase structure:
 Project: "Build user management"
   ├── Phase 1: "Database schema"     → [Preview expired]  ✓ Approved
   ├── Phase 2: "API endpoints"       → [Live: 23h left]   ⏳ Pending review
-  │   └── Preview: https://claw.preview/p2-abc123
+  │   └── Preview: https://ninmu.preview/p2-abc123
   ├── Phase 3: "Frontend UI"         → [Not started]
   └── Phase 4: "Integration tests"   → [Not started]
 ```

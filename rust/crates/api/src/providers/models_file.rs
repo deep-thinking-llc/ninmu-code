@@ -16,7 +16,12 @@ use super::{ProviderKind, ProviderMetadata};
 // JSON file schema
 // ---------------------------------------------------------------------------
 
-/// Top-level structure of the models.json file.
+/// Top-level structure of the `models.json` file.
+///
+/// Example:
+/// ```json
+/// { "providers": { "ollama": { ... } } }
+/// ```
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ModelsFile {
@@ -24,7 +29,11 @@ pub struct ModelsFile {
     pub providers: BTreeMap<String, CustomProviderEntry>,
 }
 
-/// A user-defined provider configuration.
+/// A user-defined provider configuration in `models.json`.
+///
+/// The `api` field must be one of the recognized values:
+/// `openai-completions`, `anthropic-messages`, `deepseek`, `ollama`,
+/// `qwen`, `vllm`. Validation happens at load time.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CustomProviderEntry {
@@ -44,7 +53,10 @@ pub struct CustomProviderEntry {
     pub models: Vec<CustomModelEntry>,
 }
 
-/// A user-defined model under a custom provider.
+/// A model entry under a custom provider in `models.json`.
+///
+/// The `id` is the model identifier sent to the API (e.g. `"llama3.1:8b"`).
+/// `contextWindow` and `maxTokens` override the defaults (128K / 16K).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CustomModelEntry {
@@ -83,7 +95,10 @@ const fn default_max_tokens() -> u32 {
 // Resolved (flattened) custom model entry used by the provider router
 // ---------------------------------------------------------------------------
 
-/// A fully resolved custom model entry merged from a provider + model pair.
+/// A fully resolved custom model with provider metadata merged in.
+///
+/// Produced by [`find_custom_model`] — carries the provider's base URL,
+/// API key, and headers alongside the model's id, limits, and capabilities.
 #[derive(Debug, Clone)]
 pub struct ResolvedCustomModel {
     /// The fully-qualified provider label (e.g. "ollama")
@@ -660,5 +675,49 @@ mod tests {
 
             std::fs::remove_dir_all(&dir).expect("cleanup");
         }
+    }
+
+    #[test]
+    fn custom_metadata_maps_new_api_values_to_correct_provider_kind() {
+        let _lock = models_lock();
+        clear_custom_models();
+
+        let dir = std::env::temp_dir().join(format!(
+            "models-metadata-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let models_path = dir.join("models.json");
+
+        // Test that api: "deepseek" → ProviderKind::DeepSeek
+        std::fs::write(
+            &models_path,
+            r#"{"providers":{"ds":{"baseUrl":"https://api.deepseek.com/v1","api":"deepseek","apiKey":"sk-test","models":[{"id":"deepseek-chat"}]}}}"#,
+        )
+        .expect("write");
+        super::load_custom_models(&models_path).expect("load");
+        let meta = super::custom_metadata_for_model("deepseek-chat")
+            .expect("should find deepseek-chat via custom model");
+        assert_eq!(meta.provider, ProviderKind::DeepSeek);
+        assert_eq!(meta.auth_env, "DEEPSEEK_API_KEY");
+
+        clear_custom_models();
+
+        // api: "ollama" → ProviderKind::Ollama
+        std::fs::write(
+            &models_path,
+            r#"{"providers":{"ol":{"baseUrl":"http://localhost:11434/v1","api":"ollama","apiKey":"ollama","models":[{"id":"llama3.1:8b"}]}}}"#,
+        )
+        .expect("write");
+        super::load_custom_models(&models_path).expect("load");
+        let meta =
+            super::custom_metadata_for_model("llama3.1:8b").expect("should find ollama model");
+        assert_eq!(meta.provider, ProviderKind::Ollama);
+
+        std::fs::remove_dir_all(&dir).expect("cleanup");
     }
 }

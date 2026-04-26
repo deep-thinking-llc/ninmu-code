@@ -31,7 +31,7 @@ pub(crate) struct StatusContext {
     /// we capture the parse error here and still populate every field that
     /// doesn't depend on runtime config (workspace, git, sandbox defaults,
     /// discovery counts). Top-level JSON output then reports
-    /// `status: "degraded"` so claws can distinguish "status ran but config
+    /// `status: "degraded"` so agents can distinguish "status ran but config
     /// is broken" from "status ran cleanly".
     pub(crate) config_load_error: Option<String>,
 }
@@ -223,7 +223,7 @@ pub(crate) fn status_json_value(
     context: &StatusContext,
     provenance: Option<&ModelProvenance>,
 ) -> Value {
-    // #143: top-level `status` marker so claws can distinguish
+    // #143: top-level `status` marker so agents can distinguish
     // a clean run from a degraded run (config parse failed but other fields
     // are still populated). `config_load_error` carries the parse-error string
     // when present; it's a string rather than a typed object in Phase 1 and
@@ -292,7 +292,7 @@ pub(crate) fn status_context(
     let loader = ConfigLoader::default_for(&cwd);
     let discovered_config_files = loader.discover().len();
     // #143: degrade gracefully on config parse failure rather than hard-fail.
-    // `claw doctor` already does this; `claw status` now matches that contract
+    // `ninmu doctor` already does this; `ninmu status` now matches that contract
     // so that one malformed `mcpServers.*` entry doesn't take down the whole
     // health surface (workspace, git, model, permission, sandbox can still be
     // reported independently).
@@ -304,7 +304,7 @@ pub(crate) fn status_context(
         ),
         Err(err) => (
             0,
-            // Fall back to defaults for sandbox resolution so claws still see
+            // Fall back to defaults for sandbox resolution so agents still see
             // a populated sandbox section instead of a missing field. Defaults
             // produce the same output as a runtime config with no sandbox
             // overrides, which is the right degraded-mode shape: we cannot
@@ -357,7 +357,7 @@ pub(crate) fn format_status_report(
     let mut blocks: Vec<String> = Vec::new();
     if let Some(err) = context.config_load_error.as_deref() {
         blocks.push(format!(
-            "Config load error\n  Status           fail\n  Summary          runtime config failed to load; reporting partial status\n  Details          {err}\n  Hint             `claw doctor` classifies config parse errors; fix the listed field and rerun"
+            "Config load error\n  Status           fail\n  Summary          runtime config failed to load; reporting partial status\n  Details          {err}\n  Hint             `ninmu doctor` classifies config parse errors; fix the listed field and rerun"
         ));
     }
     // #148: render Model source line after Model, showing where the string

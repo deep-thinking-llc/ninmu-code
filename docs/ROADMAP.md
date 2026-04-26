@@ -1,4 +1,4 @@
-# Claw Code Roadmap
+# Ninmu Code Roadmap
 
 ## Project Goal
 
@@ -9,7 +9,7 @@ Build the most agent-friendly autonomous coding harness: an SDK-first, security-
 1. **Agent-first, human-aware.** The SDK, CLI, and event bus are optimized for programmatic consumers. Humans get a "rip cord" escape hatch to review, approve, and orchestrate — but agents drive by default.
 2. **Security is not optional.** Permission modes, sandboxed execution, audit logging, and credential isolation are built into the core, not added as afterthoughts.
 3. **Review-friendly by default.** Every agent action produces structured, reviewable output. Humans should never need to read raw logs to understand what happened.
-4. **Easy integration.** Any agent framework, orchestrator, or CI system should be able to consume Claw Code with minimal glue code.
+4. **Easy integration.** Any agent framework, orchestrator, or CI system should be able to consume Ninmu Code with minimal glue code.
 5. **One command to start.** A new user (human or agent) should be productive within 60 seconds of cloning the repo.
 
 ---
@@ -31,21 +31,21 @@ Make the SDK consumable by any agent framework with minimal effort.
 
 ### 2.1 RPC Mode
 
-- [ ] `claw --mode rpc` — JSON-RPC over stdin/stdout
-- [ ] Request/response protocol: `session.create`, `session.turn`, `session.tree.fork`, `session.list`, `session.destroy`
-- [ ] Event streaming: `events.subscribe` → newline-delimited JSON stream
-- [ ] Authentication: API key or token passed on init
-- [ ] Graceful shutdown: `session.close` with state flush
+- [x] `ninmu --mode rpc` — JSON-RPC over stdin/stdout
+- [x] Request/response protocol: `session.create`, `session.turn`, `session.tree.fork`, `session.list`, `session.destroy`
+- [x] Event streaming: `events.subscribe` → newline-delimited JSON stream
+- [x] Authentication: API key or token passed on init
+- [x] Graceful shutdown: `session.close` with state flush
 
 ### 2.2 SDK Hardening
 
-- [ ] Pluggable `ApiClient` at `AgentSession` construction (replace `DummyApiClient`)
-- [ ] `steer()` / `followUp()` for mid-turn message injection
-- [ ] `setModel()` / `cycleModel()` for runtime model switching
-- [ ] `compact()` for explicit context compaction
-- [ ] `abort()` for mid-turn cancellation
-- [ ] `dispose()` for clean session teardown
-- [ ] Builder pattern: `AgentSessionBuilder::new().model("...").tools(registry).build()`
+- [x] Pluggable `ApiClient` at `AgentSession` construction (replace `DummyApiClient`)
+- [x] `steer()` / `followUp()` for mid-turn message injection
+- [x] `setModel()` / `cycleModel()` for runtime model switching
+- [x] `compact()` for explicit context compaction
+- [x] `abort()` for mid-turn cancellation
+- [x] `dispose()` for clean session teardown
+- [x] Builder pattern: `AgentSessionBuilder::new().model("...").tools(registry).build()`
 
 ### 2.3 Tool Registration
 
@@ -57,14 +57,14 @@ Make the SDK consumable by any agent framework with minimal effort.
 
 ### 2.4 Framework Adapters
 
-- [ ] LangChain adapter (Python) — thin wrapper over JSON-RPC (`claw --mode rpc`)
+- [ ] LangChain adapter (Python) — thin wrapper over JSON-RPC (`ninmu --mode rpc`)
 - [ ] AutoGen adapter (Python) — thin wrapper over JSON-RPC
 - [ ] CrewAI adapter (Python) — thin wrapper over JSON-RPC
 - [ ] Generic HTTP/WebSocket adapter for any framework
 - [ ] Example: spawn 3 coordinated agents that code, test, and review
 
 > **Note:** Framework adapters are Python libraries that consume the JSON-RPC
-> server built in Phase 2.1. They are not Rust code — they wrap the `claw --mode rpc`
+> server built in Phase 2.1. They are not Rust code — they wrap the `ninmu --mode rpc`
 > protocol for each Python framework's tool/agent conventions. These belong in a
 > separate repository or as standalone pip-installable packages.
 
@@ -173,7 +173,7 @@ Multi-agent coordination for complex workflows.
 
 ### 6.1 Onboarding
 
-- [ ] `claw init` — one command to configure providers and start first session
+- [ ] `ninmu init` — one command to configure providers and start first session
 - [ ] Interactive setup wizard — detect installed tools, suggest providers
 - [ ] Example projects — 5-minute tutorials for SDK, CLI, and RPC usage
 - [ ] Template library — starter templates for common agent patterns
@@ -187,9 +187,9 @@ Multi-agent coordination for complex workflows.
 
 ### 6.3 Packaging
 
-- [ ] `cargo install claw` — publish to crates.io
-- [ ] Homebrew formula — `brew install claw`
-- [ ] Docker image — `docker run claw-code`
+- [ ] `cargo install ninmu` — publish to crates.io
+- [ ] Homebrew formula — `brew install ninmu`
+- [ ] Docker image — `docker run ninmu-code`
 - [ ] Pre-built binaries — GitHub Releases for macOS/Linux/Windows
 
 ---
