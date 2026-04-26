@@ -15,6 +15,7 @@ on:
       - PARITY.md
       - PHILOSOPHY.md
       - ROADMAP.md
+      - deploy/**
       - docs/**
       - rust/**
   pull_request:
@@ -29,6 +30,7 @@ on:
       - PARITY.md
       - PHILOSOPHY.md
       - ROADMAP.md
+      - deploy/**
       - docs/**
       - rust/**
   workflow_dispatch:

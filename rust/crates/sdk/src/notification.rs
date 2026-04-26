@@ -243,8 +243,9 @@ impl NotificationSink for WebhookSink {
             cmd.arg("-H").arg(format!("Authorization: {auth}"));
         }
 
-        let mut child =
-            cmd.spawn().map_err(|e| format!("curl failed to start: {e}"))?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| format!("curl failed to start: {e}"))?;
         if let Some(mut stdin) = child.stdin.take() {
             std::io::Write::write_all(&mut stdin, payload.as_bytes())
                 .and_then(|_| stdin.flush())

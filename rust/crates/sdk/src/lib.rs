@@ -2,6 +2,20 @@
 //!
 //! Programmatic API for embedding Claw's agent capabilities in Rust applications.
 //!
+//! ## Modules
+//!
+//! | Module | Purpose |
+//! |--------|---------|
+//! | [`AgentContext`] | Thread-safe shared context between agents |
+//! | [`AgentSession`] | Run a conversational agent turn-by-turn |
+//! | [`AgentOrchestrator`] | Multi-agent coordination with task queues and resource locking |
+//! | [`NotificationDispatcher`] | Route events to webhooks, files, or console |
+//! | [`SecretScrubber`] | Redact API keys and secrets from logs |
+//! | [`AuditLog`] | Append-only structured audit trail |
+//! | [`ReviewManager`] | Risk-classify changes and enforce approval gates |
+//! | [`SessionTreeLog`] | Branching session history with JSONL persistence |
+//! | [`SetupReport`] | Detect providers, tools, and onboarding state |
+//!
 //! ## Quick start
 //!
 //! ```rust,no_run
@@ -31,9 +45,9 @@ mod notification;
 mod orchestrator;
 mod resource_loader;
 mod review;
-mod security;
 #[cfg(feature = "rpc")]
 mod rpc;
+mod security;
 mod session;
 mod session_manager;
 mod session_tree;
@@ -54,14 +68,12 @@ pub use notification::{
 pub use orchestrator::{
     AgentDefinition, AgentOrchestrator, OrchestratedTask, ResourceLock, TaskState,
 };
-pub use security::{
-    AuditEntry, AuditEvent, AuditLog, SecretMatch, SecretScrubber, SecurityConfig,
-};
 pub use resource_loader::{DefaultResourceLoader, ResourceLoader};
 pub use review::{
     ChangeRecord, Decision, FileChange, FileChangeType, ReviewDecision, ReviewGate, ReviewManager,
     RiskClassifier, RiskLevel,
 };
+pub use security::{AuditEntry, AuditEvent, AuditLog, SecretMatch, SecretScrubber, SecurityConfig};
 pub use session::{AgentSession, AgentSessionBuilder, BoxedApiClient, DummyApiClient};
 pub use session_manager::{SessionManager, SessionManagerConfig};
 pub use session_tree::{SessionTree, SessionTreeNode};

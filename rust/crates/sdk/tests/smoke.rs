@@ -2,8 +2,8 @@
 //!
 //! Verifies that the public API compiles and basic session construction works.
 
-use sdk::{AgentSession, ToolRegistry};
 use runtime::PermissionMode;
+use sdk::{AgentSession, ToolRegistry};
 
 #[test]
 #[ignore = "requires a working provider in the environment"]

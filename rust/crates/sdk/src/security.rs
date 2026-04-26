@@ -79,7 +79,10 @@ impl SecretScrubber {
 
         for (prefix, name, min_len) in Self::known_prefixes() {
             let mut byte_start = 0usize;
-            while let Some(pos) = output.as_bytes()[byte_start..].windows(prefix.len()).position(|w| w == prefix.as_bytes()) {
+            while let Some(pos) = output.as_bytes()[byte_start..]
+                .windows(prefix.len())
+                .position(|w| w == prefix.as_bytes())
+            {
                 let match_byte_start = byte_start + pos;
                 let prefix_byte_len = prefix.len();
 
@@ -88,7 +91,12 @@ impl SecretScrubber {
                 let mut secret_char_len = prefix.chars().count();
                 let mut secret_byte_len = prefix_byte_len;
                 for ch in rest.chars() {
-                    if ch.is_ascii_whitespace() || ch == '"' || ch == '\'' || ch == '\n' || ch == '\r' {
+                    if ch.is_ascii_whitespace()
+                        || ch == '"'
+                        || ch == '\''
+                        || ch == '\n'
+                        || ch == '\r'
+                    {
                         break;
                     }
                     secret_char_len += 1;
@@ -131,13 +139,22 @@ impl SecretScrubber {
     /// Scrub environment variables known to hold secrets.
     #[must_use]
     pub fn scrub_env(input: &[(String, String)]) -> Vec<(String, String)> {
-        let secret_suffixes: HashSet<&str> =
-            HashSet::from_iter(["_KEY", "_TOKEN", "_SECRET", "_PASSWORD", "_API_KEY", "_AUTH"]);
+        let secret_suffixes: HashSet<&str> = HashSet::from_iter([
+            "_KEY",
+            "_TOKEN",
+            "_SECRET",
+            "_PASSWORD",
+            "_API_KEY",
+            "_AUTH",
+        ]);
         input
             .iter()
             .cloned()
             .map(|(k, v)| {
-                if secret_suffixes.iter().any(|s| k.to_ascii_uppercase().ends_with(s)) {
+                if secret_suffixes
+                    .iter()
+                    .any(|s| k.to_ascii_uppercase().ends_with(s))
+                {
                     if v.len() <= 6 {
                         (k, "[REDACTED]".to_string())
                     } else {
@@ -200,11 +217,7 @@ pub struct AuditEntry {
 
 impl AuditEntry {
     /// Create a new audit entry with the current timestamp.
-    pub fn new(
-        event: AuditEvent,
-        summary: impl Into<String>,
-        actor: impl Into<String>,
-    ) -> Self {
+    pub fn new(event: AuditEvent, summary: impl Into<String>, actor: impl Into<String>) -> Self {
         Self {
             timestamp_ms: SystemTime::now()
                 .duration_since(UNIX_EPOCH)
@@ -266,8 +279,7 @@ impl AuditLog {
         };
         if let Some(p) = &log.path {
             if p.is_file() {
-                let raw =
-                    fs::read_to_string(p).map_err(|e| format!("read audit log: {e}"))?;
+                let raw = fs::read_to_string(p).map_err(|e| format!("read audit log: {e}"))?;
                 for line in raw.lines() {
                     if line.trim().is_empty() {
                         continue;
@@ -426,10 +438,7 @@ mod tests {
                 "ANTHROPIC_API_KEY".to_string(),
                 "sk-ant-api03-secret".to_string(),
             ),
-            (
-                "OPENAI_API_KEY".to_string(),
-                "sk-openai-secret".to_string(),
-            ),
+            ("OPENAI_API_KEY".to_string(), "sk-openai-secret".to_string()),
             ("USER".to_string(), "alice".to_string()),
         ];
         let scrubbed = SecretScrubber::scrub_env(&env);
@@ -460,13 +469,9 @@ mod tests {
 
     #[test]
     fn audit_log_serde_round_trip() {
-        let entry = AuditEntry::new(
-            AuditEvent::PermissionChanged,
-            "mode set to ask",
-            "user",
-        )
-        .failed()
-        .with_details(serde_json::json!({"old": "danger", "new": "ask"}));
+        let entry = AuditEntry::new(AuditEvent::PermissionChanged, "mode set to ask", "user")
+            .failed()
+            .with_details(serde_json::json!({"old": "danger", "new": "ask"}));
         let json = serde_json::to_string(&entry).expect("serialize");
         let parsed: AuditEntry = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(parsed.event, entry.event);
@@ -480,8 +485,7 @@ mod tests {
 
     #[test]
     fn audit_log_file_persistence() {
-        let tmp =
-            std::env::temp_dir().join(format!("audit-{}.jsonl", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("audit-{}.jsonl", std::process::id()));
         {
             let mut log = AuditLog::file(&tmp).expect("file log");
             log.append(AuditEntry::new(
@@ -534,12 +538,9 @@ mod tests {
             "sandbox active",
             "system",
         ));
-        log.append(AuditEntry::new(
-            AuditEvent::SandboxFailed,
-            "docker not found",
-            "system",
-        )
-        .failed());
+        log.append(
+            AuditEntry::new(AuditEvent::SandboxFailed, "docker not found", "system").failed(),
+        );
         let json = log.export_json(1);
         assert!(json.contains("docker not found"));
     }
