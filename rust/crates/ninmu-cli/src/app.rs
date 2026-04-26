@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fs;
 use std::io::{self, IsTerminal, Read, Write};
@@ -59,6 +59,22 @@ use crate::{
     AllowedToolSet, RuntimePluginStateBuildOutput, DEFAULT_DATE,
     INTERNAL_PROGRESS_HEARTBEAT_INTERVAL, POST_TOOL_STALL_TIMEOUT,
 };
+
+/// Print content using the internal pager if it exceeds terminal height.
+/// Falls back to plain `println!` if paging is not needed or terminal is not interactive.
+fn print_with_pager(content: &str) -> std::io::Result<bool> {
+    let height = crate::tui::terminal::TerminalSize::new().height() as usize;
+    let page_size = height.saturating_sub(2);
+    let total_lines = content.lines().count();
+
+    if total_lines <= page_size || !std::io::stdout().is_terminal() {
+        println!("{content}");
+        return Ok(false);
+    }
+
+    let pager = crate::tui::pager::InternalPager::new();
+    pager.run(content)
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // LiveCli
@@ -586,22 +602,20 @@ impl LiveCli {
     fn print_status(&self) {
         let cumulative = self.runtime.usage().cumulative_usage();
         let latest = self.runtime.usage().current_turn_usage();
-        println!(
-            "{}",
-            format_status_report(
-                &self.model,
-                StatusUsage {
-                    message_count: self.runtime.session().messages.len(),
-                    turns: self.runtime.usage().turns(),
-                    latest,
-                    cumulative,
-                    estimated_tokens: self.runtime.estimated_tokens(),
-                },
-                self.permission_mode.as_str(),
-                &status_context(Some(&self.session.path)).expect("status context should load"),
-                None,
-            )
+        let report = format_status_report(
+            &self.model,
+            StatusUsage {
+                message_count: self.runtime.session().messages.len(),
+                turns: self.runtime.usage().turns(),
+                latest,
+                cumulative,
+                estimated_tokens: self.runtime.estimated_tokens(),
+            },
+            self.permission_mode.as_str(),
+            &status_context(Some(&self.session.path)).expect("status context should load"),
+            None,
         );
+        let _ = print_with_pager(&report);
     }
 
     pub(crate) fn record_prompt_history(&mut self, prompt: &str) {
@@ -841,12 +855,14 @@ impl LiveCli {
     }
 
     fn print_config(section: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-        println!("{}", render_config_report(section)?);
+        let report = render_config_report(section)?;
+        let _ = print_with_pager(&report);
         Ok(())
     }
 
     fn print_memory() -> Result<(), Box<dyn std::error::Error>> {
-        println!("{}", render_memory_report()?);
+        let report = render_memory_report()?;
+        let _ = print_with_pager(&report);
         Ok(())
     }
 
@@ -925,7 +941,8 @@ impl LiveCli {
     }
 
     fn print_diff() -> Result<(), Box<dyn std::error::Error>> {
-        println!("{}", render_diff_report()?);
+        let report = render_diff_report()?;
+        let _ = print_with_pager(&report);
         Ok(())
     }
 
@@ -1796,6 +1813,7 @@ pub(crate) fn build_runtime_with_plugin_state(
             allowed_tools.clone(),
             tool_registry.clone(),
             progress_reporter,
+            feature_config.provider_defaults().clone(),
         )?,
         CliToolExecutor::new(
             allowed_tools.clone(),
@@ -2026,6 +2044,8 @@ pub(crate) struct AnthropicRuntimeClient {
     pub(crate) tool_registry: GlobalToolRegistry,
     pub(crate) progress_reporter: Option<InternalPromptProgressReporter>,
     pub(crate) reasoning_effort: Option<String>,
+    pub(crate) provider_defaults:
+        std::collections::BTreeMap<String, runtime::ProviderDefaultConfig>,
 }
 
 impl AnthropicRuntimeClient {
@@ -2037,6 +2057,7 @@ impl AnthropicRuntimeClient {
         allowed_tools: Option<AllowedToolSet>,
         tool_registry: GlobalToolRegistry,
         progress_reporter: Option<InternalPromptProgressReporter>,
+        provider_defaults: std::collections::BTreeMap<String, runtime::ProviderDefaultConfig>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let resolved_model = api::resolve_model_alias(&model);
         let client = match detect_provider_kind(&resolved_model) {
@@ -2070,6 +2091,7 @@ impl AnthropicRuntimeClient {
             tool_registry,
             progress_reporter,
             reasoning_effort: None,
+            provider_defaults,
         })
     }
 
@@ -2093,9 +2115,24 @@ impl ApiClient for AnthropicRuntimeClient {
             progress_reporter.mark_model_phase();
         }
         let is_post_tool = request_ends_with_tool_result(&request);
+
+        // Apply per-provider defaults from runtime config
+        let mut max_tokens_override = None;
+        let mut temperature_override = None;
+        let mut top_p_override = None;
+        let mut reasoning_effort_override = self.reasoning_effort.clone();
+        runtime::apply_provider_defaults_from_map(
+            &mut max_tokens_override,
+            &mut temperature_override,
+            &mut top_p_override,
+            &mut reasoning_effort_override,
+            &self.model,
+            &self.provider_defaults,
+        );
+
         let message_request = MessageRequest {
             model: self.model.clone(),
-            max_tokens: max_tokens_for_model(&self.model),
+            max_tokens: max_tokens_override.unwrap_or_else(|| max_tokens_for_model(&self.model)),
             messages: convert_messages(&request.messages),
             system: (!request.system_prompt.is_empty()).then(|| request.system_prompt.join("\n\n")),
             tools: self
@@ -2103,7 +2140,9 @@ impl ApiClient for AnthropicRuntimeClient {
                 .then(|| filter_tool_specs(&self.tool_registry, self.allowed_tools.as_ref())),
             tool_choice: self.enable_tools.then_some(ToolChoice::Auto),
             stream: true,
-            reasoning_effort: self.reasoning_effort.clone(),
+            temperature: temperature_override,
+            top_p: top_p_override,
+            reasoning_effort: reasoning_effort_override,
             ..Default::default()
         };
 
@@ -2466,7 +2505,9 @@ impl ToolExecutor for CliToolExecutor {
                     timeline.with(|t| t.complete_tool(false, lines > 100, lines));
                 }
                 if self.emit_output {
-                    let markdown = format_tool_result(tool_name, &output, false);
+                    let highlight =
+                        |code: &str, lang: &str| self.renderer.highlight_code(code, lang);
+                    let markdown = format_tool_result(tool_name, &output, false, Some(&highlight));
                     self.renderer
                         .stream_markdown(&markdown, &mut io::stdout())
                         .map_err(|error| ToolError::new(error.to_string()))?;
@@ -2478,7 +2519,10 @@ impl ToolExecutor for CliToolExecutor {
                     timeline.with(|t| t.complete_tool(true, false, 0));
                 }
                 if self.emit_output {
-                    let markdown = format_tool_result(tool_name, &error.to_string(), true);
+                    let highlight =
+                        |code: &str, lang: &str| self.renderer.highlight_code(code, lang);
+                    let markdown =
+                        format_tool_result(tool_name, &error.to_string(), true, Some(&highlight));
                     self.renderer
                         .stream_markdown(&markdown, &mut io::stdout())
                         .map_err(|stream_error| ToolError::new(stream_error.to_string()))?;
@@ -2584,8 +2628,17 @@ pub(crate) fn run_repl(
     });
     let mut cli = LiveCli::new(resolved_model, true, allowed_tools, permission_mode, banner)?;
     cli.set_reasoning_effort(reasoning_effort);
-    let mut editor =
-        input::LineEditor::new("> ", cli.repl_completion_candidates().unwrap_or_default());
+    let mut editor = input::LineEditor::new(
+        "> ",
+        cli.repl_completion_candidates().unwrap_or_default(),
+        input::CompletionProvider {
+            model_names: vec![cli.model.clone()],
+            session_ids: match list_managed_sessions() {
+                Ok(sessions) => sessions.into_iter().map(|s| s.id).collect(),
+                Err(_) => Vec::new(),
+            },
+        },
+    );
     println!("{}", cli.startup_banner());
     println!("{}", format_connected_line(&cli.model));
 

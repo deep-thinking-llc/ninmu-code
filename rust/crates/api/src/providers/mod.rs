@@ -530,6 +530,24 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
             max_output_tokens: 16_384,
             context_window_tokens: 256_000,
         }),
+        // Mistral models
+        // Source: https://docs.mistral.ai/getting-started/models/models_overview/
+        "mistral-large-latest" => Some(ModelTokenLimit {
+            max_output_tokens: 8_192,
+            context_window_tokens: 128_000,
+        }),
+        // Google Gemini models
+        // Source: https://ai.google.dev/gemini-api/docs/models
+        "gemini-2.5-pro" => Some(ModelTokenLimit {
+            max_output_tokens: 65_536,
+            context_window_tokens: 1_048_576,
+        }),
+        // Cohere models
+        // Source: https://docs.cohere.com/docs/models
+        "command-r-plus" => Some(ModelTokenLimit {
+            max_output_tokens: 4_096,
+            context_window_tokens: 128_000,
+        }),
         _ => None,
     }
 }
@@ -1582,5 +1600,44 @@ NO_EQUALS_LINE
         // deepseek-chat already has a prefix, so it should not be double-prefixed
         let result = prefix_model_for_provider("deepseek-chat", ProviderKind::DeepSeek);
         assert_eq!(result, "deepseek-chat");
+    }
+
+    #[test]
+    fn returns_context_window_metadata_for_mistral_models() {
+        let limit = model_token_limit("mistral-large-latest")
+            .expect("mistral-large-latest should have token limit metadata");
+        assert_eq!(limit.max_output_tokens, 8_192);
+        assert_eq!(limit.context_window_tokens, 128_000);
+    }
+
+    #[test]
+    fn mistral_alias_resolves_to_mistral_large_latest() {
+        assert_eq!(resolve_model_alias("mistral-large"), "mistral-large-latest");
+    }
+
+    #[test]
+    fn returns_context_window_metadata_for_gemini_models() {
+        let limit = model_token_limit("gemini-2.5-pro")
+            .expect("gemini-2.5-pro should have token limit metadata");
+        assert_eq!(limit.max_output_tokens, 65_536);
+        assert_eq!(limit.context_window_tokens, 1_048_576);
+    }
+
+    #[test]
+    fn gemini_alias_resolves_to_gemini_2_5_pro() {
+        assert_eq!(resolve_model_alias("gemini"), "gemini-2.5-pro");
+    }
+
+    #[test]
+    fn returns_context_window_metadata_for_cohere_models() {
+        let limit = model_token_limit("command-r-plus")
+            .expect("command-r-plus should have token limit metadata");
+        assert_eq!(limit.max_output_tokens, 4_096);
+        assert_eq!(limit.context_window_tokens, 128_000);
+    }
+
+    #[test]
+    fn cohere_alias_resolves_to_command_r_plus() {
+        assert_eq!(resolve_model_alias("command-r"), "command-r-plus");
     }
 }

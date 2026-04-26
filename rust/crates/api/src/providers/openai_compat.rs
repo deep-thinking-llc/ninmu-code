@@ -1051,6 +1051,9 @@ pub fn is_reasoning_model(model: &str) -> bool {
         || canonical.starts_with("qwen-qwq")
         || canonical.starts_with("qwq")
         || canonical.contains("thinking")
+        // Google Gemini thinking models (reject temperature/top_p when thinking is active)
+        || canonical.starts_with("gemini-2.5-pro")
+        || canonical.starts_with("gemini-2.5-flash")
 }
 
 /// Strip routing prefix (e.g., "openai/gpt-4" → "gpt-4") for the wire.
@@ -2000,6 +2003,14 @@ mod tests {
         assert!(!is_reasoning_model("deepseek-chat"));
         // With provider prefix
         assert!(is_reasoning_model("deepseek/deepseek-reasoner"));
+    }
+
+    #[test]
+    fn gemini_thinking_models_are_reasoning_models() {
+        assert!(is_reasoning_model("gemini-2.5-pro"));
+        assert!(is_reasoning_model("gemini-2.5-flash"));
+        assert!(is_reasoning_model("gemini/gemini-2.5-pro"));
+        assert!(is_reasoning_model("gemini/gemini-2.5-flash"));
     }
 
     #[test]
