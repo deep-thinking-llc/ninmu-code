@@ -188,9 +188,12 @@ Multi-agent coordination for complex workflows.
 ### 6.3 Packaging
 
 - [ ] `cargo install ninmu` — publish to crates.io
-- [ ] Homebrew formula — `brew install ninmu`
+- [ ] Homebrew formula — `brew install ninmu` (tap + Formula)
+- [ ] bun/npm package — install via `bun add -g ninmu` or `npm i -g ninmu`
+- [ ] Pre-built binary installer — `curl -sSf https://... | sh` that downloads a pre-built binary (no Rust toolchain required)
+- [ ] Windows build in CI — add `windows-latest` to the release matrix
 - [ ] Docker image — `docker run ninmu-code`
-- [ ] Pre-built binaries — GitHub Releases for macOS/Linux/Windows
+- [ ] GitHub Releases — pre-built binaries for macOS/Linux/Windows
 
 ---
 
