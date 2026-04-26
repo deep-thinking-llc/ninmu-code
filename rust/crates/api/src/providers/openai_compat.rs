@@ -32,6 +32,9 @@ const DEFAULT_MAX_RETRIES: u32 = 8;
 pub struct OpenAiCompatConfig {
     pub provider_name: &'static str,
     pub api_key_env: &'static str,
+    /// Optional secondary env var for API key (checked if primary is absent).
+    /// Used by Qwen external to fall back to `OPENAI_API_KEY`.
+    pub api_key_fallback_env: &'static str,
     pub base_url_env: &'static str,
     /// Optional secondary env var for base URL (checked if primary is absent).
     /// Used by Qwen external to fall back to `OPENAI_BASE_URL`.
@@ -67,6 +70,7 @@ impl OpenAiCompatConfig {
         Self {
             provider_name: "xAI",
             api_key_env: "XAI_API_KEY",
+            api_key_fallback_env: "",
             base_url_env: "XAI_BASE_URL",
             base_url_fallback_env: "",
             default_base_url: DEFAULT_XAI_BASE_URL,
@@ -79,6 +83,7 @@ impl OpenAiCompatConfig {
         Self {
             provider_name: "OpenAI",
             api_key_env: "OPENAI_API_KEY",
+            api_key_fallback_env: "",
             base_url_env: "OPENAI_BASE_URL",
             base_url_fallback_env: "",
             default_base_url: DEFAULT_OPENAI_BASE_URL,
@@ -95,6 +100,7 @@ impl OpenAiCompatConfig {
         Self {
             provider_name: "DashScope",
             api_key_env: "DASHSCOPE_API_KEY",
+            api_key_fallback_env: "",
             base_url_env: "DASHSCOPE_BASE_URL",
             base_url_fallback_env: "",
             default_base_url: DEFAULT_DASHSCOPE_BASE_URL,
@@ -109,6 +115,7 @@ impl OpenAiCompatConfig {
         Self {
             provider_name: "DeepSeek",
             api_key_env: "DEEPSEEK_API_KEY",
+            api_key_fallback_env: "",
             base_url_env: "DEEPSEEK_BASE_URL",
             base_url_fallback_env: "",
             default_base_url: DEFAULT_DEEPSEEK_BASE_URL,
@@ -122,6 +129,7 @@ impl OpenAiCompatConfig {
         Self {
             provider_name: "Ollama",
             api_key_env: "",
+            api_key_fallback_env: "",
             base_url_env: "OLLAMA_BASE_URL",
             base_url_fallback_env: "",
             default_base_url: DEFAULT_OLLAMA_BASE_URL,
@@ -131,12 +139,14 @@ impl OpenAiCompatConfig {
 
     /// `Qwen` models served outside Alibaba `DashScope` (local, third-party API, etc.).
     /// Configure `QWEN_API_KEY` and/or `QWEN_BASE_URL`. Falls back to
-    /// `OPENAI_BASE_URL` if `QWEN_BASE_URL` is not set (e.g. OpenRouter).
+    /// `OPENAI_API_KEY` and `OPENAI_BASE_URL` if the Qwen-specific vars
+    /// are not set (e.g. OpenRouter).
     #[must_use]
     pub const fn qwen() -> Self {
         Self {
             provider_name: "Qwen",
             api_key_env: "QWEN_API_KEY",
+            api_key_fallback_env: "OPENAI_API_KEY",
             base_url_env: "QWEN_BASE_URL",
             base_url_fallback_env: "OPENAI_BASE_URL",
             default_base_url: "",
@@ -150,6 +160,7 @@ impl OpenAiCompatConfig {
         Self {
             provider_name: "vLLM",
             api_key_env: "",
+            api_key_fallback_env: "",
             base_url_env: "VLLM_BASE_URL",
             base_url_fallback_env: "",
             default_base_url: DEFAULT_VLLM_BASE_URL,
@@ -211,11 +222,25 @@ impl OpenAiCompatClient {
         if config.api_key_env.is_empty() {
             return Ok(Self::new(String::new(), config));
         }
-        let Some(api_key) = read_env_non_empty(config.api_key_env)? else {
-            return Err(ApiError::missing_credentials(
-                config.provider_name,
-                config.credential_env_vars(),
-            ));
+        let api_key = match read_env_non_empty(config.api_key_env)? {
+            Some(key) => key,
+            None if !config.api_key_fallback_env.is_empty() => {
+                match read_env_non_empty(config.api_key_fallback_env)? {
+                    Some(key) => key,
+                    None => {
+                        return Err(ApiError::missing_credentials(
+                            config.provider_name,
+                            config.credential_env_vars(),
+                        ));
+                    }
+                }
+            }
+            None => {
+                return Err(ApiError::missing_credentials(
+                    config.provider_name,
+                    config.credential_env_vars(),
+                ));
+            }
         };
         Ok(Self::new(api_key, config))
     }
@@ -2462,5 +2487,40 @@ mod tests {
 
         std::env::remove_var("OPENAI_BASE_URL");
         std::env::remove_var("QWEN_BASE_URL");
+    }
+
+    #[test]
+    fn qwen_api_key_falls_back_to_openai_api_key() {
+        let _lock = env_lock();
+        std::env::set_var("OPENAI_API_KEY", "sk-openai-test");
+        std::env::remove_var("QWEN_API_KEY");
+
+        let result = OpenAiCompatClient::from_env(OpenAiCompatConfig::qwen());
+        assert!(result.is_ok(), "should fall back to OPENAI_API_KEY");
+
+        std::env::remove_var("OPENAI_API_KEY");
+    }
+
+    #[test]
+    fn qwen_api_key_prefers_qwen_over_openai_fallback() {
+        let _lock = env_lock();
+        std::env::set_var("OPENAI_API_KEY", "sk-openai-test");
+        std::env::set_var("QWEN_API_KEY", "sk-qwen-test");
+
+        let result = OpenAiCompatClient::from_env(OpenAiCompatConfig::qwen());
+        assert!(result.is_ok(), "should prefer QWEN_API_KEY");
+
+        std::env::remove_var("OPENAI_API_KEY");
+        std::env::remove_var("QWEN_API_KEY");
+    }
+
+    #[test]
+    fn qwen_missing_both_keys_reports_error() {
+        let _lock = env_lock();
+        std::env::remove_var("QWEN_API_KEY");
+        std::env::remove_var("OPENAI_API_KEY");
+
+        let result = OpenAiCompatClient::from_env(OpenAiCompatConfig::qwen());
+        assert!(result.is_err(), "should fail when both keys are missing");
     }
 }
