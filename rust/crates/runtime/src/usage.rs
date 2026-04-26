@@ -77,6 +77,15 @@ pub fn pricing_for_model(model: &str) -> Option<ModelPricing> {
     if normalized.contains("sonnet") {
         return Some(ModelPricing::default_sonnet_tier());
     }
+    // Ollama / vLLM — local inference, always free
+    if normalized.starts_with("ollama/") || normalized.starts_with("vllm/") {
+        return Some(ModelPricing {
+            input_cost_per_million: 0.0,
+            output_cost_per_million: 0.0,
+            cache_creation_cost_per_million: 0.0,
+            cache_read_cost_per_million: 0.0,
+        });
+    }
     // DeepSeek models
     // Source: https://api-docs.deepseek.com/quick_start/pricing
     if normalized.contains("deepseek-reasoner") || normalized.contains("deepseek-r1") {
@@ -322,6 +331,27 @@ mod tests {
         // deepseek-r1 alias should resolve to reasoner pricing
         let r1_alias = pricing_for_model("deepseek-r1").expect("deepseek-r1 alias pricing");
         assert_eq!(r1_alias.output_cost_per_million, 2.19);
+    }
+
+    #[test]
+    fn local_providers_have_zero_cost_pricing() {
+        let usage = TokenUsage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        };
+
+        let ollama = pricing_for_model("ollama/llama3.1:8b").expect("ollama pricing");
+        assert_eq!(ollama.input_cost_per_million, 0.0);
+        assert_eq!(ollama.output_cost_per_million, 0.0);
+        let ollama_cost = usage.estimate_cost_usd_with_pricing(ollama);
+        assert_eq!(format_usd(ollama_cost.total_cost_usd()), "$0.0000");
+
+        let vllm = pricing_for_model("vllm/meta-llama/Llama-3.1-8B").expect("vllm pricing");
+        assert_eq!(vllm.input_cost_per_million, 0.0);
+        let vllm_cost = usage.estimate_cost_usd_with_pricing(vllm);
+        assert_eq!(format_usd(vllm_cost.total_cost_usd()), "$0.0000");
     }
 
     #[test]

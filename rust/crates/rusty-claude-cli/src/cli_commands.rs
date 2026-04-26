@@ -246,7 +246,7 @@ pub(crate) fn render_doctor_report() -> Result<DoctorReport, Box<dyn std::error:
     };
     Ok(DoctorReport {
         checks: vec![
-            check_auth_health(),
+            check_providers_health(),
             check_config_health(&config_loader, config.as_ref()),
             check_install_source_health(),
             check_workspace_health(&context),
@@ -1849,6 +1849,188 @@ pub(crate) fn write_mcp_server_fixture(script_path: &Path) {
 // ---------------------------------------------------------------------------
 
 #[allow(clippy::too_many_lines)]
+fn check_providers_health() -> DiagnosticCheck {
+    struct ProviderStatus {
+        label: &'static str,
+        env_var: &'static str,
+        is_local: bool,
+        configured: bool,
+    }
+
+    let providers: &[ProviderStatus] = &[
+        ProviderStatus {
+            label: "Anthropic",
+            env_var: "ANTHROPIC_API_KEY",
+            is_local: false,
+            configured: env_present("ANTHROPIC_API_KEY") || env_present("ANTHROPIC_AUTH_TOKEN"),
+        },
+        ProviderStatus {
+            label: "OpenAI",
+            env_var: "OPENAI_API_KEY",
+            is_local: false,
+            configured: env_present("OPENAI_API_KEY"),
+        },
+        ProviderStatus {
+            label: "xAI (Grok)",
+            env_var: "XAI_API_KEY",
+            is_local: false,
+            configured: env_present("XAI_API_KEY"),
+        },
+        ProviderStatus {
+            label: "DeepSeek",
+            env_var: "DEEPSEEK_API_KEY",
+            is_local: false,
+            configured: env_present("DEEPSEEK_API_KEY"),
+        },
+        ProviderStatus {
+            label: "DashScope",
+            env_var: "DASHSCOPE_API_KEY",
+            is_local: false,
+            configured: env_present("DASHSCOPE_API_KEY"),
+        },
+        ProviderStatus {
+            label: "Ollama",
+            env_var: "OLLAMA_BASE_URL",
+            is_local: true,
+            configured: env_present("OLLAMA_BASE_URL"),
+        },
+        ProviderStatus {
+            label: "vLLM",
+            env_var: "VLLM_BASE_URL",
+            is_local: true,
+            configured: env_present("VLLM_BASE_URL"),
+        },
+        ProviderStatus {
+            label: "Qwen (external)",
+            env_var: "QWEN_API_KEY",
+            is_local: false,
+            configured: env_present("QWEN_API_KEY") || env_present("OPENAI_API_KEY"),
+        },
+    ];
+
+    let configured_count = providers.iter().filter(|p| p.configured).count();
+    let total = providers.len();
+
+    let level = if configured_count > 0 {
+        DiagnosticLevel::Ok
+    } else {
+        DiagnosticLevel::Warn
+    };
+
+    let summary = if configured_count > 0 {
+        format!("{configured_count} of {total} providers configured")
+    } else {
+        "no providers configured".to_string()
+    };
+
+    let mut details: Vec<String> = providers
+        .iter()
+        .map(|p| {
+            let status = if p.configured {
+                "configured"
+            } else {
+                "not configured"
+            };
+            let note = if p.is_local && !p.configured {
+                " (default: localhost)".to_string()
+            } else {
+                String::new()
+            };
+            format!(
+                "  {:<18} {:<14} {env}{note}",
+                p.label,
+                status,
+                env = p.env_var
+            )
+        })
+        .collect();
+
+    if configured_count == 0 {
+        details.push(String::new());
+        details.push(
+            "Set one of the above env vars or create ~/.claw/models.json for custom providers"
+                .to_string(),
+        );
+    }
+
+    // Probe local providers for available models
+    let ollama_url = env::var("OLLAMA_BASE_URL")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| "http://localhost:11434".to_string());
+    let ollama_models = discover_ollama_models(&ollama_url);
+    if let Some(ref models) = ollama_models {
+        if !models.is_empty() {
+            details.push(format!(
+                "\n  Ollama models ({})    {}",
+                models.len(),
+                models.join(", ")
+            ));
+        }
+    }
+
+    let vllm_url = env::var("VLLM_BASE_URL")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| "http://localhost:8000".to_string());
+    let vllm_models = discover_vllm_models(&vllm_url);
+    if let Some(ref models) = vllm_models {
+        if !models.is_empty() {
+            details.push(format!(
+                "\n  vLLM models ({})      {}",
+                models.len(),
+                models.join(", ")
+            ));
+        }
+    }
+
+    DiagnosticCheck::new("Providers", level, &summary).with_details(details)
+}
+
+/// Probe Ollama's `/api/tags` endpoint and return model names.
+/// Returns `None` if the server is unreachable (no error displayed).
+fn discover_ollama_models(base_url: &str) -> Option<Vec<String>> {
+    let url = format!("{}/api/tags", base_url.trim_end_matches('/'));
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .ok()?;
+    let response = client.get(&url).send().ok()?;
+    let body: serde_json::Value = response.json().ok()?;
+    let models = body["models"]
+        .as_array()?
+        .iter()
+        .filter_map(|m| m["name"].as_str().map(String::from))
+        .take(20) // Cap at 20 to keep report readable
+        .collect::<Vec<_>>();
+    Some(models)
+}
+
+/// Probe vLLM's `/v1/models` endpoint and return model IDs.
+/// Returns `None` if the server is unreachable.
+fn discover_vllm_models(base_url: &str) -> Option<Vec<String>> {
+    let url = format!("{}/v1/models", base_url.trim_end_matches('/'));
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()
+        .ok()?;
+    let response = client.get(&url).send().ok()?;
+    let body: serde_json::Value = response.json().ok()?;
+    let models = body["data"]
+        .as_array()?
+        .iter()
+        .filter_map(|m| m["id"].as_str().map(String::from))
+        .take(20)
+        .collect::<Vec<_>>();
+    Some(models)
+}
+
+fn env_present(name: &str) -> bool {
+    env::var(name)
+        .ok()
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
 fn check_auth_health() -> DiagnosticCheck {
     let api_key_present = env::var("ANTHROPIC_API_KEY")
         .ok()
