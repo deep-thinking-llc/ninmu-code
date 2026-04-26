@@ -340,6 +340,47 @@ pub fn detect_provider_kind(model: &str) -> ProviderKind {
     ProviderKind::Anthropic
 }
 
+/// Map a provider name string to a [`ProviderKind`].
+///
+/// Accepts: `"anthropic"`, `"openai"`, `"xai"`/`"grok"`, `"deepseek"`,
+/// `"ollama"`, `"qwen"`, `"vllm"`, `"dashscope"`. Case-insensitive.
+#[must_use]
+pub fn provider_kind_from_str(name: &str) -> Option<ProviderKind> {
+    match name.to_ascii_lowercase().as_str() {
+        "anthropic" => Some(ProviderKind::Anthropic),
+        "openai" => Some(ProviderKind::OpenAi),
+        "xai" | "grok" => Some(ProviderKind::Xai),
+        "deepseek" => Some(ProviderKind::DeepSeek),
+        "ollama" => Some(ProviderKind::Ollama),
+        "qwen" => Some(ProviderKind::Qwen),
+        "vllm" => Some(ProviderKind::Vllm),
+        "dashscope" => Some(ProviderKind::OpenAi),
+        _ => None,
+    }
+}
+
+/// If a model name does not already have a known provider prefix,
+/// prepend one based on the given [`ProviderKind`].
+///
+/// E.g. `prefix_for_provider("chat", ProviderKind::DeepSeek)` → `"deepseek/chat"`.
+#[must_use]
+pub fn prefix_model_for_provider(model: &str, provider: ProviderKind) -> String {
+    let canonical = resolve_model_alias(model);
+    // If the model already has a recognized prefix, don't double-prefix.
+    if metadata_for_model(&canonical).is_some() {
+        return canonical;
+    }
+    match provider {
+        ProviderKind::Anthropic => format!("claude-{canonical}"),
+        ProviderKind::Xai => format!("grok/{canonical}"),
+        ProviderKind::OpenAi => format!("openai/{canonical}"),
+        ProviderKind::DeepSeek => format!("deepseek/{canonical}"),
+        ProviderKind::Ollama => format!("ollama/{canonical}"),
+        ProviderKind::Qwen => format!("qwen/{canonical}"),
+        ProviderKind::Vllm => format!("vllm/{canonical}"),
+    }
+}
+
 #[must_use]
 pub fn max_tokens_for_model(model: &str) -> u32 {
     model_token_limit(model).map_or_else(
@@ -582,8 +623,8 @@ mod tests {
     use super::{
         anthropic_missing_credentials, anthropic_missing_credentials_hint, detect_provider_kind,
         load_dotenv_file, max_tokens_for_model, max_tokens_for_model_with_override,
-        model_token_limit, parse_dotenv, preflight_message_request, resolve_model_alias,
-        ProviderKind,
+        metadata_for_model, model_token_limit, parse_dotenv, prefix_model_for_provider,
+        preflight_message_request, provider_kind_from_str, resolve_model_alias, ProviderKind,
     };
 
     /// Serializes every test in this module that mutates process-wide
@@ -1417,5 +1458,45 @@ NO_EQUALS_LINE
             detect_provider_kind("unknown-model"),
             ProviderKind::Anthropic
         );
+    }
+
+    #[test]
+    fn provider_kind_from_str_parses_all_variants() {
+        assert_eq!(
+            provider_kind_from_str("anthropic"),
+            Some(ProviderKind::Anthropic)
+        );
+        assert_eq!(
+            provider_kind_from_str("deepseek"),
+            Some(ProviderKind::DeepSeek)
+        );
+        assert_eq!(
+            provider_kind_from_str("DEEPSEEK"),
+            Some(ProviderKind::DeepSeek)
+        );
+        assert_eq!(provider_kind_from_str("grok"), Some(ProviderKind::Xai));
+        assert_eq!(provider_kind_from_str("ollama"), Some(ProviderKind::Ollama));
+        assert_eq!(provider_kind_from_str("qwen"), Some(ProviderKind::Qwen));
+        assert_eq!(provider_kind_from_str("vllm"), Some(ProviderKind::Vllm));
+        assert_eq!(provider_kind_from_str("unknown"), None);
+    }
+
+    #[test]
+    fn prefix_model_for_provider_adds_prefix() {
+        assert_eq!(
+            prefix_model_for_provider("chat", ProviderKind::DeepSeek),
+            "deepseek/chat"
+        );
+        assert_eq!(
+            prefix_model_for_provider("llama3.1:8b", ProviderKind::Ollama),
+            "ollama/llama3.1:8b"
+        );
+    }
+
+    #[test]
+    fn prefix_model_does_not_double_prefix() {
+        // deepseek-chat already has a prefix, so it should not be double-prefixed
+        let result = prefix_model_for_provider("deepseek-chat", ProviderKind::DeepSeek);
+        assert_eq!(result, "deepseek-chat");
     }
 }

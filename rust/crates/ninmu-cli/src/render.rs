@@ -50,7 +50,7 @@ pub struct Spinner {
 }
 
 impl Spinner {
-    const FRAMES: [&str; 10] = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+    const FRAMES: [&str; 4] = ["—", "\\", "|", "/"];
 
     #[must_use]
     pub fn new() -> Self {
@@ -463,7 +463,7 @@ impl TerminalRenderer {
         let _ = writeln!(
             output,
             "{}",
-            format!("╭─ {label}")
+            format!("── {label}")
                 .bold()
                 .with(self.color_theme.code_block_border)
         );
@@ -474,7 +474,7 @@ impl TerminalRenderer {
         let _ = write!(
             output,
             "{}",
-            "╰─".bold().with(self.color_theme.code_block_border)
+            "──".bold().with(self.color_theme.code_block_border)
         );
         output.push_str("\n\n");
     }
@@ -944,7 +944,7 @@ mod tests {
             terminal_renderer.markdown_to_ansi("```rust\nfn hi() { println!(\"hi\"); }\n```");
         let plain_text = strip_ansi(&markdown_output);
 
-        assert!(plain_text.contains("╭─ rust"));
+        assert!(plain_text.contains("── rust"));
         assert!(plain_text.contains("fn hi"));
         assert!(markdown_output.contains('\u{1b}'));
         assert!(markdown_output.contains("[48;5;236m"));
@@ -1047,7 +1047,7 @@ mod tests {
             terminal_renderer.markdown_to_ansi("````markdown\n```rust\nfn nested() {}\n```\n````");
         let plain_text = strip_ansi(&markdown_output);
 
-        assert!(plain_text.contains("╭─ markdown"));
+        assert!(plain_text.contains("── markdown"));
         assert!(plain_text.contains("```rust"));
         assert!(plain_text.contains("fn nested()"));
     }

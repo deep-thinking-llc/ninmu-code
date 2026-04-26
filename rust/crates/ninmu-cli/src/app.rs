@@ -161,30 +161,25 @@ impl LiveCli {
             |path| path.display().to_string(),
         );
         format!(
-            "\x1b[38;5;208m\
- ███╗   ██╗██╗███╗   ██╗██╗███████╗\n\
- ████╗  ██║██║████╗  ██║██║██╔════╝\n\
- ██╔██╗ ██║██║██╔██╗ ██║██║███████╗\n\
- ██║╚██╗██║██║██║╚██╗██║██║╚════██║\n\
- ██║ ╚████║██║██║ ╚████║██║███████║\n\
- ╚═╝  ╚═══╝╚═╝╚═╝  ╚═══╝╚═╝╚══════╝\x1b[0m 🦞\n\n\
-  {d}Model{r}            {}\n\
-  {d}Permissions{r}      {}\n\
-  {d}Branch{r}           {}\n\
-  {d}Workspace{r}        {}\n\
-  {d}Directory{r}        {}\n\
-  {d}Session{r}          {}\n\
-  {d}Auto-save{r}        {}\n\n\
-  Type \x1b[1m/help{r} for commands · \x1b[1m/status{r} for live context · {d}/resume latest{r} jumps back to the newest session · \x1b[1m/diff{r} then \x1b[1m/commit{r} to ship · {d}Tab{r} for workflow completions · {d}Shift+Enter{r} for newline",
-            self.model,
-            self.permission_mode.as_str(),
-            git_branch,
-            workspace,
-            cwd,
-            self.session.id,
-            session_path,
-            d = Theme::DIM,
-            r = Theme::RESET,
+            "{accent}ninmu{reset} {muted}ニンムコード{reset}\n\
+             {muted}  model      {reset} {model}\n\
+             {muted}  perm       {reset} {perm}\n\
+             {muted}  branch     {reset} {branch}\n\
+             {muted}  workspace  {reset} {workspace}\n\
+             {muted}  directory  {reset} {cwd}\n\
+             {muted}  session    {reset} {session_id}\n\
+             {muted}  auto-save  {reset} {session_path}\n\n\
+             {muted}/help{reset} · {muted}/diff{reset} {muted}/commit{reset} · {muted}Tab{reset}",
+            accent = Theme::ACCENT,
+            muted = Theme::MUTED,
+            reset = Theme::RESET,
+            model = self.model,
+            perm = self.permission_mode.as_str(),
+            branch = git_branch,
+            workspace = workspace,
+            cwd = cwd,
+            session_id = self.session.id,
+            session_path = session_path,
         )
     }
 
@@ -199,18 +194,19 @@ impl LiveCli {
             .and_then(|context| context.git_branch.as_deref())
             .unwrap_or("unknown");
         format!(
-            "\x1b[38;5;208mNinmu\x1b[0m 🦞  \
-             {d}model{r} {}  \
-             {d}perm{r} {}  \
-             {d}branch{r} {}\n\
-             {d}{}/  \
-             Type \x1b[1m/help\x1b[0m for commands · \x1b[1m/diff\x1b[0m then \x1b[1m/commit\x1b[0m to ship · {d}Tab{r} for completions{r}",
-            self.model,
-            self.permission_mode.as_str(),
-            git_branch,
-            cwd,
-            d = Theme::DIM,
-            r = Theme::RESET,
+            "{accent}ninmu{reset} {muted}ニンムコード{reset}  \
+             {muted}model{reset} {model}  \
+             {muted}perm{reset} {perm}  \
+             {muted}branch{reset} {branch}\n\
+             {muted}{cwd}/{reset}  \
+             {muted}/help{reset} · {muted}/diff{reset} {muted}/commit{reset} · {muted}Tab{reset}",
+            accent = Theme::ACCENT,
+            muted = Theme::MUTED,
+            reset = Theme::RESET,
+            model = self.model,
+            perm = self.permission_mode.as_str(),
+            branch = git_branch,
+            cwd = cwd,
         )
     }
 
@@ -256,11 +252,31 @@ impl LiveCli {
     }
 
     pub(crate) fn run_turn(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
+        // Expand @file references
+        let expansion = crate::file_ref::expand_file_refs(input);
+        if !expansion.resolved.is_empty() {
+            for path in &expansion.resolved {
+                println!("{}-- attached {}{}", Theme::ACCENT, path, Theme::RESET);
+            }
+        }
+        if !expansion.failed.is_empty() {
+            for (path, err) in &expansion.failed {
+                eprintln!(
+                    "{}-- could not read {}: {}{}",
+                    Theme::ERROR,
+                    path,
+                    err,
+                    Theme::RESET
+                );
+            }
+        }
+        let input = expansion.expanded;
+
         let (mut runtime, hook_abort_monitor) = self.prepare_turn_runtime(true)?;
         let mut spinner = Spinner::new();
         let mut stdout = io::stdout();
         spinner.tick(
-            "\u{1f980} Thinking...",
+            "-- thinking",
             TerminalRenderer::new().color_theme(),
             &mut stdout,
         )?;
@@ -271,7 +287,7 @@ impl LiveCli {
             Ok(summary) => {
                 self.replace_runtime(runtime)?;
                 spinner.finish(
-                    "\u{2728} Done",
+                    "-- done",
                     TerminalRenderer::new().color_theme(),
                     &mut stdout,
                 )?;
@@ -288,7 +304,7 @@ impl LiveCli {
             Err(error) => {
                 runtime.shutdown_plugins()?;
                 spinner.fail(
-                    "\u{274c} Request failed",
+                    "-- failed",
                     TerminalRenderer::new().color_theme(),
                     &mut stdout,
                 )?;
@@ -303,11 +319,13 @@ impl LiveCli {
         output_format: CliOutputFormat,
         compact: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let expansion = crate::file_ref::expand_file_refs(input);
+        let input = expansion.expanded;
         match output_format {
-            CliOutputFormat::Json if compact => self.run_prompt_compact_json(input),
-            CliOutputFormat::Text if compact => self.run_prompt_compact(input),
-            CliOutputFormat::Text => self.run_turn(input),
-            CliOutputFormat::Json => self.run_prompt_json(input),
+            CliOutputFormat::Json if compact => self.run_prompt_compact_json(&input),
+            CliOutputFormat::Text if compact => self.run_prompt_compact(&input),
+            CliOutputFormat::Text => self.run_turn(&input),
+            CliOutputFormat::Json => self.run_prompt_json(&input),
         }
     }
 
@@ -2882,7 +2900,7 @@ pub(crate) fn format_internal_prompt_progress_line(
     match event {
         InternalPromptProgressEvent::Started => {
             format!(
-                "\u{1f9ed} {} status \u{00b7} planning started \u{00b7} {status}",
+                "-- {} status · planning started · {status}",
                 snapshot.command_label
             )
         }

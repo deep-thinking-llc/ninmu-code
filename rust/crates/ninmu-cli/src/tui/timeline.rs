@@ -94,7 +94,13 @@ impl ToolCallTimeline {
         }
 
         let mut out = String::new();
-        writeln!(out, "{}── Tool calls ──{}", Theme::MUTED, Theme::RESET).expect("write to string");
+        writeln!(
+            out,
+            "{}── tool calls ──{}",
+            Theme::BORDER_BRIGHT,
+            Theme::RESET
+        )
+        .expect("write to string");
 
         for event in &self.events {
             let elapsed = event
@@ -102,9 +108,9 @@ impl ToolCallTimeline {
                 .map(|c| c.duration_since(event.started_at))
                 .unwrap_or_default();
             let status_icon = if event.is_error {
-                format!("{}✗{}", Theme::ERROR_BRIGHT, Theme::RESET)
+                format!("{}fail{}", Theme::ERROR, Theme::RESET)
             } else {
-                format!("{}✓{}", Theme::SUCCESS_BOLD, Theme::RESET)
+                format!("{}ok{}", Theme::ACCENT, Theme::RESET)
             };
             let truncated_mark = if event.was_truncated {
                 " (truncated)"
@@ -162,8 +168,8 @@ mod tests {
         timeline.complete_tool(false, false, 5);
         let rendered = timeline.render();
         assert!(rendered.contains("bash"));
-        assert!(rendered.contains("✓"));
-        assert!(rendered.contains("Tool calls"));
+        assert!(rendered.contains("ok"));
+        assert!(rendered.contains("tool calls"));
     }
 
     #[test]
@@ -172,7 +178,7 @@ mod tests {
         timeline.start_tool("read_file");
         timeline.complete_tool(true, false, 0);
         let rendered = timeline.render();
-        assert!(rendered.contains("✗"));
+        assert!(rendered.contains("fail"));
     }
 
     #[test]

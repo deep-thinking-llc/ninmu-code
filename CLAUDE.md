@@ -19,3 +19,4 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Prefer small, reviewable changes and keep generated bootstrap files aligned with actual repo workflows.
 - Keep shared defaults in `.claude.json`; reserve `.claude/settings.local.json` for machine-local overrides.
 - Do not overwrite existing `CLAUDE.md` content automatically; update it intentionally when repo workflows change.
+- **Design/implementation docs**: WIP docs use `_` prefix and are gitignored (`_*.md`, `_docs/`). Drop the `_` to commit. See `AGENTS.md` for the full naming convention.

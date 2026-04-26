@@ -1,5 +1,6 @@
 pub mod diff_view;
 pub mod permission;
+pub mod progress;
 pub mod status_bar;
 pub mod terminal;
 pub mod theme;

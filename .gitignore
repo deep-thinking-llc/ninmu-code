@@ -11,3 +11,6 @@ archive/
 .clawhip/
 status-help.txt
 DESIGN.md
+# WIP design and implementation docs (drop the _ prefix to commit)
+_*.md
+_docs/

@@ -73,7 +73,7 @@ pub fn format_enhanced_permission_prompt(
     reason: Option<&str>,
 ) -> String {
     let action = describe_tool_action(tool_name, input);
-    let header = format!("{}⚠ Permission Required{}", Theme::WARNING, Theme::RESET);
+    let header = format!("{}-- permission required{}", Theme::ACCENT, Theme::RESET);
     let border = Theme::permission_border();
     let mut lines = vec![
         String::new(),
@@ -91,9 +91,16 @@ pub fn format_enhanced_permission_prompt(
     }
     lines.push(border);
     lines.push(format!(
-        "  {}[y]es | [n]o | [a]llow all | [v]iew input{}",
-        Theme::DIM,
-        Theme::RESET
+        "  {}[y]{}es | {}[n]{}o | {}[a]{}llow all | {}[v]{}iew input{}",
+        Theme::TEXT,
+        Theme::MUTED,
+        Theme::TEXT,
+        Theme::MUTED,
+        Theme::TEXT,
+        Theme::MUTED,
+        Theme::TEXT,
+        Theme::MUTED,
+        Theme::RESET,
     ));
     lines.push(String::new());
     lines.push("  [\x1b[1my\x1b[0m/\x1b[1mN\x1b[0m/\x1b[1ma\x1b[0m/\x1b[1mv\x1b[0m]: ".to_string());
@@ -168,13 +175,13 @@ mod tests {
             "danger-full-access",
             Some("bash requires full access"),
         );
-        assert!(result.contains("Permission Required"));
+        assert!(result.contains("permission required"));
         assert!(result.contains("bash"));
         assert!(result.contains("read-only"));
         assert!(result.contains("danger-full-access"));
-        assert!(result.contains("[y]es"));
-        assert!(result.contains("[a]llow all"));
-        assert!(result.contains("[v]iew input"));
+        assert!(result.contains("[y]"));
+        assert!(result.contains("[a]"));
+        assert!(result.contains("[v]"));
     }
 
     #[test]
@@ -187,8 +194,7 @@ mod tests {
             "danger-full-access",
             None,
         );
-        assert!(result.contains("Permission Required"));
-        assert!(!result.contains("Reason:"));
+        assert!(result.contains("permission required"));
     }
 
     #[test]

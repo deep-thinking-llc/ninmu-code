@@ -191,6 +191,35 @@ export VLLM_BASE_URL="http://localhost:8000/v1"
 ninmu --model vllm/meta-llama/Llama-3.1-8B prompt "hello"
 ```
 
+### Provider Configuration
+
+Set provider-specific defaults in `~/.claw/settings.json` or `.claw/settings.json`:
+
+```json
+{
+  "providers": {
+    "deepseek": {
+      "maxTokens": 8192,
+      "temperature": 70
+    },
+    "ollama": {
+      "maxTokens": 4096
+    }
+  }
+}
+```
+
+Provider fallback chains (try next model on error):
+
+```json
+{
+  "providerFallbacks": {
+    "primary": "deepseek-chat",
+    "fallbacks": ["claude-haiku-4-5-20251213", "ollama/llama3.1:8b"]
+  }
+}
+```
+
 ### Custom Providers
 
 Add any OpenAI-compatible or Anthropic-compatible provider via `models.json` — Ollama, vLLM, LM Studio, OpenRouter, local servers, anything. No recompile needed. The `api` field accepts: `openai-completions`, `anthropic-messages`, `deepseek`, `ollama`, `qwen`, `vllm`.

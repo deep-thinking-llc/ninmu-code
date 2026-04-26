@@ -369,7 +369,7 @@ where
                     }
                 };
             if let Some(usage) = usage {
-                self.usage_tracker.record(usage);
+                self.usage_tracker.record(usage, None);
             }
             prompt_cache_events.extend(turn_prompt_cache_events);
             let pending_tool_uses = assistant_message

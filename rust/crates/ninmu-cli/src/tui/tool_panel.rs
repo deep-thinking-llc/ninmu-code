@@ -64,7 +64,7 @@ pub fn collapse_tool_output(
         visible = format!("{prefix}…");
     }
 
-    let icon = if is_error { "✗" } else { "✓" };
+    let icon = if is_error { "fail" } else { "ok" };
     let summary = if was_truncated {
         format!(
             "{} {} ({} lines) — full output in session · [scroll up or /debugToolCall to inspect]",
@@ -120,14 +120,14 @@ mod tests {
     fn error_tool_gets_error_icon() {
         let config = ToolDisplayConfig::default();
         let result = collapse_tool_output("error", "bash", true, &config);
-        assert!(result.summary.starts_with('✗'));
+        assert!(result.summary.starts_with("fail"));
     }
 
     #[test]
     fn success_tool_gets_check_icon() {
         let config = ToolDisplayConfig::default();
         let result = collapse_tool_output("ok", "bash", false, &config);
-        assert!(result.summary.starts_with('✓'));
+        assert!(result.summary.starts_with("ok"));
     }
 
     #[test]

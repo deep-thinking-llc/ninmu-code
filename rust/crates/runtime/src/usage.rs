@@ -36,7 +36,7 @@ pub struct TokenUsage {
 }
 
 /// Estimated dollar cost derived from a [`TokenUsage`] sample.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct UsageCostEstimate {
     pub input_cost_usd: f64,
     pub output_cost_usd: f64,
@@ -191,12 +191,22 @@ pub fn format_usd(amount: f64) -> String {
     format!("${amount:.4}")
 }
 
-/// Aggregates token usage across a running session.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+/// Per-provider token and cost tracking.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PerProviderStats {
+    pub tokens: TokenUsage,
+    pub cost: UsageCostEstimate,
+    pub turns: u32,
+}
+
+/// Aggregates token usage across a running session, optionally broken
+/// down by provider when model names are supplied.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct UsageTracker {
     latest_turn: TokenUsage,
     cumulative: TokenUsage,
     turns: u32,
+    per_provider: std::collections::HashMap<String, PerProviderStats>,
 }
 
 impl UsageTracker {
@@ -210,19 +220,40 @@ impl UsageTracker {
         let mut tracker = Self::new();
         for message in &session.messages {
             if let Some(usage) = message.usage {
-                tracker.record(usage);
+                tracker.record(usage, None);
             }
         }
         tracker
     }
 
-    pub fn record(&mut self, usage: TokenUsage) {
+    /// Record token usage for a turn. Pass `model` to accumulate per-provider
+    /// stats (uses the model name to resolve pricing).
+    pub fn record(&mut self, usage: TokenUsage, model: Option<&str>) {
         self.latest_turn = usage;
         self.cumulative.input_tokens += usage.input_tokens;
         self.cumulative.output_tokens += usage.output_tokens;
         self.cumulative.cache_creation_input_tokens += usage.cache_creation_input_tokens;
         self.cumulative.cache_read_input_tokens += usage.cache_read_input_tokens;
         self.turns += 1;
+
+        if let Some(model_name) = model {
+            let label = per_provider_label(model_name);
+            let pricing = pricing_for_model(model_name);
+            let cost = pricing.map_or_else(
+                || usage.estimate_cost_usd(),
+                |p| usage.estimate_cost_usd_with_pricing(p),
+            );
+            let entry = self.per_provider.entry(label).or_default();
+            entry.tokens.input_tokens += usage.input_tokens;
+            entry.tokens.output_tokens += usage.output_tokens;
+            entry.tokens.cache_creation_input_tokens += usage.cache_creation_input_tokens;
+            entry.tokens.cache_read_input_tokens += usage.cache_read_input_tokens;
+            entry.cost.input_cost_usd += cost.input_cost_usd;
+            entry.cost.output_cost_usd += cost.output_cost_usd;
+            entry.cost.cache_creation_cost_usd += cost.cache_creation_cost_usd;
+            entry.cost.cache_read_cost_usd += cost.cache_read_cost_usd;
+            entry.turns += 1;
+        }
     }
 
     #[must_use]
@@ -236,8 +267,56 @@ impl UsageTracker {
     }
 
     #[must_use]
+    pub fn per_provider(&self) -> &std::collections::HashMap<String, PerProviderStats> {
+        &self.per_provider
+    }
+
+    #[must_use]
+    pub fn per_provider_summary_lines(&self) -> Vec<String> {
+        if self.per_provider.is_empty() {
+            return Vec::new();
+        }
+        let mut lines: Vec<String> = Vec::new();
+        let mut providers: Vec<_> = self.per_provider.iter().collect();
+        providers.sort_by_key(|(k, _)| *k);
+        for (label, stats) in &providers {
+            lines.push(format!(
+                "  {:<16} {:>8} tokens  {}",
+                label,
+                stats.tokens.total_tokens(),
+                format_usd(stats.cost.total_cost_usd())
+            ));
+        }
+        lines
+    }
+
+    #[must_use]
     pub fn turns(&self) -> u32 {
         self.turns
+    }
+}
+
+/// Map a model name to a short provider label for per-provider grouping.
+fn per_provider_label(model: &str) -> String {
+    let lower = model.to_ascii_lowercase();
+    if lower.contains("claude") {
+        "Anthropic".to_string()
+    } else if lower.contains("grok") {
+        "xAI".to_string()
+    } else if lower.contains("deepseek") {
+        "DeepSeek".to_string()
+    } else if lower.starts_with("ollama/") {
+        "Ollama".to_string()
+    } else if lower.starts_with("vllm/") {
+        "vLLM".to_string()
+    } else if lower.starts_with("gpt-") || lower.starts_with("openai/") {
+        "OpenAI".to_string()
+    } else if lower.contains("qwen") {
+        "Qwen".to_string()
+    } else if lower.contains("kimi") {
+        "Kimi".to_string()
+    } else {
+        model.to_string()
     }
 }
 
@@ -249,18 +328,24 @@ mod tests {
     #[test]
     fn tracks_true_cumulative_usage() {
         let mut tracker = UsageTracker::new();
-        tracker.record(TokenUsage {
-            input_tokens: 10,
-            output_tokens: 4,
-            cache_creation_input_tokens: 2,
-            cache_read_input_tokens: 1,
-        });
-        tracker.record(TokenUsage {
-            input_tokens: 20,
-            output_tokens: 6,
-            cache_creation_input_tokens: 3,
-            cache_read_input_tokens: 2,
-        });
+        tracker.record(
+            TokenUsage {
+                input_tokens: 10,
+                output_tokens: 4,
+                cache_creation_input_tokens: 2,
+                cache_read_input_tokens: 1,
+            },
+            None,
+        );
+        tracker.record(
+            TokenUsage {
+                input_tokens: 20,
+                output_tokens: 6,
+                cache_creation_input_tokens: 3,
+                cache_read_input_tokens: 2,
+            },
+            None,
+        );
 
         assert_eq!(tracker.turns(), 2);
         assert_eq!(tracker.current_turn_usage().input_tokens, 20);
@@ -385,5 +470,46 @@ mod tests {
         let tracker = UsageTracker::from_session(&session);
         assert_eq!(tracker.turns(), 1);
         assert_eq!(tracker.cumulative_usage().total_tokens(), 8);
+    }
+
+    #[test]
+    fn tracks_per_provider_usage() {
+        let mut tracker = UsageTracker::new();
+        tracker.record(
+            TokenUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+            },
+            Some("deepseek-chat"),
+        );
+        tracker.record(
+            TokenUsage {
+                input_tokens: 200,
+                output_tokens: 100,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+            },
+            Some("claude-sonnet-4-6"),
+        );
+        tracker.record(
+            TokenUsage {
+                input_tokens: 50,
+                output_tokens: 25,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+            },
+            Some("deepseek-chat"),
+        );
+
+        let per = tracker.per_provider();
+        assert_eq!(per.len(), 2);
+        let ds = per.get("DeepSeek").expect("DeepSeek");
+        assert_eq!(ds.tokens.input_tokens, 150);
+        assert_eq!(ds.turns, 2);
+        let an = per.get("Anthropic").expect("Anthropic");
+        assert_eq!(an.tokens.input_tokens, 200);
+        assert_eq!(an.turns, 1);
     }
 }

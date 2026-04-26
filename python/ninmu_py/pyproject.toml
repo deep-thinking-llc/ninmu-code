@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "ninmu-py"
+version = "0.1.0"
+description = "Python adapter for Ninmu Code's JSON-RPC agent protocol"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Deep Thinking LLC" },
+]
+
+[project.optional-dependencies]
+langchain = ["langchain>=0.3.0"]
+autogen = ["pyautogen>=0.2.0"]
+crewai = ["crewai>=0.80.0"]
+all = ["ninmu-py[langchain,autogen,crewai]"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ninmu*"]
