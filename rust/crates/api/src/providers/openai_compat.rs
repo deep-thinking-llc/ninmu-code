@@ -102,7 +102,7 @@ impl OpenAiCompatConfig {
         }
     }
 
-    /// DeepSeek native API (deepseek-chat, deepseek-reasoner).
+    /// `DeepSeek` native API (`deepseek-chat`, `deepseek-reasoner`).
     /// OpenAI-compatible REST shape at /v1.
     #[must_use]
     pub const fn deepseek() -> Self {
@@ -129,7 +129,7 @@ impl OpenAiCompatConfig {
         }
     }
 
-    /// Qwen models served outside Alibaba DashScope (local, third-party API, etc.).
+    /// `Qwen` models served outside Alibaba `DashScope` (local, third-party API, etc.).
     /// Configure `QWEN_API_KEY` and/or `QWEN_BASE_URL`. Falls back to
     /// `OPENAI_BASE_URL` if `QWEN_BASE_URL` is not set (e.g. OpenRouter).
     #[must_use]
