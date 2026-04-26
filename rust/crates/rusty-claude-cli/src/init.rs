@@ -11,6 +11,39 @@ const STARTER_CLAW_JSON: &str = concat!(
 const GITIGNORE_COMMENT: &str = "# Claw Code local artifacts";
 const GITIGNORE_ENTRIES: [&str; 3] = [".claw/settings.local.json", ".claw/sessions/", ".clawhip/"];
 
+/// Template `.env.example` written by `claw init` so users can copy to `.env`
+/// and uncomment the provider they want to use.
+const PROVIDER_ENV_TEMPLATE: &str = concat!(
+    "# Claw Code — provider credentials (copy to .env and uncomment)\n",
+    "#\n",
+    "# Anthropic\n",
+    "#ANTHROPIC_API_KEY=sk-ant-...\n",
+    "#\n",
+    "# OpenAI / OpenRouter\n",
+    "#OPENAI_API_KEY=sk-...\n",
+    "#OPENAI_BASE_URL=https://api.openai.com/v1\n",
+    "#\n",
+    "# xAI (Grok)\n",
+    "#XAI_API_KEY=...\n",
+    "#\n",
+    "# DeepSeek\n",
+    "#DEEPSEEK_API_KEY=sk-...\n",
+    "#\n",
+    "# Alibaba DashScope (Qwen via Alibaba)\n",
+    "#DASHSCOPE_API_KEY=sk-...\n",
+    "#\n",
+    "# Qwen external (non-DashScope; falls back to OPENAI_API_KEY / OPENAI_BASE_URL)\n",
+    "#QWEN_API_KEY=sk-...\n",
+    "#QWEN_BASE_URL=https://.../v1\n",
+    "#\n",
+    "# Ollama (local or cloud)\n",
+    "#OLLAMA_API_KEY=sk-...\n",
+    "#OLLAMA_BASE_URL=http://localhost:11434/v1\n",
+    "#\n",
+    "# vLLM (local)\n",
+    "#VLLM_BASE_URL=http://localhost:8000/v1\n",
+);
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum InitStatus {
     Created,
@@ -145,6 +178,12 @@ pub(crate) fn initialize_repo(cwd: &Path) -> Result<InitReport, Box<dyn std::err
     artifacts.push(InitArtifact {
         name: "CLAUDE.md",
         status: write_file_if_missing(&claude_md, &content)?,
+    });
+
+    let env_template = cwd.join(".env.example");
+    artifacts.push(InitArtifact {
+        name: ".env.example",
+        status: write_file_if_missing(&env_template, PROVIDER_ENV_TEMPLATE)?,
     });
 
     Ok(InitReport {
@@ -472,8 +511,9 @@ mod tests {
                 ".claw.json".to_string(),
                 ".gitignore".to_string(),
                 "CLAUDE.md".to_string(),
+                ".env.example".to_string(),
             ],
-            "fresh init should place all four artifacts in created[]"
+            "fresh init should place all five artifacts in created[]"
         );
         assert!(
             fresh.artifacts_with_status(InitStatus::Skipped).is_empty(),
@@ -489,8 +529,9 @@ mod tests {
                 ".claw.json".to_string(),
                 ".gitignore".to_string(),
                 "CLAUDE.md".to_string(),
+                ".env.example".to_string(),
             ],
-            "idempotent init should place all four artifacts in skipped[]"
+            "idempotent init should place all five artifacts in skipped[]"
         );
         assert!(
             second.artifacts_with_status(InitStatus::Created).is_empty(),
@@ -500,7 +541,7 @@ mod tests {
         // artifact_json_entries() uses the machine-stable `json_tag()` which
         // never changes wording (unlike `label()` which says "skipped (already exists)").
         let entries = second.artifact_json_entries();
-        assert_eq!(entries.len(), 4);
+        assert_eq!(entries.len(), 5);
         for entry in &entries {
             let status = entry.get("status").and_then(|v| v.as_str()).unwrap();
             assert_eq!(

@@ -27,14 +27,18 @@
 mod agent_context;
 mod event_bus;
 mod extension;
+mod notification;
+mod orchestrator;
 mod resource_loader;
 mod review;
+mod security;
 #[cfg(feature = "rpc")]
 mod rpc;
 mod session;
 mod session_manager;
 mod session_tree;
 mod session_tree_log;
+mod setup;
 mod tool_registry;
 
 pub use agent_context::{AgentContext, AgentTask, TaskRegistry};
@@ -43,6 +47,16 @@ pub use event_bus::{
     TurnEvent,
 };
 pub use extension::{Extension, ExtensionRegistry, SimpleExtension};
+pub use notification::{
+    ConsoleSink, EmailSink, EventType, FileSink, Notification, NotificationDispatcher,
+    NotificationFilter, NotificationSink, Severity, SinkRegistration, WebhookSink,
+};
+pub use orchestrator::{
+    AgentDefinition, AgentOrchestrator, OrchestratedTask, ResourceLock, TaskState,
+};
+pub use security::{
+    AuditEntry, AuditEvent, AuditLog, SecretMatch, SecretScrubber, SecurityConfig,
+};
 pub use resource_loader::{DefaultResourceLoader, ResourceLoader};
 pub use review::{
     ChangeRecord, Decision, FileChange, FileChangeType, ReviewDecision, ReviewGate, ReviewManager,
@@ -52,6 +66,10 @@ pub use session::{AgentSession, AgentSessionBuilder, BoxedApiClient, DummyApiCli
 pub use session_manager::{SessionManager, SessionManagerConfig};
 pub use session_tree::{SessionTree, SessionTreeNode};
 pub use session_tree_log::{SessionTreeLog, TreeEntry};
+pub use setup::{
+    check_tool, detect_providers, detect_tools, template_library, DetectedProvider, DetectedTool,
+    SessionTemplate, SetupReport,
+};
 pub use tool_registry::{
     create_builtin_tools, define_tool, FnToolHandler, SchemaValidationError, SchemaValidator,
     SdkToolExecutor, ToolDefinition, ToolDefinitionBuilder, ToolHandler, ToolRegistry,

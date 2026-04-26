@@ -122,6 +122,32 @@ fn custom_models() -> &'static RwLock<Option<ModelsFile>> {
 
 /// Load custom models from a `models.json` file and replace the global registry.
 ///
+/// Valid values for the `api` field in a custom provider entry.
+const VALID_API_VALUES: &[&str] = &[
+    "openai-completions",
+    "anthropic-messages",
+    "deepseek",
+    "ollama",
+    "qwen",
+    "vllm",
+];
+
+/// Validate that every provider in the models file uses a recognized `api` value.
+fn validate_providers(file: &ModelsFile, path: &Path) -> Result<(), String> {
+    for (provider_label, provider) in &file.providers {
+        if !VALID_API_VALUES.contains(&provider.api.as_str()) {
+            return Err(format!(
+                "invalid api value '{}' for provider '{}' in {}: must be one of {}",
+                provider.api,
+                provider_label,
+                path.display(),
+                VALID_API_VALUES.join(", ")
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The file is parsed and stored in a global `RwLock`. Returns `None` when the
 /// file does not exist, or an error description on parse failure.
 pub fn load_custom_models(path: &Path) -> Result<Option<ModelsFile>, String> {
@@ -137,6 +163,8 @@ pub fn load_custom_models(path: &Path) -> Result<Option<ModelsFile>, String> {
 
     let parsed: ModelsFile = serde_json::from_str(&content)
         .map_err(|e| format!("parse error in {}: {e}", path.display()))?;
+
+    validate_providers(&parsed, path)?;
 
     let mut registry = custom_models().write().map_err(|e| e.to_string())?;
     *registry = Some(parsed.clone());
@@ -159,6 +187,8 @@ fn load_and_merge_custom_models(path: &Path) -> Result<Option<ModelsFile>, Strin
 
     let parsed: ModelsFile = serde_json::from_str(&content)
         .map_err(|e| format!("parse error in {}: {e}", path.display()))?;
+
+    validate_providers(&parsed, path)?;
 
     let mut registry = custom_models().write().map_err(|e| e.to_string())?;
     match registry.as_mut() {
@@ -267,6 +297,10 @@ pub fn custom_metadata_for_model(model: &str) -> Option<ProviderMetadata> {
     let (provider_kind, auth_env) = match resolved.api.as_str() {
         "anthropic-messages" => (ProviderKind::Anthropic, "ANTHROPIC_API_KEY"),
         "openai-completions" => (ProviderKind::OpenAi, "OPENAI_API_KEY"),
+        "deepseek" => (ProviderKind::DeepSeek, "DEEPSEEK_API_KEY"),
+        "ollama" => (ProviderKind::Ollama, ""),
+        "qwen" => (ProviderKind::Qwen, "QWEN_API_KEY"),
+        "vllm" => (ProviderKind::Vllm, ""),
         _ => (ProviderKind::OpenAi, "OPENAI_API_KEY"),
     };
     Some(ProviderMetadata {
@@ -475,15 +509,25 @@ mod tests {
 
         // Both providers should be present after merge
         let ollama = find_custom_model("ollama/llama3.1:8b");
-        assert!(ollama.is_some(), "user-level ollama provider should survive after project merge");
+        assert!(
+            ollama.is_some(),
+            "user-level ollama provider should survive after project merge"
+        );
         assert_eq!(ollama.unwrap().model_id, "llama3.1:8b");
 
         let local = find_custom_model("local/my-model");
-        assert!(local.is_some(), "project-level local provider should be present");
+        assert!(
+            local.is_some(),
+            "project-level local provider should be present"
+        );
         assert_eq!(local.unwrap().model_id, "my-model");
 
         let all = all_custom_models();
-        assert_eq!(all.len(), 2, "should have exactly 2 models from 2 providers");
+        assert_eq!(
+            all.len(),
+            2,
+            "should have exactly 2 models from 2 providers"
+        );
 
         std::fs::remove_dir_all(&dir).expect("cleanup");
     }
@@ -529,8 +573,92 @@ mod tests {
 
         // User-level llama3.1:8b should NOT be present (provider was replaced)
         let old = find_custom_model("ollama/llama3.1:8b");
-        assert!(old.is_none(), "user-level ollama models should be replaced by project override");
+        assert!(
+            old.is_none(),
+            "user-level ollama models should be replaced by project override"
+        );
 
         std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn validates_api_field_rejects_unknown_value() {
+        let _lock = models_lock();
+        clear_custom_models();
+
+        let dir = std::env::temp_dir().join(format!(
+            "models-validate-api-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        let models_path = dir.join("models.json");
+        std::fs::write(
+            &models_path,
+            r#"{"providers":{"bad":{"baseUrl":"http://localhost:11434/v1","api":"invalid-api-value","apiKey":"k","models":[{"id":"m"}]}}}"#,
+        )
+        .expect("write models.json");
+
+        let result = super::load_custom_models(&models_path);
+        match result {
+            Err(msg) => {
+                assert!(
+                    msg.contains("invalid api value"),
+                    "error should mention invalid api value, got: {msg}"
+                );
+                assert!(
+                    msg.contains("invalid-api-value"),
+                    "error should include the bad value, got: {msg}"
+                );
+                assert!(
+                    msg.contains("bad"),
+                    "error should name the provider, got: {msg}"
+                );
+            }
+            other => panic!("expected validation error, got {other:?}"),
+        }
+
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn validates_api_field_accepts_all_valid_values() {
+        let _lock = models_lock();
+        clear_custom_models();
+
+        for valid_api in &[
+            "openai-completions",
+            "anthropic-messages",
+            "deepseek",
+            "ollama",
+            "qwen",
+            "vllm",
+        ] {
+            let dir = std::env::temp_dir().join(format!(
+                "models-validate-ok-{valid_api}-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+            ));
+            std::fs::create_dir_all(&dir).expect("create temp dir");
+            let models_path = dir.join("models.json");
+            let json = format!(
+                r#"{{"providers":{{"p":{{"baseUrl":"http://localhost:11434/v1","api":"{valid_api}","apiKey":"k","models":[{{"id":"m"}}]}}}}}}"#
+            );
+            std::fs::write(&models_path, &json).expect("write models.json");
+
+            let result = super::load_custom_models(&models_path);
+            assert!(
+                result.is_ok(),
+                "api='{valid_api}' should be accepted, got: {result:?}"
+            );
+
+            std::fs::remove_dir_all(&dir).expect("cleanup");
+        }
     }
 }
