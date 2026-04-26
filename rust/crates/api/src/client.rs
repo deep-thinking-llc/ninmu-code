@@ -15,6 +15,9 @@ pub enum ProviderClient {
     Ollama(OpenAiCompatClient),
     Qwen(OpenAiCompatClient),
     Vllm(OpenAiCompatClient),
+    Mistral(OpenAiCompatClient),
+    Gemini(OpenAiCompatClient),
+    Cohere(OpenAiCompatClient),
 }
 
 impl ProviderClient {
@@ -78,6 +81,15 @@ impl ProviderClient {
             ProviderKind::Vllm => Ok(Self::Vllm(OpenAiCompatClient::from_env(
                 OpenAiCompatConfig::vllm(),
             )?)),
+            ProviderKind::Mistral => Ok(Self::Mistral(OpenAiCompatClient::from_env(
+                OpenAiCompatConfig::mistral(),
+            )?)),
+            ProviderKind::Gemini => Ok(Self::Gemini(OpenAiCompatClient::from_env(
+                OpenAiCompatConfig::gemini(),
+            )?)),
+            ProviderKind::Cohere => Ok(Self::Cohere(OpenAiCompatClient::from_env(
+                OpenAiCompatConfig::cohere(),
+            )?)),
         }
     }
 
@@ -112,6 +124,9 @@ impl ProviderClient {
             Self::Ollama(_) => ProviderKind::Ollama,
             Self::Qwen(_) => ProviderKind::Qwen,
             Self::Vllm(_) => ProviderKind::Vllm,
+            Self::Mistral(_) => ProviderKind::Mistral,
+            Self::Gemini(_) => ProviderKind::Gemini,
+            Self::Cohere(_) => ProviderKind::Cohere,
         }
     }
 
@@ -132,7 +147,10 @@ impl ProviderClient {
             | Self::DeepSeek(_)
             | Self::Ollama(_)
             | Self::Qwen(_)
-            | Self::Vllm(_) => None,
+            | Self::Vllm(_)
+            | Self::Mistral(_)
+            | Self::Gemini(_)
+            | Self::Cohere(_) => None,
         }
     }
 
@@ -145,7 +163,10 @@ impl ProviderClient {
             | Self::DeepSeek(_)
             | Self::Ollama(_)
             | Self::Qwen(_)
-            | Self::Vllm(_) => None,
+            | Self::Vllm(_)
+            | Self::Mistral(_)
+            | Self::Gemini(_)
+            | Self::Cohere(_) => None,
         }
     }
 
@@ -160,7 +181,10 @@ impl ProviderClient {
             | Self::DeepSeek(client)
             | Self::Ollama(client)
             | Self::Qwen(client)
-            | Self::Vllm(client) => client.send_message(request).await,
+            | Self::Vllm(client)
+            | Self::Mistral(client)
+            | Self::Gemini(client)
+            | Self::Cohere(client) => client.send_message(request).await,
         }
     }
 
@@ -178,7 +202,10 @@ impl ProviderClient {
             | Self::DeepSeek(client)
             | Self::Ollama(client)
             | Self::Qwen(client)
-            | Self::Vllm(client) => client
+            | Self::Vllm(client)
+            | Self::Mistral(client)
+            | Self::Gemini(client)
+            | Self::Cohere(client) => client
                 .stream_message(request)
                 .await
                 .map(MessageStream::OpenAiCompat),

@@ -22,6 +22,9 @@ pub enum ProviderKind {
     Ollama,
     Qwen,
     Vllm,
+    Mistral,
+    Gemini,
+    Cohere,
 }
 
 /// Static metadata for a recognized provider: where to find credentials
@@ -156,6 +159,33 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
             default_base_url: openai_compat::DEFAULT_DEEPSEEK_BASE_URL,
         },
     ),
+    (
+        "mistral-large",
+        ProviderMetadata {
+            provider: ProviderKind::Mistral,
+            auth_env: "MISTRAL_API_KEY",
+            base_url_env: "MISTRAL_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_MISTRAL_BASE_URL,
+        },
+    ),
+    (
+        "gemini",
+        ProviderMetadata {
+            provider: ProviderKind::Gemini,
+            auth_env: "GEMINI_API_KEY",
+            base_url_env: "GEMINI_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_GEMINI_BASE_URL,
+        },
+    ),
+    (
+        "command-r",
+        ProviderMetadata {
+            provider: ProviderKind::Cohere,
+            auth_env: "COHERE_API_KEY",
+            base_url_env: "COHERE_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_COHERE_BASE_URL,
+        },
+    ),
 ];
 
 #[must_use]
@@ -188,6 +218,18 @@ pub fn resolve_model_alias(model: &str) -> String {
                     _ => trimmed,
                 },
                 ProviderKind::Ollama | ProviderKind::Qwen | ProviderKind::Vllm => trimmed,
+                ProviderKind::Mistral => match *alias {
+                    "mistral-large" => "mistral-large-latest",
+                    _ => trimmed,
+                },
+                ProviderKind::Gemini => match *alias {
+                    "gemini" => "gemini-2.5-pro",
+                    _ => trimmed,
+                },
+                ProviderKind::Cohere => match *alias {
+                    "command-r" => "command-r-plus",
+                    _ => trimmed,
+                },
             })
         })
         .map_or_else(|| trimmed.to_string(), ToOwned::to_owned)
@@ -278,6 +320,33 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
             default_base_url: openai_compat::DEFAULT_VLLM_BASE_URL,
         });
     }
+    // Mistral models (mistral-large, mistral-small, etc.).
+    if canonical.starts_with("mistral") {
+        return Some(ProviderMetadata {
+            provider: ProviderKind::Mistral,
+            auth_env: "MISTRAL_API_KEY",
+            base_url_env: "MISTRAL_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_MISTRAL_BASE_URL,
+        });
+    }
+    // Google Gemini models via OpenAI-compat endpoint.
+    if canonical.starts_with("gemini") {
+        return Some(ProviderMetadata {
+            provider: ProviderKind::Gemini,
+            auth_env: "GEMINI_API_KEY",
+            base_url_env: "GEMINI_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_GEMINI_BASE_URL,
+        });
+    }
+    // Cohere models (command-r, command-r-plus).
+    if canonical.starts_with("command-r") {
+        return Some(ProviderMetadata {
+            provider: ProviderKind::Cohere,
+            auth_env: "COHERE_API_KEY",
+            base_url_env: "COHERE_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_COHERE_BASE_URL,
+        });
+    }
     // Kimi models (kimi-k2.5, kimi-k1.5, etc.) via DashScope compatible-mode.
     // Routes kimi/* and kimi-* model names to DashScope endpoint.
     if canonical.starts_with("kimi/") || canonical.starts_with("kimi-") {
@@ -324,6 +393,15 @@ pub fn detect_provider_kind(model: &str) -> ProviderKind {
     if openai_compat::has_api_key("QWEN_API_KEY") {
         return ProviderKind::Qwen;
     }
+    if openai_compat::has_api_key("MISTRAL_API_KEY") {
+        return ProviderKind::Mistral;
+    }
+    if openai_compat::has_api_key("GEMINI_API_KEY") {
+        return ProviderKind::Gemini;
+    }
+    if openai_compat::has_api_key("COHERE_API_KEY") {
+        return ProviderKind::Cohere;
+    }
     // Ollama: no auth required, detected by OLLAMA_BASE_URL env var.
     if std::env::var_os("OLLAMA_BASE_URL").is_some() {
         return ProviderKind::Ollama;
@@ -355,6 +433,9 @@ pub fn provider_kind_from_str(name: &str) -> Option<ProviderKind> {
         "qwen" => Some(ProviderKind::Qwen),
         "vllm" => Some(ProviderKind::Vllm),
         "dashscope" => Some(ProviderKind::OpenAi),
+        "mistral" => Some(ProviderKind::Mistral),
+        "gemini" => Some(ProviderKind::Gemini),
+        "cohere" => Some(ProviderKind::Cohere),
         _ => None,
     }
 }
@@ -378,6 +459,9 @@ pub fn prefix_model_for_provider(model: &str, provider: ProviderKind) -> String 
         ProviderKind::Ollama => format!("ollama/{canonical}"),
         ProviderKind::Qwen => format!("qwen/{canonical}"),
         ProviderKind::Vllm => format!("vllm/{canonical}"),
+        ProviderKind::Mistral => format!("mistral/{canonical}"),
+        ProviderKind::Gemini => format!("gemini/{canonical}"),
+        ProviderKind::Cohere => format!("cohere/{canonical}"),
     }
 }
 

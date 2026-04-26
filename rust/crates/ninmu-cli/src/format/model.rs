@@ -211,6 +211,9 @@ pub(crate) fn provider_label(kind: ProviderKind) -> &'static str {
         ProviderKind::Ollama => "ollama",
         ProviderKind::Qwen => "qwen",
         ProviderKind::Vllm => "vllm",
+        ProviderKind::Mistral => "mistral",
+        ProviderKind::Gemini => "gemini",
+        ProviderKind::Cohere => "cohere",
     }
 }
 
