@@ -252,6 +252,26 @@ impl LiveCli {
     }
 
     pub(crate) fn run_turn(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
+        // Expand @file references
+        let expansion = crate::file_ref::expand_file_refs(input);
+        if !expansion.resolved.is_empty() {
+            for path in &expansion.resolved {
+                println!("{}-- attached {}{}", Theme::ACCENT, path, Theme::RESET);
+            }
+        }
+        if !expansion.failed.is_empty() {
+            for (path, err) in &expansion.failed {
+                eprintln!(
+                    "{}-- could not read {}: {}{}",
+                    Theme::ERROR,
+                    path,
+                    err,
+                    Theme::RESET
+                );
+            }
+        }
+        let input = expansion.expanded;
+
         let (mut runtime, hook_abort_monitor) = self.prepare_turn_runtime(true)?;
         let mut spinner = Spinner::new();
         let mut stdout = io::stdout();
@@ -299,11 +319,13 @@ impl LiveCli {
         output_format: CliOutputFormat,
         compact: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let expansion = crate::file_ref::expand_file_refs(input);
+        let input = expansion.expanded;
         match output_format {
-            CliOutputFormat::Json if compact => self.run_prompt_compact_json(input),
-            CliOutputFormat::Text if compact => self.run_prompt_compact(input),
-            CliOutputFormat::Text => self.run_turn(input),
-            CliOutputFormat::Json => self.run_prompt_json(input),
+            CliOutputFormat::Json if compact => self.run_prompt_compact_json(&input),
+            CliOutputFormat::Text if compact => self.run_prompt_compact(&input),
+            CliOutputFormat::Text => self.run_turn(&input),
+            CliOutputFormat::Json => self.run_prompt_json(&input),
         }
     }
 

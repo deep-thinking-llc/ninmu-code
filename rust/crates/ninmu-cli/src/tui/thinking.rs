@@ -76,7 +76,7 @@ mod tests {
     #[test]
     fn thinking_completed_formats_seconds() {
         let result = format_thinking_completed(Duration::from_secs_f64(3.5));
-        assert!(result.contains("Reasoned for"));
+        assert!(result.contains("reasoned for"));
         assert!(result.contains("3.5s"));
         assert!(result.contains(Theme::THINKING)); // magenta
     }
@@ -84,7 +84,7 @@ mod tests {
     #[test]
     fn thinking_inline_with_char_count() {
         let result = render_thinking_inline(Some(42), false);
-        assert!(result.contains("Reasoning"));
+        assert!(result.contains("reasoning"));
         assert!(result.contains("42 chars"));
         assert!(result.contains(Theme::THINKING));
     }
@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn thinking_inline_without_count() {
         let result = render_thinking_inline(None, false);
-        assert!(result.contains("Reasoning"));
+        assert!(result.contains("reasoning"));
         assert!(!result.contains("chars"));
     }
 }

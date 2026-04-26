@@ -61,6 +61,21 @@ impl Completer for SlashCommandHelper {
         pos: usize,
         _ctx: &Context<'_>,
     ) -> rustyline::Result<(usize, Vec<Self::Candidate>)> {
+        // Try @-file completion first
+        if let Some(file_prefix) = at_file_prefix(line, pos) {
+            let matches = crate::file_ref::complete_file_ref(&file_prefix)
+                .into_iter()
+                .map(|path| Pair {
+                    display: path.clone(),
+                    replacement: format!("@{}", path),
+                })
+                .collect();
+            // Return the start position as where the @ begins
+            let at_pos = pos - file_prefix.len() - 1; // -1 for the @ itself
+            return Ok((at_pos, matches));
+        }
+
+        // Fall back to slash command completion
         let Some(prefix) = slash_command_prefix(line, pos) else {
             return Ok((0, Vec::new()));
         };
@@ -210,6 +225,33 @@ fn slash_command_prefix(line: &str, pos: usize) -> Option<&str> {
     Some(prefix)
 }
 
+/// Extract the file path portion after `@` at the end of the line for completion.
+/// Returns `Some(path_portion)` if the cursor is at the end of an `@path` fragment.
+fn at_file_prefix(line: &str, pos: usize) -> Option<String> {
+    if pos != line.len() {
+        return None;
+    }
+
+    let before_cursor = &line[..pos];
+
+    // Find the last `@` in the line
+    let at_pos = before_cursor.rfind('@')?;
+
+    // The @ must be preceded by whitespace or be at start of line
+    if at_pos > 0 {
+        let before_at = &before_cursor[..at_pos];
+        if !before_at.is_empty() {
+            let last_char = before_at.chars().last()?;
+            if !last_char.is_whitespace() {
+                return None;
+            }
+        }
+    }
+
+    let path_portion = &before_cursor[at_pos + 1..];
+    Some(path_portion.to_string())
+}
+
 fn normalize_completions(completions: Vec<String>) -> Vec<String> {
     let mut seen = BTreeSet::new();
     completions
@@ -221,7 +263,7 @@ fn normalize_completions(completions: Vec<String>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{slash_command_prefix, LineEditor, SlashCommandHelper};
+    use super::{at_file_prefix, slash_command_prefix, LineEditor, SlashCommandHelper};
     use rustyline::completion::Completer;
     use rustyline::highlight::Highlighter;
     use rustyline::history::{DefaultHistory, History};
@@ -326,5 +368,38 @@ mod tests {
 
         let helper = editor.editor.helper().expect("helper should exist");
         assert_eq!(helper.completions, vec!["/model opus".to_string()]);
+    }
+
+    #[test]
+    fn detects_at_file_prefix() {
+        assert_eq!(at_file_prefix("@src/main", 9), Some("src/main".to_string()));
+    }
+
+    #[test]
+    fn detects_at_file_prefix_empty_path() {
+        assert_eq!(at_file_prefix("@", 1), Some("".to_string()));
+    }
+
+    #[test]
+    fn rejects_at_not_at_end() {
+        assert_eq!(at_file_prefix("@src/main more", 9), None);
+    }
+
+    #[test]
+    fn rejects_at_preceded_by_non_whitespace() {
+        assert_eq!(at_file_prefix("email@host.com", 15), None);
+    }
+
+    #[test]
+    fn detects_at_after_text() {
+        assert_eq!(at_file_prefix("read @src/", 10), Some("src/".to_string()));
+    }
+
+    #[test]
+    fn detects_at_at_start_of_line() {
+        assert_eq!(
+            at_file_prefix("@Cargo.toml", 11),
+            Some("Cargo.toml".to_string())
+        );
     }
 }
