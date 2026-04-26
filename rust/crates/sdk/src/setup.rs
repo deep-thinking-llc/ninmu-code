@@ -80,9 +80,12 @@ pub fn detect_providers() -> Vec<DetectedProvider> {
             "DEEPSEEK_API_KEY",
             "https://platform.deepseek.com/",
         ),
-        DetectedProvider::check("Ollama (local)", "OLLAMA_HOST", "https://ollama.com/"),
-        DetectedProvider::check("vLLM (local)", "VLLM_API_KEY", "https://docs.vllm.ai/"),
-        DetectedProvider::check("Qwen (API)", "QWEN_API_KEY", "https://help.aliyun.com/"),
+        DetectedProvider::check(
+            "Together AI",
+            "TOGETHER_API_KEY",
+            "https://api.together.xyz/",
+        ),
+        DetectedProvider::check("Groq", "GROQ_API_KEY", "https://console.groq.com/"),
     ]
 }
 
@@ -117,16 +120,20 @@ pub fn check_tool(name: &str, version_flag: &str) -> DetectedTool {
     let output = Command::new(name).arg(version_flag).output();
     match output {
         Ok(o) if o.status.success() => {
-            let version = String::from_utf8_lossy(&o.stdout)
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            let version = stdout
                 .lines()
                 .next()
-                .map(|s| s.trim().to_string())
-                .or_else(|| {
-                    String::from_utf8_lossy(&o.stderr)
-                        .lines()
-                        .next()
-                        .map(|s| s.trim().to_string())
-                });
+                .and_then(|s| {
+                    let trimmed = s.trim();
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(trimmed.to_string())
+                    }
+                })
+                .or_else(|| stderr.lines().next().map(|s| s.trim().to_string()));
             DetectedTool {
                 name: name.to_string(),
                 installed: true,

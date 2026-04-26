@@ -77,15 +77,13 @@ impl Notification {
     /// Create a new notification with a generated id and current timestamp.
     #[must_use]
     pub fn new(event: EventType, message: impl Into<String>, severity: Severity) -> Self {
+        let ts = now_ms();
         Self {
-            id: format!(
-                "notif-{}",
-                now_ms()
-            ),
+            id: format!("notif-{ts}"),
             event,
             message: message.into(),
             severity,
-            timestamp_ms: now_ms(),
+            timestamp_ms: ts,
             tags: Vec::new(),
             payload: None,
         }
@@ -142,13 +140,21 @@ pub struct ConsoleSink;
 
 impl NotificationSink for ConsoleSink {
     fn dispatch(&self, notification: &Notification) -> Result<(), String> {
-        eprintln!(
-            "[{}] {}  {}: {}",
-            notification.severity,
-            notification.name(),
-            notification.event_label(),
-            notification.message
-        );
+        let event_label = match &notification.event {
+            EventType::Custom(s) => s.as_str(),
+            _ => "",
+        };
+        if event_label.is_empty() {
+            eprintln!(
+                "[{}] {}: {}",
+                notification.severity, notification.id, notification.message
+            );
+        } else {
+            eprintln!(
+                "[{}] {}  {}: {}",
+                notification.severity, notification.id, event_label, notification.message
+            );
+        }
         Ok(())
     }
 
@@ -173,6 +179,7 @@ impl NotificationSink for FileSink {
             .open(&self.path)
             .map_err(|e| format!("failed to open {:?}: {e}", self.path))?;
         writeln!(file, "{line}").map_err(|e| format!("write failed: {e}"))?;
+        file.flush().map_err(|e| format!("flush failed: {e}"))?;
         Ok(())
     }
 
@@ -263,30 +270,14 @@ pub struct EmailSink {
 
 impl NotificationSink for EmailSink {
     fn dispatch(&self, notification: &Notification) -> Result<(), String> {
-        let subject = format!("[{}] {}", notification.severity, notification.event_label());
-        let body = notification.to_json();
-
-        let mut cmd = Command::new("curl");
-        cmd.arg("--silent")
-            .arg("--show-error")
-            .arg("--max-time")
-            .arg("30")
-            .arg("-X")
-            .arg("POST")
-            .arg("-H")
-            .arg("Content-Type: application/json")
-            .arg("-d")
-            .arg(format!(
-                "{{\"to\": {:?}, \"subject\": \"{subject}\", \"body\": \"{body}\"}}",
-                self.to
-            ));
-
-        // Stub: in production, use an SMTP crate or external mail service API
         eprintln!(
-            "[email] Would send to {:?} via {}:{}",
+            "[email] would send notification to {:?} via {}:{} – not yet implemented",
             self.to, self.smtp_host, self.smtp_port
         );
-        Ok(())
+        Err(format!(
+            "email delivery not implemented (notification: {})",
+            notification.id
+        ))
     }
 
     fn name(&self) -> &str {
@@ -391,15 +382,13 @@ impl NotificationDispatcher {
     }
 
     /// Register a sink with a filter.
-    pub fn register(
-        &mut self, sink: Box<dyn NotificationSink>, filter: NotificationFilter) {
+    pub fn register(&mut self, sink: Box<dyn NotificationSink>, filter: NotificationFilter) {
         self.sinks.push(SinkRegistration { sink, filter });
     }
 
     /// Dispatch a notification to all matching sinks.
     /// Returns a vector of (sink_name, result) for diagnostics.
-    pub fn dispatch(
-        &self, notification: &Notification) -> Vec<(&str, Result<(), String>)> {
+    pub fn dispatch(&self, notification: &Notification) -> Vec<(&str, Result<(), String>)> {
         self.sinks
             .iter()
             .filter(|reg| reg.filter.matches(notification))
@@ -477,8 +466,8 @@ mod tests {
 
     #[test]
     fn notification_builder_with_tag() {
-        let n = Notification::new(EventType::TurnComplete, "msg", Severity::Info)
-            .with_tag("agent-1");
+        let n =
+            Notification::new(EventType::TurnComplete, "msg", Severity::Info).with_tag("agent-1");
         assert_eq!(n.tags, vec!["agent-1"]);
     }
 
@@ -503,8 +492,8 @@ mod tests {
     #[test]
     fn filter_required_tags() {
         let filter = NotificationFilter::default().require_tag("urgent");
-        let tagged = Notification::new(EventType::ReviewRequired, "msg", Severity::Info)
-            .with_tag("urgent");
+        let tagged =
+            Notification::new(EventType::ReviewRequired, "msg", Severity::Info).with_tag("urgent");
         let plain = test_notification(EventType::ReviewRequired, Severity::Info);
         assert!(filter.matches(&tagged));
         assert!(!filter.matches(&plain));
@@ -552,11 +541,15 @@ mod tests {
             NotificationFilter::default().allow_event(EventType::TurnComplete),
         );
 
-        let matched = dispatcher.dispatch(&test_notification(EventType::TurnComplete, Severity::Info));
+        let matched =
+            dispatcher.dispatch(&test_notification(EventType::TurnComplete, Severity::Info));
         assert_eq!(matched.len(), 1);
         assert_eq!(count.load(Ordering::SeqCst), 1);
 
-        let unmatched = dispatcher.dispatch(&test_notification(EventType::SessionStarted, Severity::Info));
+        let unmatched = dispatcher.dispatch(&test_notification(
+            EventType::SessionStarted,
+            Severity::Info,
+        ));
         assert_eq!(unmatched.len(), 0);
     }
 
@@ -581,7 +574,7 @@ mod tests {
     }
 
     #[test]
-    fn email_sink_stub_runs() {
+    fn email_sink_returns_unimplemented_error() {
         let sink = EmailSink {
             smtp_host: "smtp.test".to_string(),
             smtp_port: 587,
@@ -591,13 +584,13 @@ mod tests {
             password: None,
         };
         let n = test_notification(EventType::ProviderError, Severity::Error);
-        assert!(sink.dispatch(&n).is_ok());
+        assert!(sink.dispatch(&n).is_err());
     }
 
     #[test]
     fn notification_serde_round_trip() {
-        let n = Notification::new(EventType::ReviewApproved, "lgtm", Severity::Info)
-            .with_tag("team-a");
+        let n =
+            Notification::new(EventType::ReviewApproved, "lgtm", Severity::Info).with_tag("team-a");
         let json = serde_json::to_string(&n).expect("serialize");
         let parsed: Notification = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(parsed.id, n.id);
