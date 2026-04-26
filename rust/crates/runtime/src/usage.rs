@@ -104,6 +104,36 @@ pub fn pricing_for_model(model: &str) -> Option<ModelPricing> {
             cache_read_cost_per_million: 0.0,
         });
     }
+    // Mistral models
+    // Source: https://mistral.ai/en/products/la-plateforme#pricing
+    if normalized.contains("mistral") {
+        return Some(ModelPricing {
+            input_cost_per_million: 2.0,
+            output_cost_per_million: 6.0,
+            cache_creation_cost_per_million: 0.0,
+            cache_read_cost_per_million: 0.0,
+        });
+    }
+    // Google Gemini models
+    // Source: https://ai.google.dev/pricing
+    if normalized.contains("gemini") {
+        return Some(ModelPricing {
+            input_cost_per_million: 1.25,
+            output_cost_per_million: 10.0,
+            cache_creation_cost_per_million: 0.0,
+            cache_read_cost_per_million: 0.0,
+        });
+    }
+    // Cohere models
+    // Source: https://cohere.com/pricing
+    if normalized.contains("command-r") {
+        return Some(ModelPricing {
+            input_cost_per_million: 2.50,
+            output_cost_per_million: 10.0,
+            cache_creation_cost_per_million: 0.0,
+            cache_read_cost_per_million: 0.0,
+        });
+    }
     None
 }
 
@@ -315,6 +345,12 @@ fn per_provider_label(model: &str) -> String {
         "Qwen".to_string()
     } else if lower.contains("kimi") {
         "Kimi".to_string()
+    } else if lower.contains("mistral") {
+        "Mistral".to_string()
+    } else if lower.contains("gemini") {
+        "Gemini".to_string()
+    } else if lower.contains("command-r") {
+        "Cohere".to_string()
     } else {
         model.to_string()
     }

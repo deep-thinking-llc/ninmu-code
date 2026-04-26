@@ -2358,3 +2358,31 @@ mod tests {
         fs::remove_dir_all(root).expect("cleanup");
     }
 }
+
+/// Merge provider-specific defaults into a request's max_tokens, temperature,
+/// top_p, and reasoning_effort fields. Only fills in values that are `None`
+/// on the request, so explicit CLI flags always take precedence.
+pub fn apply_provider_defaults(
+    max_tokens: &mut Option<u32>,
+    temperature: &mut Option<f64>,
+    top_p: &mut Option<f64>,
+    reasoning_effort: &mut Option<String>,
+    model: &str,
+    config: &RuntimeConfig,
+) {
+    let Some(defaults) = config.provider_defaults_for_model(model) else {
+        return;
+    };
+    if max_tokens.is_none() {
+        *max_tokens = defaults.max_tokens;
+    }
+    if temperature.is_none() {
+        *temperature = defaults.temperature_f64();
+    }
+    if top_p.is_none() {
+        *top_p = defaults.top_p_f64();
+    }
+    if reasoning_effort.is_none() {
+        *reasoning_effort = defaults.reasoning_effort.clone();
+    }
+}
