@@ -220,7 +220,10 @@ impl WebhookSink {
 
 impl NotificationSink for WebhookSink {
     fn dispatch(&self, notification: &Notification) -> Result<(), String> {
-        let payload = notification.to_json();
+        // Use compact JSON, not pretty-printed, for webhooks.
+        let payload = serde_json::to_string(notification)
+            .map_err(|e| format!("serialization failed: {e}"))?;
+
         let mut cmd = Command::new("curl");
         cmd.arg("--silent")
             .arg("--show-error")
@@ -230,15 +233,26 @@ impl NotificationSink for WebhookSink {
             .arg("POST")
             .arg("-H")
             .arg("Content-Type: application/json")
+            // Pass data via stdin to avoid curl @filename injection.
             .arg("-d")
-            .arg(&payload)
-            .arg(&self.url);
+            .arg("@-")
+            .arg(&self.url)
+            .stdin(std::process::Stdio::piped());
 
         if let Some(auth) = &self.auth_header {
             cmd.arg("-H").arg(format!("Authorization: {auth}"));
         }
 
-        let output = cmd.output().map_err(|e| format!("curl failed: {e}"))?;
+        let mut child =
+            cmd.spawn().map_err(|e| format!("curl failed to start: {e}"))?;
+        if let Some(mut stdin) = child.stdin.take() {
+            std::io::Write::write_all(&mut stdin, payload.as_bytes())
+                .and_then(|_| stdin.flush())
+                .map_err(|e| format!("failed to write payload: {e}"))?;
+        }
+        let output = child
+            .wait_with_output()
+            .map_err(|e| format!("curl failed: {e}"))?;
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(format!("webhook returned {}: {stderr}", output.status));
