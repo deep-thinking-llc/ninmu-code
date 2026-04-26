@@ -28,6 +28,7 @@ mod agent_context;
 mod event_bus;
 mod extension;
 mod notification;
+mod orchestrator;
 mod resource_loader;
 mod review;
 #[cfg(feature = "rpc")]
@@ -48,6 +49,9 @@ pub use extension::{Extension, ExtensionRegistry, SimpleExtension};
 pub use notification::{
     ConsoleSink, EmailSink, EventType, FileSink, Notification, NotificationDispatcher,
     NotificationFilter, NotificationSink, Severity, SinkRegistration, WebhookSink,
+};
+pub use orchestrator::{
+    AgentDefinition, AgentOrchestrator, OrchestratedTask, ResourceLock, TaskState,
 };
 pub use resource_loader::{DefaultResourceLoader, ResourceLoader};
 pub use review::{
