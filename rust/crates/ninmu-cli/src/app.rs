@@ -2052,7 +2052,10 @@ impl AnthropicRuntimeClient {
             | ProviderKind::DeepSeek
             | ProviderKind::Ollama
             | ProviderKind::Qwen
-            | ProviderKind::Vllm => {
+            | ProviderKind::Vllm
+            | ProviderKind::Mistral
+            | ProviderKind::Gemini
+            | ProviderKind::Cohere => {
                 ApiProviderClient::from_model_with_anthropic_auth(&resolved_model, None)?
             }
         };
