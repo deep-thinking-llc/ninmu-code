@@ -47,6 +47,7 @@ class PortingWorkspaceTests(unittest.TestCase):
         if audit.archive_present:
             self.assertEqual(audit.root_file_coverage[0], audit.root_file_coverage[1])
             self.assertGreaterEqual(audit.directory_coverage[0], 28)
+            self.assertEqual(audit.collapsed_dir_coverage, (6, 6))
             self.assertGreaterEqual(audit.command_entry_ratio[0], 150)
             self.assertGreaterEqual(audit.tool_entry_ratio[0], 100)
 

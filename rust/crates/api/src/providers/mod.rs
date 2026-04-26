@@ -1,35 +1,13 @@
 #![allow(clippy::cast_possible_truncation)]
-use std::future::Future;
-use std::pin::Pin;
 
 use serde::Serialize;
 
 use crate::error::ApiError;
-use crate::types::{MessageRequest, MessageResponse};
+use crate::types::MessageRequest;
 
 pub mod anthropic;
 pub mod models_file;
 pub mod openai_compat;
-
-/// Type-erased future returned by [`Provider`] implementations.
-#[allow(dead_code)]
-pub type ProviderFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, ApiError>> + Send + 'a>>;
-
-/// Abstraction over an AI provider backend (Anthropic, OpenAI-compat, etc.).
-#[allow(dead_code)]
-pub trait Provider {
-    type Stream;
-
-    fn send_message<'a>(
-        &'a self,
-        request: &'a MessageRequest,
-    ) -> ProviderFuture<'a, MessageResponse>;
-
-    fn stream_message<'a>(
-        &'a self,
-        request: &'a MessageRequest,
-    ) -> ProviderFuture<'a, Self::Stream>;
-}
 
 /// Identifies which AI provider backend to use for a given model.
 ///

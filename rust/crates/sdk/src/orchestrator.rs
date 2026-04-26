@@ -699,7 +699,7 @@ mod tests {
 
     #[test]
     fn global_context_is_shared() {
-        let mut orch = AgentOrchestrator::new();
+        let orch = AgentOrchestrator::new();
         orch.global_context().set("key", "value");
         assert_eq!(orch.global_context().get("key"), Some("value".to_string()));
     }
