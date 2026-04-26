@@ -5641,6 +5641,7 @@ UU conflicted.rs",
             "read_file",
             r#"{"file":{"filePath":"src/main.rs","content":"hello","numLines":1,"startLine":1,"totalLines":1}}"#,
             false,
+            None,
         );
         assert!(done.contains("read src/main.rs"));
         assert!(done.contains("hello"));
@@ -5663,7 +5664,7 @@ UU conflicted.rs",
         })
         .to_string();
 
-        let rendered = format_tool_result("read_file", &output, false);
+        let rendered = format_tool_result("read_file", &output, false, None);
 
         assert!(rendered.contains("line 000"));
         assert!(rendered.contains("line 079"));
@@ -5685,7 +5686,7 @@ UU conflicted.rs",
         })
         .to_string();
 
-        let rendered = format_tool_result("bash", &output, false);
+        let rendered = format_tool_result("bash", &output, false, None);
 
         assert!(rendered.contains("stdout 000"));
         assert!(rendered.contains("stdout 009"));
@@ -5706,7 +5707,7 @@ UU conflicted.rs",
         })
         .to_string();
 
-        let rendered = format_tool_result("plugin_echo", &output, false);
+        let rendered = format_tool_result("plugin_echo", &output, false, None);
 
         assert!(rendered.contains("plugin_echo"));
         assert!(rendered.contains("payload 000"));
@@ -5725,7 +5726,7 @@ UU conflicted.rs",
             .collect::<Vec<_>>()
             .join("\n");
 
-        let rendered = format_tool_result("plugin_echo", &output, false);
+        let rendered = format_tool_result("plugin_echo", &output, false, None);
 
         assert!(rendered.contains("plugin_echo"));
         assert!(rendered.contains("raw 000"));

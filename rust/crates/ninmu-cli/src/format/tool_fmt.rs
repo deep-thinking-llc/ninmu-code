@@ -10,6 +10,10 @@ const DISPLAY_TRUNCATION_NOTICE: &str =
 const READ_DISPLAY_MAX_LINES: usize = 80;
 const READ_DISPLAY_MAX_CHARS: usize = 6_000;
 
+/// A callback that applies syntax highlighting to code content.
+/// Takes (content, language_hint) and returns ANSI-highlighted string.
+pub(crate) type HighlightFn<'a> = Option<&'a dyn Fn(&str, &str) -> String>;
+
 pub(crate) fn format_tool_call_start(name: &str, input: &str) -> String {
     let parsed: serde_json::Value =
         serde_json::from_str(input).unwrap_or(serde_json::Value::String(input.to_string()));
@@ -77,7 +81,12 @@ pub(crate) fn format_tool_call_start(name: &str, input: &str) -> String {
     )
 }
 
-pub(crate) fn format_tool_result(name: &str, output: &str, is_error: bool) -> String {
+pub(crate) fn format_tool_result(
+    name: &str,
+    output: &str,
+    is_error: bool,
+    highlight: HighlightFn,
+) -> String {
     let icon = if is_error {
         format!("{}fail{}", Theme::ERROR, Theme::RESET)
     } else {
@@ -103,8 +112,8 @@ pub(crate) fn format_tool_result(name: &str, output: &str, is_error: bool) -> St
     let parsed: serde_json::Value =
         serde_json::from_str(output).unwrap_or(serde_json::Value::String(output.to_string()));
     match name {
-        "bash" | "Bash" => format_bash_result(&icon, &parsed),
-        "read_file" | "Read" => format_read_result(&icon, &parsed),
+        "bash" | "Bash" => format_bash_result(&icon, &parsed, highlight),
+        "read_file" | "Read" => format_read_result(&icon, &parsed, highlight),
         "write_file" | "Write" => format_write_result(&icon, &parsed),
         "edit_file" | "Edit" => format_edit_result(&icon, &parsed),
         "glob_search" | "Glob" => format_glob_result(&icon, &parsed),
@@ -173,7 +182,11 @@ pub(crate) fn first_visible_line(text: &str) -> &str {
         .unwrap_or(text)
 }
 
-pub(crate) fn format_bash_result(icon: &str, parsed: &serde_json::Value) -> String {
+pub(crate) fn format_bash_result(
+    icon: &str,
+    parsed: &serde_json::Value,
+    highlight: HighlightFn,
+) -> String {
     let mut lines = vec![format!("{icon} {}{}{}", Theme::MUTED, "bash", Theme::RESET)];
     if let Some(task_id) = parsed
         .get("backgroundTaskId")
@@ -191,7 +204,8 @@ pub(crate) fn format_bash_result(icon: &str, parsed: &serde_json::Value) -> Stri
     let config = ToolDisplayConfig::default();
     if let Some(stdout) = parsed.get("stdout").and_then(|value| value.as_str()) {
         if !stdout.trim().is_empty() {
-            let collapsed = collapse_tool_output(stdout, "bash", false, &config);
+            let output = apply_highlight(stdout, highlight);
+            let collapsed = collapse_tool_output(&output, "bash", false, &config);
             lines.push(collapsed.visible);
         }
     }
@@ -210,7 +224,11 @@ pub(crate) fn format_bash_result(icon: &str, parsed: &serde_json::Value) -> Stri
     lines.join("\n\n")
 }
 
-pub(crate) fn format_read_result(icon: &str, parsed: &serde_json::Value) -> String {
+pub(crate) fn format_read_result(
+    icon: &str,
+    parsed: &serde_json::Value,
+    highlight: HighlightFn,
+) -> String {
     let file = parsed.get("file").unwrap_or(parsed);
     let path = extract_tool_path(file);
     let start_line = file
@@ -231,6 +249,23 @@ pub(crate) fn format_read_result(icon: &str, parsed: &serde_json::Value) -> Stri
         .unwrap_or_default();
     let end_line = start_line.saturating_add(num_lines.saturating_sub(1));
 
+    // Determine language from file extension for highlighting
+    let language = path
+        .rsplit('.')
+        .next()
+        .filter(|ext| !ext.contains('/') && !ext.contains('\\'))
+        .unwrap_or("");
+
+    let display_content = if let Some(hl) = highlight {
+        if !language.is_empty() {
+            hl(content, language)
+        } else {
+            content.to_string()
+        }
+    } else {
+        content.to_string()
+    };
+
     format!(
         "{icon} {}read {path} (lines {}-{} of {}){}\n{}",
         Theme::DIM,
@@ -238,7 +273,11 @@ pub(crate) fn format_read_result(icon: &str, parsed: &serde_json::Value) -> Stri
         end_line.max(start_line),
         total_lines,
         Theme::RESET,
-        truncate_output_for_display(content, READ_DISPLAY_MAX_LINES, READ_DISPLAY_MAX_CHARS)
+        truncate_output_for_display(
+            &display_content,
+            READ_DISPLAY_MAX_LINES,
+            READ_DISPLAY_MAX_CHARS
+        )
     )
 }
 
@@ -482,4 +521,14 @@ pub(crate) fn truncate_output_for_display(
         preview.push_str(DISPLAY_TRUNCATION_NOTICE);
     }
     preview
+}
+
+/// Apply syntax highlighting to content if a highlighter function is available.
+fn apply_highlight(content: &str, highlight: HighlightFn) -> String {
+    if let Some(hl) = highlight {
+        // Use "bash" as default language for bash output, fallback to "sh"
+        hl(content, "bash")
+    } else {
+        content.to_string()
+    }
 }

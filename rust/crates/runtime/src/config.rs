@@ -2370,7 +2370,7 @@ mod tests {
             ProviderDefaultConfig {
                 max_tokens: Some(8192),
                 temperature: Some(70), // 0.70
-                top_p: Some(95),        // 0.95
+                top_p: Some(95),       // 0.95
                 reasoning_effort: None,
             },
         );

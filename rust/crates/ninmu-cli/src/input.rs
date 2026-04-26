@@ -20,16 +20,36 @@ pub enum ReadOutcome {
     Exit,
 }
 
+/// External data provider for argument completion.
+/// Set on the LineEditor at construction time.
+pub struct CompletionProvider {
+    /// Function that returns available model names for completion.
+    pub model_names: Vec<String>,
+    /// Function that returns available session IDs for completion.
+    pub session_ids: Vec<String>,
+}
+
+impl Default for CompletionProvider {
+    fn default() -> Self {
+        Self {
+            model_names: Vec::new(),
+            session_ids: Vec::new(),
+        }
+    }
+}
+
 struct SlashCommandHelper {
     completions: Vec<String>,
     current_line: RefCell<String>,
+    provider: CompletionProvider,
 }
 
 impl SlashCommandHelper {
-    fn new(completions: Vec<String>) -> Self {
+    fn new(completions: Vec<String>, provider: CompletionProvider) -> Self {
         Self {
             completions: normalize_completions(completions),
             current_line: RefCell::new(String::new()),
+            provider,
         }
     }
 
@@ -50,6 +70,109 @@ impl SlashCommandHelper {
     fn set_completions(&mut self, completions: Vec<String>) {
         self.completions = normalize_completions(completions);
     }
+
+    fn set_provider(&mut self, provider: CompletionProvider) {
+        self.provider = provider;
+    }
+
+    /// Complete file paths for commands that accept file arguments.
+    fn complete_file_arg(&self, prefix: &str) -> Vec<Pair> {
+        let file_matches = crate::file_ref::complete_file_ref(prefix);
+        file_matches
+            .into_iter()
+            .map(|path| Pair {
+                display: path.clone(),
+                replacement: path,
+            })
+            .collect()
+    }
+
+    /// Complete model names.
+    fn complete_model_arg(&self, prefix: &str) -> Vec<Pair> {
+        // Built-in aliases
+        let mut candidates: Vec<String> = vec![
+            "opus".to_string(),
+            "sonnet".to_string(),
+            "haiku".to_string(),
+            "claude-opus-4-6".to_string(),
+            "claude-sonnet-4-6".to_string(),
+            "claude-haiku-4-5-20251213".to_string(),
+        ];
+        // From provider
+        candidates.extend(self.provider.model_names.clone());
+
+        candidates
+            .into_iter()
+            .filter(|c| c.starts_with(prefix))
+            .map(|candidate| Pair {
+                display: candidate.clone(),
+                replacement: candidate,
+            })
+            .collect()
+    }
+
+    /// Complete session IDs.
+    fn complete_session_arg(&self, prefix: &str) -> Vec<Pair> {
+        self.provider
+            .session_ids
+            .iter()
+            .filter(|id| id.starts_with(prefix))
+            .map(|id| Pair {
+                display: id.clone(),
+                replacement: id.clone(),
+            })
+            .collect()
+    }
+
+    /// Detect argument command from the line and return a (completer_fn, arg_prefix) or None.
+    fn try_argument_completion(&self, line: &str, pos: usize) -> Option<Vec<Pair>> {
+        if pos != line.len() || !line.starts_with('/') {
+            return None;
+        }
+
+        let parts: Vec<&str> = line.splitn(3, ' ').collect();
+        match parts.len() {
+            2 => {
+                // "command " with trailing space or "command partial"
+                let (cmd, arg) = (parts[0], parts[1]);
+                match cmd {
+                    "/export" | "/memory" => {
+                        let prefix = if line.ends_with(' ') { "" } else { arg };
+                        Some(self.complete_file_arg(prefix))
+                    }
+                    "/model" | "/permissions" => {
+                        // permissions only supports read-only, workspace-write, danger-full-access
+                        if cmd == "/model" {
+                            let prefix = if line.ends_with(' ') { "" } else { arg };
+                            Some(self.complete_model_arg(prefix))
+                        } else {
+                            // /permissions has fixed values, already in completions list
+                            None
+                        }
+                    }
+                    "/session" | "/resume" => {
+                        // /resume <session-id>
+                        // /session switch <session-id>
+                        let prefix = if line.ends_with(' ') { "" } else { arg };
+                        Some(self.complete_session_arg(prefix))
+                    }
+                    _ => None,
+                }
+            }
+            3 => {
+                // "command subcommand argument"
+                let (cmd, sub, arg) = (parts[0], parts[1], parts[2]);
+                match (cmd, sub) {
+                    ("/session", "switch") => {
+                        let prefix = if line.ends_with(' ') { "" } else { arg };
+                        Some(self.complete_session_arg(prefix))
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 impl Completer for SlashCommandHelper {
@@ -63,16 +186,31 @@ impl Completer for SlashCommandHelper {
     ) -> rustyline::Result<(usize, Vec<Self::Candidate>)> {
         // Try @-file completion first
         if let Some(file_prefix) = at_file_prefix(line, pos) {
-            let matches = crate::file_ref::complete_file_ref(&file_prefix)
-                .into_iter()
-                .map(|path| Pair {
-                    display: path.clone(),
-                    replacement: format!("@{}", path),
-                })
-                .collect();
-            // Return the start position as where the @ begins
-            let at_pos = pos - file_prefix.len() - 1; // -1 for the @ itself
-            return Ok((at_pos, matches));
+            let file_matches = crate::file_ref::complete_file_ref(&file_prefix);
+            if !file_matches.is_empty() {
+                // start = byte offset right after the @ character.
+                // rustyline replaces line[start..pos] with Pair.replacement.
+                // For "@src" (pos=4, prefix="src"): start=1, replace "src" with "src/main.rs"
+                // For "hello @s" (pos=8, prefix="s"): start=7, replace "s" with "rc/main.rs"
+                let start = pos.saturating_sub(file_prefix.len());
+                let matches: Vec<Pair> = file_matches
+                    .into_iter()
+                    .map(|path| Pair {
+                        display: path.clone(),
+                        replacement: path,
+                    })
+                    .collect();
+                return Ok((start, matches));
+            }
+        }
+
+        // Try argument-aware completion for known slash commands
+        if let Some(arg_matches) = self.try_argument_completion(line, pos) {
+            if !arg_matches.is_empty() {
+                // Determine the start position for replacement
+                let last_space = line[0..pos].rfind(' ').map(|i| i + 1).unwrap_or(0);
+                return Ok((last_space, arg_matches));
+            }
         }
 
         // Fall back to slash command completion
@@ -96,6 +234,21 @@ impl Completer for SlashCommandHelper {
 
 impl Hinter for SlashCommandHelper {
     type Hint = String;
+
+    fn hint(&self, line: &str, pos: usize, _ctx: &Context<'_>) -> Option<String> {
+        // Show inline hint when typing after @
+        if let Some(file_prefix) = at_file_prefix(line, pos) {
+            let matches = crate::file_ref::complete_file_ref(&file_prefix);
+            if let Some(first) = matches.first() {
+                // Show remaining characters of first match as dim hint
+                let suffix = &first[file_prefix.len()..];
+                if !suffix.is_empty() {
+                    return Some(format!("\x1b[2m{suffix}\x1b[0m"));
+                }
+            }
+        }
+        None
+    }
 }
 
 impl Highlighter for SlashCommandHelper {
@@ -120,14 +273,18 @@ pub struct LineEditor {
 
 impl LineEditor {
     #[must_use]
-    pub fn new(prompt: impl Into<String>, completions: Vec<String>) -> Self {
+    pub fn new(
+        prompt: impl Into<String>,
+        completions: Vec<String>,
+        provider: CompletionProvider,
+    ) -> Self {
         let config = Config::builder()
-            .completion_type(CompletionType::List)
+            .completion_type(CompletionType::Circular)
             .edit_mode(EditMode::Emacs)
             .build();
         let mut editor = Editor::<SlashCommandHelper, DefaultHistory>::with_config(config)
             .expect("rustyline editor should initialize");
-        editor.set_helper(Some(SlashCommandHelper::new(completions)));
+        editor.set_helper(Some(SlashCommandHelper::new(completions, provider)));
         editor.bind_sequence(KeyEvent(KeyCode::Char('J'), Modifiers::CTRL), Cmd::Newline);
         editor.bind_sequence(KeyEvent(KeyCode::Enter, Modifiers::SHIFT), Cmd::Newline);
 
@@ -149,6 +306,12 @@ impl LineEditor {
     pub fn set_completions(&mut self, completions: Vec<String>) {
         if let Some(helper) = self.editor.helper_mut() {
             helper.set_completions(completions);
+        }
+    }
+
+    pub fn set_provider(&mut self, provider: CompletionProvider) {
+        if let Some(helper) = self.editor.helper_mut() {
+            helper.set_provider(provider);
         }
     }
 
@@ -263,9 +426,12 @@ fn normalize_completions(completions: Vec<String>) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{at_file_prefix, slash_command_prefix, LineEditor, SlashCommandHelper};
+    use super::{
+        at_file_prefix, slash_command_prefix, CompletionProvider, LineEditor, SlashCommandHelper,
+    };
     use rustyline::completion::Completer;
     use rustyline::highlight::Highlighter;
+    use rustyline::hint::Hinter;
     use rustyline::history::{DefaultHistory, History};
     use rustyline::Context;
 
@@ -283,11 +449,14 @@ mod tests {
 
     #[test]
     fn completes_matching_slash_commands() {
-        let helper = SlashCommandHelper::new(vec![
-            "/help".to_string(),
-            "/hello".to_string(),
-            "/status".to_string(),
-        ]);
+        let helper = SlashCommandHelper::new(
+            vec![
+                "/help".to_string(),
+                "/hello".to_string(),
+                "/status".to_string(),
+            ],
+            CompletionProvider::default(),
+        );
         let history = DefaultHistory::new();
         let ctx = Context::new(&history);
         let (start, matches) = helper
@@ -306,31 +475,36 @@ mod tests {
 
     #[test]
     fn completes_matching_slash_command_arguments() {
-        let helper = SlashCommandHelper::new(vec![
-            "/model".to_string(),
-            "/model opus".to_string(),
-            "/model sonnet".to_string(),
-            "/session switch alpha".to_string(),
-        ]);
+        let helper = SlashCommandHelper::new(
+            vec![
+                "/model".to_string(),
+                "/model opus".to_string(),
+                "/model sonnet".to_string(),
+                "/session switch alpha".to_string(),
+            ],
+            CompletionProvider::default(),
+        );
         let history = DefaultHistory::new();
         let ctx = Context::new(&history);
         let (start, matches) = helper
             .complete("/model o", 8, &ctx)
             .expect("completion should work");
 
-        assert_eq!(start, 0);
-        assert_eq!(
-            matches
-                .into_iter()
-                .map(|candidate| candidate.replacement)
-                .collect::<Vec<_>>(),
-            vec!["/model opus".to_string()]
-        );
+        // Argument-aware completion returns start = position after space (7)
+        assert_eq!(start, 7);
+        assert!(!matches.is_empty());
+        for candidate in &matches {
+            assert!(
+                candidate.replacement.starts_with("opus")
+                    || candidate.replacement.starts_with("sonnet")
+            );
+        }
     }
 
     #[test]
     fn ignores_non_slash_command_completion_requests() {
-        let helper = SlashCommandHelper::new(vec!["/help".to_string()]);
+        let helper =
+            SlashCommandHelper::new(vec!["/help".to_string()], CompletionProvider::default());
         let history = DefaultHistory::new();
         let ctx = Context::new(&history);
         let (_, matches) = helper
@@ -342,7 +516,7 @@ mod tests {
 
     #[test]
     fn tracks_current_buffer_through_highlighter() {
-        let helper = SlashCommandHelper::new(Vec::new());
+        let helper = SlashCommandHelper::new(Vec::new(), CompletionProvider::default());
         let _ = helper.highlight("draft", 5);
 
         assert_eq!(helper.current_line(), "draft");
@@ -350,7 +524,11 @@ mod tests {
 
     #[test]
     fn push_history_ignores_blank_entries() {
-        let mut editor = LineEditor::new("> ", vec!["/help".to_string()]);
+        let mut editor = LineEditor::new(
+            "> ",
+            vec!["/help".to_string()],
+            CompletionProvider::default(),
+        );
         editor.push_history("   ");
         editor.push_history("/help");
 
@@ -359,7 +537,11 @@ mod tests {
 
     #[test]
     fn set_completions_replaces_and_normalizes_candidates() {
-        let mut editor = LineEditor::new("> ", vec!["/help".to_string()]);
+        let mut editor = LineEditor::new(
+            "> ",
+            vec!["/help".to_string()],
+            CompletionProvider::default(),
+        );
         editor.set_completions(vec![
             "/model opus".to_string(),
             "/model opus".to_string(),
@@ -401,5 +583,87 @@ mod tests {
             at_file_prefix("@Cargo.toml", 11),
             Some("Cargo.toml".to_string())
         );
+    }
+
+    // --- @-file completion integration tests ---
+
+    #[test]
+    fn completes_at_file_ref_in_helper() {
+        let helper = SlashCommandHelper::new(Vec::new(), CompletionProvider::default());
+        let history = DefaultHistory::new();
+        let ctx = Context::new(&history);
+        let (start, matches) = helper
+            .complete("@src", 4, &ctx)
+            .expect("completion should work");
+
+        // start should be 1 (right after @), replacements should be just the path
+        assert_eq!(start, 1);
+        assert!(!matches.is_empty());
+        for candidate in &matches {
+            assert!(!candidate.replacement.starts_with('@'));
+            assert!(candidate.replacement.starts_with("src/"));
+        }
+    }
+
+    #[test]
+    fn completes_at_file_ref_with_prefix() {
+        let helper = SlashCommandHelper::new(Vec::new(), CompletionProvider::default());
+        let history = DefaultHistory::new();
+        let ctx = Context::new(&history);
+        let (start, matches) = helper
+            .complete("read @Cargo", 11, &ctx)
+            .expect("completion should work");
+
+        // "read @Cargo" -> prefix="Cargo", start=6 (after @), pos=11
+        assert_eq!(start, 6);
+        assert!(!matches.is_empty());
+        for candidate in &matches {
+            assert!(candidate.replacement.starts_with("Cargo"));
+        }
+    }
+
+    #[test]
+    fn no_at_file_completions_for_unknown_prefix() {
+        let helper = SlashCommandHelper::new(Vec::new(), CompletionProvider::default());
+        let history = DefaultHistory::new();
+        let ctx = Context::new(&history);
+        let (_, matches) = helper
+            .complete("@zzz_nonexistent_prefix_xyz_", 28, &ctx)
+            .expect("completion should work");
+
+        assert!(matches.is_empty());
+    }
+
+    #[test]
+    fn at_file_hint_shows_first_match_suffix() {
+        let helper = SlashCommandHelper::new(Vec::new(), CompletionProvider::default());
+        let history = DefaultHistory::new();
+        let ctx = Context::new(&history);
+        let hint = helper.hint("@src", 4, &ctx);
+
+        // Should hint with remaining path after "src"
+        assert!(hint.is_some(), "hint should appear for @src prefix");
+        let hint = hint.unwrap();
+        assert!(!hint.is_empty(), "hint should be non-empty");
+        // Hint should not include the prefix we already typed
+        assert!(!hint.contains("@src"));
+    }
+
+    #[test]
+    fn at_file_hint_none_for_unknown_prefix() {
+        let helper = SlashCommandHelper::new(Vec::new(), CompletionProvider::default());
+        let history = DefaultHistory::new();
+        let ctx = Context::new(&history);
+        let hint = helper.hint("@zzz_nonexistent_xyz", 21, &ctx);
+        assert!(hint.is_none());
+    }
+
+    #[test]
+    fn at_file_hint_none_when_cursor_not_at_end() {
+        let helper = SlashCommandHelper::new(Vec::new(), CompletionProvider::default());
+        let history = DefaultHistory::new();
+        let ctx = Context::new(&history);
+        let hint = helper.hint("@src/main.rs", 5, &ctx);
+        assert!(hint.is_none());
     }
 }
