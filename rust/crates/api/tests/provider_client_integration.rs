@@ -234,3 +234,34 @@ fn provider_client_fallback_uses_primary_when_available() {
     assert_eq!(model, "deepseek-chat");
     assert_eq!(client.provider_kind(), ProviderKind::DeepSeek);
 }
+
+#[test]
+fn provider_client_routes_mistral_via_api_key() {
+    let _lock = env_lock();
+    let _mistral = EnvVarGuard::set("MISTRAL_API_KEY", Some("sk-test"));
+    let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", None);
+    let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+    let client =
+        ProviderClient::from_model("mistral-large-latest").expect("mistral-large should resolve");
+    assert_eq!(client.provider_kind(), ProviderKind::Mistral);
+}
+
+#[test]
+fn provider_client_routes_gemini_via_api_key() {
+    let _lock = env_lock();
+    let _gemini = EnvVarGuard::set("GEMINI_API_KEY", Some("sk-test"));
+    let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", None);
+    let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+    let client = ProviderClient::from_model("gemini-2.5-pro").expect("gemini should resolve");
+    assert_eq!(client.provider_kind(), ProviderKind::Gemini);
+}
+
+#[test]
+fn provider_client_routes_cohere_via_api_key() {
+    let _lock = env_lock();
+    let _cohere = EnvVarGuard::set("COHERE_API_KEY", Some("sk-test"));
+    let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", None);
+    let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+    let client = ProviderClient::from_model("command-r-plus").expect("command-r should resolve");
+    assert_eq!(client.provider_kind(), ProviderKind::Cohere);
+}

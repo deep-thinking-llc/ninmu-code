@@ -145,6 +145,9 @@ const VALID_API_VALUES: &[&str] = &[
     "ollama",
     "qwen",
     "vllm",
+    "mistral",
+    "gemini",
+    "cohere",
 ];
 
 /// Validate that every provider in the models file uses a recognized `api` value.
@@ -316,6 +319,9 @@ pub fn custom_metadata_for_model(model: &str) -> Option<ProviderMetadata> {
         "ollama" => (ProviderKind::Ollama, ""),
         "qwen" => (ProviderKind::Qwen, "QWEN_API_KEY"),
         "vllm" => (ProviderKind::Vllm, ""),
+        "mistral" => (ProviderKind::Mistral, "MISTRAL_API_KEY"),
+        "gemini" => (ProviderKind::Gemini, "GEMINI_API_KEY"),
+        "cohere" => (ProviderKind::Cohere, "COHERE_API_KEY"),
         _ => (ProviderKind::OpenAi, "OPENAI_API_KEY"),
     };
     Some(ProviderMetadata {

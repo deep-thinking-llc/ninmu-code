@@ -29,6 +29,12 @@ pub const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com/v1";
 pub const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434/v1";
 /// Default base URL for local vLLM. Set `VLLM_BASE_URL` to override.
 pub const DEFAULT_VLLM_BASE_URL: &str = "http://localhost:8000/v1";
+/// Default base URL for Mistral API.
+pub const DEFAULT_MISTRAL_BASE_URL: &str = "https://api.mistral.ai/v1";
+/// Default base URL for Google Gemini OpenAI-compat endpoint.
+pub const DEFAULT_GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta";
+/// Default base URL for Cohere API.
+pub const DEFAULT_COHERE_BASE_URL: &str = "https://api.cohere.com/v1";
 const REQUEST_ID_HEADER: &str = "request-id";
 const ALT_REQUEST_ID_HEADER: &str = "x-request-id";
 const DEFAULT_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
@@ -70,6 +76,9 @@ const DEEPSEEK_ENV_VARS: &[&str] = &["DEEPSEEK_API_KEY"];
 const OLLAMA_ENV_VARS: &[&str] = &["OLLAMA_API_KEY"];
 const QWEN_ENV_VARS: &[&str] = &["QWEN_API_KEY"];
 const VLLM_ENV_VARS: &[&str] = &[];
+const MISTRAL_ENV_VARS: &[&str] = &["MISTRAL_API_KEY"];
+const GEMINI_ENV_VARS: &[&str] = &["GEMINI_API_KEY"];
+const COHERE_ENV_VARS: &[&str] = &["COHERE_API_KEY"];
 
 // Provider-specific request body size limits in bytes
 const XAI_MAX_REQUEST_BODY_BYTES: usize = 52_428_800; // 50MB
@@ -79,6 +88,9 @@ const DEEPSEEK_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 const OLLAMA_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB (local, generous)
 const QWEN_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 const VLLM_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB (local, generous)
+const MISTRAL_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
+const GEMINI_MAX_REQUEST_BODY_BYTES: usize = 10_485_760; // 10MB (Gemini has lower limits)
+const COHERE_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 
 impl OpenAiCompatConfig {
     #[must_use]
@@ -194,6 +206,51 @@ impl OpenAiCompatConfig {
         }
     }
 
+    /// Mistral API (`mistral-large`, `mistral-small`, `pixtral`).
+    #[must_use]
+    pub const fn mistral() -> Self {
+        Self {
+            provider_name: "Mistral",
+            api_key_env: "MISTRAL_API_KEY",
+            api_key_fallback_env: "",
+            auth_optional: false,
+            base_url_env: "MISTRAL_BASE_URL",
+            base_url_fallback_env: "",
+            default_base_url: DEFAULT_MISTRAL_BASE_URL,
+            max_request_body_bytes: MISTRAL_MAX_REQUEST_BODY_BYTES,
+        }
+    }
+
+    /// Google Gemini via OpenAI-compat endpoint (`gemini-2.5-pro`, `gemini-2.5-flash`).
+    #[must_use]
+    pub const fn gemini() -> Self {
+        Self {
+            provider_name: "Gemini",
+            api_key_env: "GEMINI_API_KEY",
+            api_key_fallback_env: "",
+            auth_optional: false,
+            base_url_env: "GEMINI_BASE_URL",
+            base_url_fallback_env: "",
+            default_base_url: DEFAULT_GEMINI_BASE_URL,
+            max_request_body_bytes: GEMINI_MAX_REQUEST_BODY_BYTES,
+        }
+    }
+
+    /// Cohere API (`command-r-plus`, `command-r`).
+    #[must_use]
+    pub const fn cohere() -> Self {
+        Self {
+            provider_name: "Cohere",
+            api_key_env: "COHERE_API_KEY",
+            api_key_fallback_env: "",
+            auth_optional: false,
+            base_url_env: "COHERE_BASE_URL",
+            base_url_fallback_env: "",
+            default_base_url: DEFAULT_COHERE_BASE_URL,
+            max_request_body_bytes: COHERE_MAX_REQUEST_BODY_BYTES,
+        }
+    }
+
     #[must_use]
     pub fn credential_env_vars(self) -> &'static [&'static str] {
         match self.provider_name {
@@ -204,6 +261,9 @@ impl OpenAiCompatConfig {
             "Ollama" => OLLAMA_ENV_VARS,
             "Qwen" => QWEN_ENV_VARS,
             "vLLM" => VLLM_ENV_VARS,
+            "Mistral" => MISTRAL_ENV_VARS,
+            "Gemini" => GEMINI_ENV_VARS,
+            "Cohere" => COHERE_ENV_VARS,
             _ => &[],
         }
     }
