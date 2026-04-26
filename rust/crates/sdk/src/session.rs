@@ -7,12 +7,7 @@ use crate::event_bus::{AgentSessionEvent, EventBus, SessionLifecycleEvent, TurnE
 use crate::tool_registry::{SdkToolExecutor, ToolRegistry};
 
 /// Well-known model families for `cycle_model()` rotation.
-const MODEL_CYCLE: &[&str] = &[
-    "claude-sonnet-4-6",
-    "claude-opus-4-6",
-    "gpt-4o",
-    "gpt-5",
-];
+const MODEL_CYCLE: &[&str] = &["claude-sonnet-4-6", "claude-opus-4-6", "gpt-4o", "gpt-5"];
 
 /// A type-erased API client that wraps any `runtime::ApiClient` in a `Box`.
 ///
@@ -32,10 +27,7 @@ impl BoxedApiClient {
 }
 
 impl runtime::ApiClient for BoxedApiClient {
-    fn stream(
-        &mut self,
-        request: ApiRequest,
-    ) -> Result<Vec<AssistantEvent>, RuntimeError> {
+    fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
         self.inner.stream(request)
     }
 }
@@ -46,10 +38,7 @@ impl runtime::ApiClient for BoxedApiClient {
 pub struct DummyApiClient;
 
 impl runtime::ApiClient for DummyApiClient {
-    fn stream(
-        &mut self,
-        _request: ApiRequest,
-    ) -> Result<Vec<AssistantEvent>, RuntimeError> {
+    fn stream(&mut self, _request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
         Err(RuntimeError::new(
             "SDK mode: no API client configured. \
              Provide a real ApiClient via AgentSessionBuilder.",
@@ -322,9 +311,7 @@ impl AgentSession {
             .map_err(|e| RuntimeError::new(e.to_string()))?;
         self.session = self.runtime.session().clone();
         self.event_bus
-            .emit(AgentSessionEvent::TextDelta(format!(
-                "[steer] {message}"
-            )));
+            .emit(AgentSessionEvent::TextDelta(format!("[steer] {message}")));
         Ok(())
     }
 
@@ -335,10 +322,9 @@ impl AgentSession {
     /// Returns an error if the session has been disposed.
     pub fn follow_up(&mut self, message: &str) -> Result<(), RuntimeError> {
         self.ensure_not_disposed()?;
-        self.event_bus
-            .emit(AgentSessionEvent::TextDelta(format!(
-                "[follow-up queued] {message}"
-            )));
+        self.event_bus.emit(AgentSessionEvent::TextDelta(format!(
+            "[follow-up queued] {message}"
+        )));
         Ok(())
     }
 
@@ -349,13 +335,12 @@ impl AgentSession {
         self.ensure_not_disposed()?;
         let previous = std::mem::replace(&mut self.model, model.to_string());
         self.session.model = Some(model.to_string());
-        self.event_bus
-            .emit(AgentSessionEvent::SessionLifecycle(
-                SessionLifecycleEvent::ModelChanged {
-                    previous: previous.clone(),
-                    current: model.to_string(),
-                },
-            ));
+        self.event_bus.emit(AgentSessionEvent::SessionLifecycle(
+            SessionLifecycleEvent::ModelChanged {
+                previous: previous.clone(),
+                current: model.to_string(),
+            },
+        ));
         Ok(previous)
     }
 
@@ -382,10 +367,9 @@ impl AgentSession {
     /// Returns the number of messages removed.
     pub fn compact(&mut self) -> Result<usize, RuntimeError> {
         self.ensure_not_disposed()?;
-        self.event_bus
-            .emit(AgentSessionEvent::SessionLifecycle(
-                SessionLifecycleEvent::CompactionStarted,
-            ));
+        self.event_bus.emit(AgentSessionEvent::SessionLifecycle(
+            SessionLifecycleEvent::CompactionStarted,
+        ));
 
         let CompactionResult {
             compacted_session,
@@ -397,12 +381,11 @@ impl AgentSession {
         *self.runtime.session_mut() = compacted_session;
         self.session = self.runtime.session().clone();
 
-        self.event_bus
-            .emit(AgentSessionEvent::SessionLifecycle(
-                SessionLifecycleEvent::CompactionCompleted {
-                    removed_count: removed_message_count,
-                },
-            ));
+        self.event_bus.emit(AgentSessionEvent::SessionLifecycle(
+            SessionLifecycleEvent::CompactionCompleted {
+                removed_count: removed_message_count,
+            },
+        ));
 
         Ok(removed_message_count)
     }
@@ -435,12 +418,11 @@ impl AgentSession {
             return Ok(());
         }
 
-        self.event_bus
-            .emit(AgentSessionEvent::SessionLifecycle(
-                SessionLifecycleEvent::Closed {
-                    session_id: self.session.session_id.clone(),
-                },
-            ));
+        self.event_bus.emit(AgentSessionEvent::SessionLifecycle(
+            SessionLifecycleEvent::Closed {
+                session_id: self.session.session_id.clone(),
+            },
+        ));
 
         // Clear both the SDK's reference and the runtime's session
         self.session.messages.clear();
@@ -541,7 +523,9 @@ mod tests {
         )
         .expect("session should create");
 
-        session.steer("Focus on the tests").expect("steer should work");
+        session
+            .steer("Focus on the tests")
+            .expect("steer should work");
         let msgs = &session.session().messages;
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].blocks.len(), 1);
@@ -559,7 +543,9 @@ mod tests {
 
         // Subscribe on the session's own event bus
         let sub = session.subscribe();
-        session.follow_up("next task").expect("follow_up should work");
+        session
+            .follow_up("next task")
+            .expect("follow_up should work");
         let event = sub.try_recv().expect("should have event");
         assert!(matches!(event, AgentSessionEvent::TextDelta(t) if t.contains("next task")));
     }

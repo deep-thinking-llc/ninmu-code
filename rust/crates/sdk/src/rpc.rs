@@ -140,11 +140,7 @@ impl<R: BufRead, W: Write> RpcServer<R, W> {
             "session.tree.path" => self.handle_tree_path(&params),
             "events.subscribe" => self.handle_events_subscribe(&params),
             _ => {
-                return self.write_error(
-                    id,
-                    -32601,
-                    &format!("Method not found: {method}"),
-                );
+                return self.write_error(id, -32601, &format!("Method not found: {method}"));
             }
         };
 
@@ -188,7 +184,11 @@ impl<R: BufRead, W: Write> RpcServer<R, W> {
         let mut tree = SessionTree::new();
         tree.set_root(&session_id, "system", None);
 
-        let managed = ManagedSession { session, tree, event_bus };
+        let managed = ManagedSession {
+            session,
+            tree,
+            event_bus,
+        };
         self.sessions.insert(session_id.clone(), managed);
 
         Ok(serde_json::json!({
@@ -217,9 +217,15 @@ impl<R: BufRead, W: Write> RpcServer<R, W> {
                 // Add user + assistant turns to tree atomically on success
                 if let Some(active_id) = managed.tree.active().map(|n| n.id.clone()) {
                     let turn_id = format!("turn-{}", active_id);
-                    if managed.tree.add_child(&turn_id, &active_id, "user", None).is_ok() {
+                    if managed
+                        .tree
+                        .add_child(&turn_id, &active_id, "user", None)
+                        .is_ok()
+                    {
                         let assistant_id = format!("{turn_id}-response");
-                        let _ = managed.tree.add_child(&assistant_id, &turn_id, "assistant", None);
+                        let _ = managed
+                            .tree
+                            .add_child(&assistant_id, &turn_id, "assistant", None);
                     }
                 }
 
@@ -419,7 +425,6 @@ mod tests {
     use super::*;
     use std::io::Cursor;
 
-
     #[test]
     fn parses_session_create_request() {
         let json = r#"{"jsonrpc":"2.0","method":"session.create","params":{"model":"claude-sonnet-4-6","system_prompt":["You are helpful."]},"id":1}"#;
@@ -524,9 +529,7 @@ mod tests {
             serde_json::from_str(lines[1]).expect("second response should parse");
         assert_eq!(resp2.id, Some(2));
         let result2 = resp2.result.expect("should have result");
-        let sessions = result2["sessions"]
-            .as_array()
-            .expect("should be array");
+        let sessions = result2["sessions"].as_array().expect("should be array");
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0]["sessionId"], session_id);
     }
@@ -583,7 +586,10 @@ mod tests {
         let resp: JsonRpcResponse =
             serde_json::from_str(output_str.trim()).expect("response should parse");
         assert_eq!(resp.id, Some(99));
-        assert_eq!(resp.result.expect("should have result")["status"], "shutting_down");
+        assert_eq!(
+            resp.result.expect("should have result")["status"],
+            "shutting_down"
+        );
     }
 
     #[test]

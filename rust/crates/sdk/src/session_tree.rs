@@ -235,7 +235,10 @@ mod tests {
         // Fork at c1 — creates a sibling under r1
         tree.fork_at("c1", "forked-c1b").expect("fork at non-root");
         assert!(tree.get("forked-c1b").is_some());
-        assert_eq!(tree.get("forked-c1b").unwrap().parent_id, Some("r1".to_string()));
+        assert_eq!(
+            tree.get("forked-c1b").unwrap().parent_id,
+            Some("r1".to_string())
+        );
         // Both c1 and forked-c1b are children of r1
         let r1_children = &tree.get("r1").unwrap().children;
         assert!(r1_children.contains(&"c1".to_string()));

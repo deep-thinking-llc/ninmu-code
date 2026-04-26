@@ -16,9 +16,7 @@ use crate::error::ApiError;
 use crate::http_client::build_http_client_or_default;
 use crate::prompt_cache::{PromptCache, PromptCacheRecord, PromptCacheStats};
 
-use super::{
-    anthropic_missing_credentials, model_token_limit, resolve_model_alias,
-};
+use super::{anthropic_missing_credentials, model_token_limit, resolve_model_alias};
 use crate::sse::SseParser;
 use crate::types::{MessageDeltaEvent, MessageRequest, MessageResponse, StreamEvent, Usage};
 

@@ -314,7 +314,10 @@ pub(crate) fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "  ninmu agents")?;
     writeln!(out, "  ninmu mcp")?;
     writeln!(out, "  ninmu skills")?;
-    writeln!(out, "  ninmu system-prompt [--cwd PATH] [--date YYYY-MM-DD]")?;
+    writeln!(
+        out,
+        "  ninmu system-prompt [--cwd PATH] [--date YYYY-MM-DD]"
+    )?;
     writeln!(out, "  ninmu init")?;
     writeln!(
         out,

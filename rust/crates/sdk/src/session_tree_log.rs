@@ -58,10 +58,7 @@ pub enum TreeEntry {
 
     /// A thinking-level change (e.g. from "none" to "extended").
     #[serde(rename = "thinking_level")]
-    ThinkingLevel {
-        node_id: String,
-        level: String,
-    },
+    ThinkingLevel { node_id: String, level: String },
 
     /// A custom/key-value entry for extensions.
     #[serde(rename = "custom")]
@@ -198,9 +195,7 @@ impl SessionTreeLog {
                 TreeEntry::Compaction { node_id: nid, .. } => path_ids.contains(nid),
                 TreeEntry::ModelChange { node_id: nid, .. } => path_ids.contains(nid),
                 TreeEntry::ThinkingLevel { node_id: nid, .. } => path_ids.contains(nid),
-                TreeEntry::Branch {
-                    from_node_id, ..
-                } => path_ids.contains(from_node_id),
+                TreeEntry::Branch { from_node_id, .. } => path_ids.contains(from_node_id),
                 TreeEntry::Custom { node_id: nid, .. } => {
                     nid.as_ref().map_or(false, |id| path_ids.contains(id))
                 }
@@ -236,9 +231,7 @@ impl SessionTreeLog {
                 }
             },
             TreeEntry::Compaction {
-                node_id,
-                parent_id,
-                ..
+                node_id, parent_id, ..
             } => match parent_id {
                 Some(pid) => {
                     self.tree.add_child(
@@ -260,8 +253,7 @@ impl SessionTreeLog {
             } => {
                 self.tree.fork_at(from_node_id, branch_id)?;
                 if let Some(lbl) = label {
-                    self.branch_labels
-                        .insert(branch_id.clone(), lbl.clone());
+                    self.branch_labels.insert(branch_id.clone(), lbl.clone());
                 }
             }
             TreeEntry::ModelChange { node_id, .. } => {
@@ -299,12 +291,13 @@ impl SessionTreeLog {
         if self.path.as_os_str().is_empty() {
             return Ok(());
         }
-        let mut file =
-            fs::OpenOptions::new().append(true).create(true).open(&self.path).map_err(
-                |e| format!("failed to open session log {:?}: {e}", self.path),
-            )?;
-        let mut line = serde_json::to_string(entry)
-            .map_err(|e| format!("failed to serialize entry: {e}"))?;
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(&self.path)
+            .map_err(|e| format!("failed to open session log {:?}: {e}", self.path))?;
+        let mut line =
+            serde_json::to_string(entry).map_err(|e| format!("failed to serialize entry: {e}"))?;
         line.push('\n');
         file.write_all(line.as_bytes())
             .map_err(|e| format!("failed to write entry: {e}"))?;
@@ -922,10 +915,13 @@ mod tests {
 
         // Active path is r1 → c1 → c2 (b1 is a fork, not on main path)
         let ctx = log.build_session_context();
-        let ctx_ids: Vec<&str> = ctx.iter().map(|e| match e {
-            TreeEntry::Message { node_id, .. } => node_id.as_str(),
-            _ => "other",
-        }).collect();
+        let ctx_ids: Vec<&str> = ctx
+            .iter()
+            .map(|e| match e {
+                TreeEntry::Message { node_id, .. } => node_id.as_str(),
+                _ => "other",
+            })
+            .collect();
         assert_eq!(ctx_ids, vec!["r1", "c1", "c2"]);
     }
 
@@ -1164,7 +1160,10 @@ mod tests {
             .iter()
             .filter(|e| matches!(e, TreeEntry::Custom { .. }))
             .count();
-        assert_eq!(custom_count, 1, "should include only the custom with matching node_id");
+        assert_eq!(
+            custom_count, 1,
+            "should include only the custom with matching node_id"
+        );
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -1199,7 +1198,10 @@ mod tests {
             content: "Duplicate".to_string(),
             label: None,
         });
-        assert!(result.is_err(), "duplicate node_id as child should be rejected");
+        assert!(
+            result.is_err(),
+            "duplicate node_id as child should be rejected"
+        );
     }
 
     // --- build_session_context with compaction on path ---

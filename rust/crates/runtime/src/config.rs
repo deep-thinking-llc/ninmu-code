@@ -64,6 +64,7 @@ pub struct RuntimeFeatureConfig {
     permission_rules: RuntimePermissionRuleConfig,
     sandbox: SandboxConfig,
     provider_fallbacks: ProviderFallbackConfig,
+    provider_defaults: BTreeMap<String, ProviderDefaultConfig>,
     trusted_roots: Vec<String>,
     startup_banner: Option<String>,
 }
@@ -75,6 +76,33 @@ pub struct RuntimeFeatureConfig {
 pub struct ProviderFallbackConfig {
     primary: Option<String>,
     fallbacks: Vec<String>,
+}
+
+/// Per-provider default overrides for request parameters.
+///
+/// Keys match provider labels: `"deepseek"`, `"ollama"`, `"openai"`, etc.
+/// When the resolved model routes to a provider with an entry here, the
+/// provider-specific defaults override the global settings.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ProviderDefaultConfig {
+    pub max_tokens: Option<u32>,
+    /// Temperature in hundredths (e.g. 70 = 0.70).
+    pub temperature: Option<u32>,
+    /// Top-p in hundredths (e.g. 95 = 0.95).
+    pub top_p: Option<u32>,
+    pub reasoning_effort: Option<String>,
+}
+
+impl ProviderDefaultConfig {
+    #[must_use]
+    pub fn temperature_f64(&self) -> Option<f64> {
+        self.temperature.map(|t| f64::from(t) / 100.0)
+    }
+
+    #[must_use]
+    pub fn top_p_f64(&self) -> Option<f64> {
+        self.top_p.map(|p| f64::from(p) / 100.0)
+    }
 }
 
 /// Hook command lists grouped by lifecycle stage.
@@ -315,6 +343,7 @@ impl ConfigLoader {
             permission_rules: parse_optional_permission_rules(&merged_value)?,
             sandbox: parse_optional_sandbox_config(&merged_value)?,
             provider_fallbacks: parse_optional_provider_fallbacks(&merged_value)?,
+            provider_defaults: parse_optional_provider_defaults(&merged_value)?,
             trusted_roots: parse_optional_trusted_roots(&merged_value)?,
             startup_banner: parse_optional_startup_banner(&merged_value),
         };
@@ -413,6 +442,11 @@ impl RuntimeConfig {
     }
 
     #[must_use]
+    pub fn provider_defaults(&self) -> &BTreeMap<String, ProviderDefaultConfig> {
+        &self.feature_config.provider_defaults
+    }
+
+    #[must_use]
     pub fn trusted_roots(&self) -> &[String] {
         &self.feature_config.trusted_roots
     }
@@ -484,6 +518,11 @@ impl RuntimeFeatureConfig {
     #[must_use]
     pub fn provider_fallbacks(&self) -> &ProviderFallbackConfig {
         &self.provider_fallbacks
+    }
+
+    #[must_use]
+    pub fn provider_defaults(&self) -> &BTreeMap<String, ProviderDefaultConfig> {
+        &self.provider_defaults
     }
 
     #[must_use]
@@ -911,6 +950,62 @@ fn parse_optional_provider_fallbacks(
     Ok(ProviderFallbackConfig { primary, fallbacks })
 }
 
+fn parse_optional_provider_defaults(
+    root: &JsonValue,
+) -> Result<BTreeMap<String, ProviderDefaultConfig>, ConfigError> {
+    let Some(object) = root.as_object() else {
+        return Ok(BTreeMap::new());
+    };
+    let Some(providers_value) = object.get("providers") else {
+        return Ok(BTreeMap::new());
+    };
+    let providers_obj = expect_object(providers_value, "merged settings.providers")?;
+    let mut defaults = BTreeMap::new();
+    for (provider_key, provider_value) in providers_obj {
+        let entry = expect_object(
+            provider_value,
+            &format!("merged settings.providers.{provider_key}"),
+        )?;
+        let max_tokens = optional_u32(
+            entry,
+            "maxTokens",
+            &format!("merged settings.providers.{provider_key}"),
+        )?;
+        let temperature = optional_temperature_hundredths(
+            entry,
+            "temperature",
+            &format!("merged settings.providers.{provider_key}"),
+        )?;
+        let top_p = optional_temperature_hundredths(
+            entry,
+            "topP",
+            &format!("merged settings.providers.{provider_key}"),
+        )?;
+        let reasoning_effort = optional_string(
+            entry,
+            "reasoningEffort",
+            &format!("merged settings.providers.{provider_key}"),
+        )?
+        .map(str::to_string);
+        if max_tokens.is_some()
+            || temperature.is_some()
+            || top_p.is_some()
+            || reasoning_effort.is_some()
+        {
+            defaults.insert(
+                provider_key.clone(),
+                ProviderDefaultConfig {
+                    max_tokens,
+                    temperature,
+                    top_p,
+                    reasoning_effort,
+                },
+            );
+        }
+    }
+    Ok(defaults)
+}
+
 fn parse_optional_trusted_roots(root: &JsonValue) -> Result<Vec<String>, ConfigError> {
     let Some(object) = root.as_object() else {
         return Ok(Vec::new());
@@ -1084,6 +1179,38 @@ fn optional_bool(
             .as_bool()
             .map(Some)
             .ok_or_else(|| ConfigError::Parse(format!("{context}: field {key} must be a boolean"))),
+        None => Ok(None),
+    }
+}
+
+fn optional_temperature_hundredths(
+    object: &BTreeMap<String, JsonValue>,
+    key: &str,
+    context: &str,
+) -> Result<Option<u32>, ConfigError> {
+    match object.get(key) {
+        Some(value) => match value {
+            JsonValue::Number(n) => {
+                let n = u32::try_from(*n).map_err(|_| {
+                    ConfigError::Parse(format!(
+                        "{context}: field {key} must be a non-negative integer (hundredths)"
+                    ))
+                })?;
+                Ok(Some(n))
+            }
+            JsonValue::String(s) => {
+                // Parse "0.7" → 70
+                let f: f64 = s.parse().map_err(|_| {
+                    ConfigError::Parse(format!(
+                        "{context}: field {key} must be a number or numeric string"
+                    ))
+                })?;
+                Ok(Some((f * 100.0).round() as u32))
+            }
+            _ => Err(ConfigError::Parse(format!(
+                "{context}: field {key} must be a number"
+            ))),
+        },
         None => Ok(None),
     }
 }
@@ -2131,5 +2258,86 @@ mod tests {
         );
 
         fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn parses_provider_defaults_from_settings() {
+        let root = temp_dir();
+        let cwd = root.join("project");
+        let home = root.join("home").join(".claw");
+        fs::create_dir_all(&cwd).expect("create cwd");
+        fs::create_dir_all(&home).expect("create home");
+        fs::write(
+            home.join("settings.json"),
+            r#"{
+                "providers": {
+                    "deepseek": {
+                        "maxTokens": 8192,
+                        "temperature": 70
+                    },
+                    "ollama": {
+                        "maxTokens": 4096,
+                        "topP": 95
+                    }
+                }
+            }"#,
+        )
+        .expect("write settings");
+
+        let loader = ConfigLoader::new(&cwd, &home);
+        let config = loader.load().expect("load");
+        let defaults = config.provider_defaults();
+
+        assert_eq!(defaults.len(), 2);
+
+        let ds = defaults.get("deepseek").expect("deepseek defaults");
+        assert_eq!(ds.max_tokens, Some(8192));
+        assert_eq!(ds.temperature, Some(70));
+        assert_eq!(ds.temperature_f64(), Some(0.70));
+
+        let ol = defaults.get("ollama").expect("ollama defaults");
+        assert_eq!(ol.max_tokens, Some(4096));
+        assert_eq!(ol.top_p, Some(95));
+        assert_eq!(ol.top_p_f64(), Some(0.95));
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn provider_defaults_empty_when_not_configured() {
+        let root = temp_dir();
+        let cwd = root.join("project");
+        let home = root.join("home").join(".claw");
+        fs::create_dir_all(&cwd).expect("create cwd");
+        fs::create_dir_all(&home).expect("create home");
+        fs::write(home.join("settings.json"), r#"{}"#).expect("write");
+
+        let loader = ConfigLoader::new(&cwd, &home);
+        let config = loader.load().expect("load");
+        assert!(config.provider_defaults().is_empty());
+
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn parses_reasoning_effort_in_provider_defaults() {
+        let root = temp_dir();
+        let cwd = root.join("project");
+        let home = root.join("home").join(".claw");
+        fs::create_dir_all(&cwd).expect("create cwd");
+        fs::create_dir_all(&home).expect("create home");
+        fs::write(
+            home.join("settings.json"),
+            r#"{"providers": {"test": {"reasoningEffort": "high"}}}"#,
+        )
+        .expect("write");
+
+        let loader = ConfigLoader::new(&cwd, &home);
+        let config = loader.load().expect("load");
+        let defaults = config.provider_defaults();
+        let t = defaults.get("test").expect("test defaults");
+        assert_eq!(t.reasoning_effort.as_deref(), Some("high"));
+
+        fs::remove_dir_all(root).expect("cleanup");
     }
 }

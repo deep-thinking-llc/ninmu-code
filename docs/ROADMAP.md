@@ -70,12 +70,12 @@ Make the SDK consumable by any agent framework with minimal effort.
 
 ### 2.5 Session Tree Persistence
 
-- [ ] JSONL file format with typed entries (message, compaction, branch, custom)
-- [ ] `buildSessionContext()` — walk tree to build provider context
-- [ ] Branch labels and summaries
-- [ ] Fork-to-new-file (create independent session from a tree node)
-- [ ] Compaction entries in tree
-- [ ] Model change / thinking level change entries
+- [x] JSONL file format with typed entries (message, compaction, branch, custom)
+- [x] `buildSessionContext()` — walk tree to build provider context
+- [x] Branch labels and summaries
+- [x] Fork-to-new-file (create independent session from a tree node)
+- [x] Compaction entries in tree
+- [x] Model change / thinking level change entries
 
 ## Phase 3 — Human Experience
 
@@ -83,19 +83,19 @@ Humans need to review agent work efficiently. This phase focuses on making agent
 
 ### 3.1 Review Workflow
 
-- [ ] Structured diff view — generated patches with context, not raw file dumps
-- [ ] Change summaries — one-paragraph human-readable summary per agent turn
-- [ ] Risk classification — each change tagged as `low` / `medium` / `high` risk
-- [ ] Approval/rejection flow — agent pauses for human sign-off at configurable gates
-- [ ] Batch review — review multiple agent turns in one pass
-- [ ] Review history — audit trail of all approvals and rejections
+- [x] Structured diff view — generated patches with context, not raw file dumps
+- [x] Change summaries — one-paragraph human-readable summary per agent turn
+- [x] Risk classification — each change tagged as `low` / `medium` / `high` risk
+- [x] Approval/rejection flow — agent pauses for human sign-off at configurable gates
+- [x] Batch review — review multiple agent turns in one pass
+- [x] Review history — audit trail of all approvals and rejections
 
 ### 3.2 Notification & Delivery
 
 - [ ] Email summaries — HTML-formatted change reports sent after each milestone
-- [ ] Chat integration — Slack/Discord/webhook notifications with rich embeds
+- [x] Chat integration — Slack/Discord/webhook notifications with rich embeds
 - [ ] Mobile push — lightweight notification when agent needs attention or completes a phase
-- [ ] Configurable routing — different recipients for different risk levels
+- [x] Configurable routing — different recipients for different risk levels
 - [ ] Digest mode — daily/weekly summary of all agent activity
 
 ### 3.3 Demo Deployments
@@ -104,7 +104,7 @@ Humans need to review agent work efficiently. This phase focuses on making agent
 - [ ] Auto-expiring links — environments self-destruct after configurable TTL
 - [ ] Phase-linked — each deployment tied to a specific milestone in the agent's plan
 - [ ] Tailscale integration — one-command local deployment exposed remotely via tunnel
-- [ ] Docker/Podman-based — containerized preview environments for isolation
+- [x] Docker/Podman-based — containerized preview environments for isolation
 - [ ] Status page — live dashboard showing active previews, their phase, and expiry
 - [ ] Human verification — "does this look right?" flow linked to each deployment
 - [ ] Rollback — revert any preview environment to a previous state
@@ -123,10 +123,10 @@ Multi-agent coordination for complex workflows.
 
 ### 4.1 Agent Orchestrator
 
-- [ ] Plan decomposition — break a high-level goal into agent-sized tasks
-- [ ] Task assignment — route tasks to specialized agents (coder, tester, reviewer)
+- [x] Plan decomposition — break a high-level goal into agent-sized tasks
+- [x] Task assignment — route tasks to specialized agents (coder, tester, reviewer)
 - [ ] Dependency graph — tasks wait for dependencies before starting
-- [ ] Progress tracking — real-time status of all agents and tasks
+- [x] Progress tracking — real-time status of all agents and tasks
 - [ ] Failure handling — automatic retry, fallback, escalation policies
 - [ ] Human escalation — pause and notify when agents get stuck
 

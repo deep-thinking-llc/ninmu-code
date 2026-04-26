@@ -197,6 +197,10 @@ const TOP_LEVEL_FIELDS: &[FieldSpec] = &[
         name: "trustedRoots",
         expected: FieldType::StringArray,
     },
+    FieldSpec {
+        name: "providers",
+        expected: FieldType::Object,
+    },
 ];
 
 const HOOKS_FIELDS: &[FieldSpec] = &[
@@ -280,6 +284,25 @@ const SANDBOX_FIELDS: &[FieldSpec] = &[
     FieldSpec {
         name: "allowedMounts",
         expected: FieldType::StringArray,
+    },
+];
+
+const PROVIDER_FIELDS: &[FieldSpec] = &[
+    FieldSpec {
+        name: "maxTokens",
+        expected: FieldType::Number,
+    },
+    FieldSpec {
+        name: "temperature",
+        expected: FieldType::Number,
+    },
+    FieldSpec {
+        name: "topP",
+        expected: FieldType::Number,
+    },
+    FieldSpec {
+        name: "reasoningEffort",
+        expected: FieldType::String,
     },
 ];
 
@@ -500,6 +523,20 @@ pub fn validate_config_file(
             source,
             &path_display,
         ));
+    }
+    if let Some(providers) = object.get("providers").and_then(JsonValue::as_object) {
+        for (provider_key, provider_value) in providers {
+            if let Some(provider_obj) = provider_value.as_object() {
+                let prefix = format!("providers.{provider_key}");
+                result.merge(validate_object_keys(
+                    provider_obj,
+                    PROVIDER_FIELDS,
+                    &prefix,
+                    source,
+                    &path_display,
+                ));
+            }
+        }
     }
 
     result

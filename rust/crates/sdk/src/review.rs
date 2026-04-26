@@ -243,7 +243,11 @@ impl RiskClassifier {
         }
 
         // Deletions are inherently riskier
-        if change.files.iter().any(|f| f.change_type == FileChangeType::Deleted) {
+        if change
+            .files
+            .iter()
+            .any(|f| f.change_type == FileChangeType::Deleted)
+        {
             max_risk = max_risk.max(RiskLevel::Medium);
         }
 
@@ -374,7 +378,12 @@ impl ReviewManager {
     }
 
     /// Approve a change.
-    pub fn approve(&mut self, change_id: &str, reviewer: &str, comment: Option<String>) -> Result<(), String> {
+    pub fn approve(
+        &mut self,
+        change_id: &str,
+        reviewer: &str,
+        comment: Option<String>,
+    ) -> Result<(), String> {
         if !self.pending.contains_key(change_id) {
             return Err(format!("change '{change_id}' not found in pending reviews"));
         }
@@ -393,7 +402,12 @@ impl ReviewManager {
     }
 
     /// Reject a change.
-    pub fn reject(&mut self, change_id: &str, reviewer: &str, comment: Option<String>) -> Result<(), String> {
+    pub fn reject(
+        &mut self,
+        change_id: &str,
+        reviewer: &str,
+        comment: Option<String>,
+    ) -> Result<(), String> {
         if !self.pending.contains_key(change_id) {
             return Err(format!("change '{change_id}' not found in pending reviews"));
         }
@@ -431,7 +445,8 @@ impl ReviewManager {
             timestamp_ms: now_ms(),
         };
 
-        self.decisions.insert(format!("{}-req-{}", change_id, now_ms()), decision);
+        self.decisions
+            .insert(format!("{}-req-{}", change_id, now_ms()), decision);
         Ok(())
     }
 
@@ -495,8 +510,8 @@ impl Default for ReviewManager {
 fn now_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 /// Simple glob matching. Supports `*` (any chars) and `**` (any path segments).
@@ -749,8 +764,7 @@ mod tests {
 
     #[test]
     fn gate_triggers_on_sensitive_path() {
-        let gate = ReviewGate::new("test", RiskLevel::High)
-            .sensitive_path("**/credentials*");
+        let gate = ReviewGate::new("test", RiskLevel::High).sensitive_path("**/credentials*");
         let change = ChangeRecord {
             id: "c1".to_string(),
             turn_id: "t1".to_string(),
@@ -808,7 +822,12 @@ mod tests {
     #[test]
     fn submit_auto_classifies_risk() {
         let mut mgr = ReviewManager::new();
-        let id = mgr.submit(make_change("Tweak auth", "src/auth/mod.rs", FileChangeType::Modified))
+        let id = mgr
+            .submit(make_change(
+                "Tweak auth",
+                "src/auth/mod.rs",
+                FileChangeType::Modified,
+            ))
             .expect("submit");
         let change = mgr.get_pending(&id).expect("should exist");
         assert_eq!(change.risk, RiskLevel::High);
@@ -817,7 +836,8 @@ mod tests {
     #[test]
     fn approve_removes_from_pending() {
         let mut mgr = ReviewManager::new();
-        let id = mgr.submit(make_change("Docs", "README.md", FileChangeType::Modified))
+        let id = mgr
+            .submit(make_change("Docs", "README.md", FileChangeType::Modified))
             .expect("submit");
 
         mgr.approve(&id, "human", Some("looks good".to_string()))
@@ -832,7 +852,12 @@ mod tests {
     #[test]
     fn reject_removes_from_pending() {
         let mut mgr = ReviewManager::new();
-        let id = mgr.submit(make_change("Bad change", "src/main.rs", FileChangeType::Modified))
+        let id = mgr
+            .submit(make_change(
+                "Bad change",
+                "src/main.rs",
+                FileChangeType::Modified,
+            ))
             .expect("submit");
 
         mgr.reject(&id, "human", Some("wrong approach".to_string()))
@@ -845,7 +870,12 @@ mod tests {
     #[test]
     fn request_changes_keeps_in_pending() {
         let mut mgr = ReviewManager::new();
-        let id = mgr.submit(make_change("Needs work", "src/lib.rs", FileChangeType::Modified))
+        let id = mgr
+            .submit(make_change(
+                "Needs work",
+                "src/lib.rs",
+                FileChangeType::Modified,
+            ))
             .expect("submit");
 
         mgr.request_changes(&id, "human", Some("fix the tests".to_string()))
@@ -865,9 +895,15 @@ mod tests {
     #[test]
     fn pending_reviews_filters_by_gates() {
         let mut mgr = ReviewManager::new();
-        let low_id = mgr.submit(make_change("Docs", "README.md", FileChangeType::Modified))
+        let low_id = mgr
+            .submit(make_change("Docs", "README.md", FileChangeType::Modified))
             .expect("submit");
-        let high_id = mgr.submit(make_change("Auth", "src/auth/mod.rs", FileChangeType::Modified))
+        let high_id = mgr
+            .submit(make_change(
+                "Auth",
+                "src/auth/mod.rs",
+                FileChangeType::Modified,
+            ))
             .expect("submit");
 
         let pending = mgr.pending_reviews();
@@ -883,10 +919,18 @@ mod tests {
         let mut mgr = ReviewManager::new();
         mgr.submit(make_change("Docs", "README.md", FileChangeType::Modified))
             .expect("submit");
-        mgr.submit(make_change("Config", "Cargo.toml", FileChangeType::Modified))
-            .expect("submit");
-        mgr.submit(make_change("Auth", "src/auth/mod.rs", FileChangeType::Modified))
-            .expect("submit");
+        mgr.submit(make_change(
+            "Config",
+            "Cargo.toml",
+            FileChangeType::Modified,
+        ))
+        .expect("submit");
+        mgr.submit(make_change(
+            "Auth",
+            "src/auth/mod.rs",
+            FileChangeType::Modified,
+        ))
+        .expect("submit");
 
         let approved = mgr.batch_approve(RiskLevel::Medium, "batch-bot");
         // README (Low) and Cargo.toml (Medium) should be approved, auth (High) should not
@@ -897,11 +941,16 @@ mod tests {
     #[test]
     fn review_history_tracks_all_decisions() {
         let mut mgr = ReviewManager::new();
-        let id1 = mgr.submit(make_change("A", "a.txt", FileChangeType::Created)).expect("submit");
-        let id2 = mgr.submit(make_change("B", "b.txt", FileChangeType::Created)).expect("submit");
+        let id1 = mgr
+            .submit(make_change("A", "a.txt", FileChangeType::Created))
+            .expect("submit");
+        let id2 = mgr
+            .submit(make_change("B", "b.txt", FileChangeType::Created))
+            .expect("submit");
 
         mgr.approve(&id1, "alice", None).expect("approve");
-        mgr.reject(&id2, "bob", Some("nope".to_string())).expect("reject");
+        mgr.reject(&id2, "bob", Some("nope".to_string()))
+            .expect("reject");
 
         let history = mgr.history();
         assert_eq!(history.len(), 2);
@@ -910,9 +959,11 @@ mod tests {
     #[test]
     fn requires_review_checks_gates() {
         let mut mgr = ReviewManager::new();
-        let low_id = mgr.submit(make_change("Docs", "README.md", FileChangeType::Modified))
+        let low_id = mgr
+            .submit(make_change("Docs", "README.md", FileChangeType::Modified))
             .expect("submit");
-        let high_id = mgr.submit(make_change("Secrets", ".env", FileChangeType::Modified))
+        let high_id = mgr
+            .submit(make_change("Secrets", ".env", FileChangeType::Modified))
             .expect("submit");
 
         assert!(!mgr.requires_review(&low_id));
@@ -1065,9 +1116,15 @@ mod tests {
     #[test]
     fn submit_generates_unique_sequential_ids() {
         let mut mgr = ReviewManager::new();
-        let id1 = mgr.submit(make_change("A", "a.txt", FileChangeType::Created)).expect("submit 1");
-        let id2 = mgr.submit(make_change("B", "b.txt", FileChangeType::Created)).expect("submit 2");
-        let id3 = mgr.submit(make_change("C", "c.txt", FileChangeType::Created)).expect("submit 3");
+        let id1 = mgr
+            .submit(make_change("A", "a.txt", FileChangeType::Created))
+            .expect("submit 1");
+        let id2 = mgr
+            .submit(make_change("B", "b.txt", FileChangeType::Created))
+            .expect("submit 2");
+        let id3 = mgr
+            .submit(make_change("C", "c.txt", FileChangeType::Created))
+            .expect("submit 3");
         assert_ne!(id1, id2);
         assert_ne!(id2, id3);
         assert!(id1.starts_with("chg-"));
@@ -1076,7 +1133,9 @@ mod tests {
     #[test]
     fn approve_same_change_twice_fails() {
         let mut mgr = ReviewManager::new();
-        let id = mgr.submit(make_change("A", "a.txt", FileChangeType::Created)).expect("submit");
+        let id = mgr
+            .submit(make_change("A", "a.txt", FileChangeType::Created))
+            .expect("submit");
         mgr.approve(&id, "alice", None).expect("first approve");
         let result = mgr.approve(&id, "alice", None);
         assert!(result.is_err());
@@ -1099,14 +1158,20 @@ mod tests {
     #[test]
     fn request_changes_then_approve_accumulates_history() {
         let mut mgr = ReviewManager::new();
-        let id = mgr.submit(make_change("A", "a.txt", FileChangeType::Modified)).expect("submit");
+        let id = mgr
+            .submit(make_change("A", "a.txt", FileChangeType::Modified))
+            .expect("submit");
 
-        mgr.request_changes(&id, "alice", Some("fix tests".to_string())).expect("request");
-        mgr.approve(&id, "alice", Some("fixed".to_string())).expect("approve");
+        mgr.request_changes(&id, "alice", Some("fix tests".to_string()))
+            .expect("request");
+        mgr.approve(&id, "alice", Some("fixed".to_string()))
+            .expect("approve");
 
         let history = mgr.history();
         assert_eq!(history.len(), 2);
-        assert!(history.iter().any(|d| d.decision == Decision::ChangesRequested));
+        assert!(history
+            .iter()
+            .any(|d| d.decision == Decision::ChangesRequested));
         assert!(history.iter().any(|d| d.decision == Decision::Approved));
     }
 
@@ -1129,7 +1194,9 @@ mod tests {
     #[test]
     fn all_pending_includes_low_risk_changes() {
         let mut mgr = ReviewManager::new();
-        let id = mgr.submit(make_change("Docs", "README.md", FileChangeType::Modified)).expect("submit");
+        let id = mgr
+            .submit(make_change("Docs", "README.md", FileChangeType::Modified))
+            .expect("submit");
 
         assert_eq!(mgr.all_pending().len(), 1);
         assert!(mgr.all_pending()[0].id == id);
@@ -1146,8 +1213,14 @@ mod tests {
     #[test]
     fn batch_approve_high_risk_with_low_max_approves_nothing() {
         let mut mgr = ReviewManager::new();
-        mgr.submit(make_change("Auth", "src/auth/mod.rs", FileChangeType::Modified)).expect("submit");
-        mgr.submit(make_change("Secrets", ".env", FileChangeType::Modified)).expect("submit");
+        mgr.submit(make_change(
+            "Auth",
+            "src/auth/mod.rs",
+            FileChangeType::Modified,
+        ))
+        .expect("submit");
+        mgr.submit(make_change("Secrets", ".env", FileChangeType::Modified))
+            .expect("submit");
 
         let count = mgr.batch_approve(RiskLevel::Low, "bot");
         assert_eq!(count, 0);
@@ -1239,7 +1312,11 @@ mod tests {
 
     #[test]
     fn serde_decision_round_trip() {
-        for decision in [Decision::Approved, Decision::Rejected, Decision::ChangesRequested] {
+        for decision in [
+            Decision::Approved,
+            Decision::Rejected,
+            Decision::ChangesRequested,
+        ] {
             let json = serde_json::to_string(&decision).expect("serialize");
             let parsed: Decision = serde_json::from_str(&json).expect("deserialize");
             assert_eq!(parsed, decision);
@@ -1248,7 +1325,12 @@ mod tests {
 
     #[test]
     fn serde_file_change_type_round_trip() {
-        for ct in [FileChangeType::Created, FileChangeType::Modified, FileChangeType::Deleted, FileChangeType::Renamed] {
+        for ct in [
+            FileChangeType::Created,
+            FileChangeType::Modified,
+            FileChangeType::Deleted,
+            FileChangeType::Renamed,
+        ] {
             let json = serde_json::to_string(&ct).expect("serialize");
             let parsed: FileChangeType = serde_json::from_str(&json).expect("deserialize");
             assert_eq!(parsed, ct);

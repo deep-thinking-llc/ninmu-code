@@ -91,9 +91,10 @@ impl SchemaValidator {
         }
 
         // Recurse into properties
-        if let (Some(properties), Some(value_obj)) =
-            (obj.get("properties").and_then(|p| p.as_object()), value.as_object())
-        {
+        if let (Some(properties), Some(value_obj)) = (
+            obj.get("properties").and_then(|p| p.as_object()),
+            value.as_object(),
+        ) {
             for (key, prop_schema) in properties {
                 if let Some(child_value) = value_obj.get(key) {
                     let child_validator = SchemaValidator::new(prop_schema.clone());
@@ -139,7 +140,11 @@ pub struct SchemaValidationError {
 impl fmt::Display for SchemaValidationError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if self.path.is_empty() {
-            write!(f, "validation error: expected {}, got {}", self.expected, self.actual)
+            write!(
+                f,
+                "validation error: expected {}, got {}",
+                self.expected, self.actual
+            )
         } else {
             write!(
                 f,
@@ -295,9 +300,7 @@ pub struct FnToolHandler {
 }
 
 impl FnToolHandler {
-    pub fn new(
-        f: impl Fn(&str) -> Result<String, ToolError> + Send + Sync + 'static,
-    ) -> Self {
+    pub fn new(f: impl Fn(&str) -> Result<String, ToolError> + Send + Sync + 'static) -> Self {
         Self { f: Box::new(f) }
     }
 }
@@ -556,8 +559,12 @@ mod tests {
             }
         }));
 
-        assert!(validator.validate(&json!({"config": {"enabled": true}})).is_ok());
-        assert!(validator.validate(&json!({"config": {"enabled": "yes"}})).is_err());
+        assert!(validator
+            .validate(&json!({"config": {"enabled": true}}))
+            .is_ok());
+        assert!(validator
+            .validate(&json!({"config": {"enabled": "yes"}}))
+            .is_err());
         assert!(validator.validate(&json!({"config": {}})).is_err());
     }
 
@@ -665,7 +672,9 @@ mod tests {
 
         registry.register(tool).expect("should register");
 
-        assert!(registry.validate_input("check", &json!({"url": "http://x"})).is_ok());
+        assert!(registry
+            .validate_input("check", &json!({"url": "http://x"}))
+            .is_ok());
         assert!(registry.validate_input("check", &json!({"x": 1})).is_err());
     }
 
@@ -804,8 +813,14 @@ mod tests {
         assert!(validator.validate(&json!(42)).is_ok());
         assert!(validator.validate(&json!(0)).is_ok());
         assert!(validator.validate(&json!(-1)).is_ok());
-        assert!(validator.validate(&json!(3.14)).is_err(), "float should fail integer check");
-        assert!(validator.validate(&json!("42")).is_err(), "string should fail integer check");
+        assert!(
+            validator.validate(&json!(3.14)).is_err(),
+            "float should fail integer check"
+        );
+        assert!(
+            validator.validate(&json!("42")).is_err(),
+            "string should fail integer check"
+        );
     }
 
     #[test]
@@ -874,7 +889,9 @@ mod tests {
             }
         }));
 
-        assert!(validator.validate(&json!({"level1": {"level2": {"level3": "ok"}}})).is_ok());
+        assert!(validator
+            .validate(&json!({"level1": {"level2": {"level3": "ok"}}}))
+            .is_ok());
         let err = validator.validate(&json!({"level1": {"level2": {"level3": 42}}}));
         assert!(err.is_err());
         let err = err.unwrap_err();
@@ -982,7 +999,9 @@ mod tests {
     fn validate_input_for_unregistered_tool_passes() {
         let registry = ToolRegistry::new();
         // Unregistered tool has no schema, so validation is a no-op
-        assert!(registry.validate_input("nonexistent", &json!({"x": 1})).is_ok());
+        assert!(registry
+            .validate_input("nonexistent", &json!({"x": 1}))
+            .is_ok());
     }
 
     #[test]
@@ -1033,8 +1052,12 @@ mod tests {
         registry.register(tool).expect("should register");
 
         // Validate input directly via registry
-        assert!(registry.validate_input("transform", &json!({"value": 5})).is_ok());
-        assert!(registry.validate_input("transform", &json!({"value": "not int"})).is_err());
+        assert!(registry
+            .validate_input("transform", &json!({"value": 5}))
+            .is_ok());
+        assert!(registry
+            .validate_input("transform", &json!({"value": "not int"}))
+            .is_err());
 
         // Execute via executor
         let mut exec = SdkToolExecutor::new(&registry);
@@ -1060,6 +1083,9 @@ mod tests {
             actual: "number".to_string(),
         };
         let msg = without_path.to_string();
-        assert!(!msg.contains("at ''"), "should not contain empty path: {msg}");
+        assert!(
+            !msg.contains("at ''"),
+            "should not contain empty path: {msg}"
+        );
     }
 }

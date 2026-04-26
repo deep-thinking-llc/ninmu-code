@@ -413,8 +413,7 @@ impl AgentOrchestrator {
         match self.resources.acquire(task_id, resources) {
             Ok(()) => {
                 if let Some(task) = self.tasks.get_mut(task_id) {
-                    task.locked_resources
-                        .extend(resources.iter().cloned());
+                    task.locked_resources.extend(resources.iter().cloned());
                     task.locked_resources.sort();
                     task.locked_resources.dedup();
                 }
@@ -719,8 +718,10 @@ mod tests {
         orch.register_agent(AgentDefinition::new("explore", "Explorer"));
         let id = orch.submit("explore", make_task("x")).expect("submit");
         orch.start_next("explore");
-        orch.acquire_resources(&id, &["a.rs".to_string()]).expect("1");
-        orch.acquire_resources(&id, &["b.rs".to_string()]).expect("2");
+        orch.acquire_resources(&id, &["a.rs".to_string()])
+            .expect("1");
+        orch.acquire_resources(&id, &["b.rs".to_string()])
+            .expect("2");
         let task = orch.get_task(&id).unwrap();
         assert!(task.locked_resources.contains(&"a.rs".to_string()));
         assert!(task.locked_resources.contains(&"b.rs".to_string()));
@@ -794,7 +795,8 @@ mod tests {
         orch.register_agent(AgentDefinition::new("a", "A"));
         let id = orch.submit("a", make_task("x")).expect("submit");
         orch.start_next("a");
-        orch.acquire_resources(&id, &["f.rs".to_string()]).expect("lock");
+        orch.acquire_resources(&id, &["f.rs".to_string()])
+            .expect("lock");
         orch.fail(&id, "boom").expect("fail");
         let task = orch.get_task(&id).unwrap();
         assert!(task.locked_resources.contains(&"f.rs".to_string()));
