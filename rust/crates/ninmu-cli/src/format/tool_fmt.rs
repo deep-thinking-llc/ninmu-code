@@ -18,7 +18,7 @@ pub(crate) fn format_tool_call_start(name: &str, input: &str) -> String {
         "bash" | "Bash" => format_bash_call(&parsed),
         "read_file" | "Read" => {
             let path = extract_tool_path(&parsed);
-            format!("{}📄 Reading {path}…{}", Theme::DIM, Theme::RESET)
+            format!("{}reading {path}{}", Theme::DIM, Theme::RESET)
         }
         "write_file" | "Write" => {
             let path = extract_tool_path(&parsed);
@@ -27,8 +27,8 @@ pub(crate) fn format_tool_call_start(name: &str, input: &str) -> String {
                 .and_then(|value| value.as_str())
                 .map_or(0, |content| content.lines().count());
             format!(
-                "{}✏️ Writing {path}{} {}({lines} lines){}",
-                Theme::SUCCESS_BOLD,
+                "{}writing {path}{} {}({lines} lines){}",
+                Theme::TEXT,
                 Theme::RESET,
                 Theme::DIM,
                 Theme::RESET
@@ -47,16 +47,16 @@ pub(crate) fn format_tool_call_start(name: &str, input: &str) -> String {
                 .and_then(|value| value.as_str())
                 .unwrap_or_default();
             format!(
-                "{}📝 Editing {path}{}{}",
-                Theme::WARNING,
+                "{}editing {path}{}{}",
+                Theme::TEXT,
                 Theme::RESET,
                 format_patch_preview(old_value, new_value)
                     .map(|preview| format!("\n{preview}"))
                     .unwrap_or_default()
             )
         }
-        "glob_search" | "Glob" => format_search_start("🔎 Glob", &parsed),
-        "grep_search" | "Grep" => format_search_start("🔎 Grep", &parsed),
+        "glob_search" | "Glob" => format_search_start("glob", &parsed),
+        "grep_search" | "Grep" => format_search_start("grep", &parsed),
         "web_search" | "WebSearch" => parsed
             .get("query")
             .and_then(|value| value.as_str())
@@ -65,27 +65,23 @@ pub(crate) fn format_tool_call_start(name: &str, input: &str) -> String {
         _ => summarize_tool_payload(input),
     };
 
-    let border = "─".repeat(name.len() + 8);
+    let border = "─".repeat(8);
     format!(
-        "{}╭─ {}{}{}{} ─╮{}\n{}{} {detail}\n{}╰{border}╯{}",
-        Theme::MUTED,
-        Theme::HIGHLIGHT,
+        "{}── {}{}{}{} ────{}\n  {detail}",
+        Theme::BORDER_BRIGHT,
+        Theme::TEXT,
         name,
         Theme::RESET,
-        Theme::MUTED,
-        Theme::RESET,
-        Theme::MUTED,
-        Theme::RESET,
-        Theme::MUTED,
+        Theme::BORDER_BRIGHT,
         Theme::RESET,
     )
 }
 
 pub(crate) fn format_tool_result(name: &str, output: &str, is_error: bool) -> String {
     let icon = if is_error {
-        format!("{}{}{}", Theme::ERROR_BRIGHT, "✗", Theme::RESET)
+        format!("{}fail{}", Theme::ERROR, Theme::RESET)
     } else {
-        format!("{}{}{}", Theme::SUCCESS_BOLD, "✓", Theme::RESET)
+        format!("{}ok{}", Theme::ACCENT, Theme::RESET)
     };
     if is_error {
         let summary = truncate_for_summary(output.trim(), 160);
@@ -236,7 +232,7 @@ pub(crate) fn format_read_result(icon: &str, parsed: &serde_json::Value) -> Stri
     let end_line = start_line.saturating_add(num_lines.saturating_sub(1));
 
     format!(
-        "{icon} {}📄 Read {path} (lines {}-{} of {}){}\n{}",
+        "{icon} {}read {path} (lines {}-{} of {}){}\n{}",
         Theme::DIM,
         start_line,
         end_line.max(start_line),
@@ -257,9 +253,9 @@ pub(crate) fn format_write_result(icon: &str, parsed: &serde_json::Value) -> Str
         .and_then(|value| value.as_str())
         .map_or(0, |content| content.lines().count());
     format!(
-        "{icon} {}✏️ {} {path}{} {}({line_count} lines){}",
-        Theme::SUCCESS_BOLD,
-        if kind == "create" { "Wrote" } else { "Updated" },
+        "{icon} {}{} {path}{} {}({line_count} lines){}",
+        Theme::TEXT,
+        if kind == "create" { "wrote" } else { "updated" },
         Theme::RESET,
         Theme::DIM,
         Theme::RESET,
@@ -311,13 +307,13 @@ pub(crate) fn format_edit_result(icon: &str, parsed: &serde_json::Value) -> Stri
 
     match preview {
         Some(preview) => format!(
-            "{icon} {}📝 Edited {path}{suffix}{}\n{preview}",
-            Theme::WARNING,
+            "{icon} {}edited {path}{suffix}{}\n{preview}",
+            Theme::TEXT,
             Theme::RESET
         ),
         None => format!(
-            "{icon} {}📝 Edited {path}{suffix}{}",
-            Theme::WARNING,
+            "{icon} {}edited {path}{suffix}{}",
+            Theme::TEXT,
             Theme::RESET
         ),
     }

@@ -446,6 +446,23 @@ impl RuntimeConfig {
         &self.feature_config.provider_defaults
     }
 
+    /// Look up provider-specific defaults for a model, resolved by prefix
+    /// matching on the model name. Returns `None` if no provider entry matches.
+    #[must_use]
+    pub fn provider_defaults_for_model(&self, model: &str) -> Option<&ProviderDefaultConfig> {
+        let lower = model.to_ascii_lowercase();
+        // Try exact provider label match first, then prefix match
+        self.provider_defaults().get(&lower).or_else(|| {
+            self.provider_defaults().iter().find_map(|(key, defaults)| {
+                if lower.starts_with(key.as_str()) {
+                    Some(defaults)
+                } else {
+                    None
+                }
+            })
+        })
+    }
+
     #[must_use]
     pub fn trusted_roots(&self) -> &[String] {
         &self.feature_config.trusted_roots

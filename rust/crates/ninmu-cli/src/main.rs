@@ -9,6 +9,7 @@
 mod app;
 mod args;
 mod cli_commands;
+mod file_ref;
 mod format;
 mod init;
 mod input;
@@ -4678,7 +4679,7 @@ mod tests {
         });
 
         assert!(banner.contains("Tab"));
-        assert!(banner.contains("completions"));
+        assert!(banner.contains("/help"));
 
         fs::remove_dir_all(root).expect("cleanup temp dir");
         std::env::remove_var("ANTHROPIC_API_KEY");
@@ -4690,7 +4691,10 @@ mod tests {
 
         let line = format_connected_line(model);
 
-        assert_eq!(line, "Connected: claude-sonnet-4-6 via anthropic");
+        assert!(line.contains("provider"));
+        assert!(line.contains("anthropic"));
+        assert!(line.contains("model"));
+        assert!(line.contains("claude-sonnet-4-6"));
     }
 
     #[test]
@@ -4699,7 +4703,10 @@ mod tests {
 
         let line = format_connected_line(model);
 
-        assert_eq!(line, "Connected: grok-3 via xai");
+        assert!(line.contains("provider"));
+        assert!(line.contains("xai"));
+        assert!(line.contains("model"));
+        assert!(line.contains("grok-3"));
     }
 
     #[test]
@@ -5635,7 +5642,7 @@ UU conflicted.rs",
             r#"{"file":{"filePath":"src/main.rs","content":"hello","numLines":1,"startLine":1,"totalLines":1}}"#,
             false,
         );
-        assert!(done.contains("📄 Read src/main.rs"));
+        assert!(done.contains("read src/main.rs"));
         assert!(done.contains("hello"));
     }
 
@@ -5951,7 +5958,7 @@ UU conflicted.rs",
             AssistantEvent::TextDelta(text) if text == "Final answer"
         ));
         let rendered = String::from_utf8(out).expect("utf8");
-        assert!(rendered.contains("Reasoning (6 chars)"));
+        assert!(rendered.contains("reasoning (6 chars)"));
         assert!(!rendered.contains("step 1"));
     }
 

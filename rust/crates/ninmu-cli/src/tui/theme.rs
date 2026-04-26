@@ -14,6 +14,15 @@ impl Theme {
 
     /// ── 256-color semantic tokens ──────────────────────────────────────────
 
+    /// Accent orange (#ff6b35): product branding, success, cost display.
+    pub const ACCENT: &'static str = "\x1b[38;2;255;107;53m";
+    /// Bright white (#e8e8e8): primary text, tool names.
+    pub const TEXT: &'static str = "\x1b[38;5;254m";
+    /// Secondary text (#888888): secondary labels, status bar base.
+    pub const TEXT_SECONDARY: &'static str = "\x1b[38;5;102m";
+    /// Bright border (rgba(255,255,255,0.12)): prominent separators.
+    pub const BORDER_BRIGHT: &'static str = "\x1b[38;5;241m";
+
     /// Green: success indicators, additions.
     pub const SUCCESS: &'static str = "\x1b[38;5;70m";
     /// Red: error indicators, deletions.
@@ -26,8 +35,8 @@ impl Theme {
     pub const THINKING: &'static str = "\x1b[38;5;13m";
     /// Yellow: warning, permission prompts.
     pub const WARNING: &'static str = "\x1b[1;33m";
-    /// Grey: borders, secondary labels, file headers.
-    pub const MUTED: &'static str = "\x1b[38;5;245m";
+    /// Grey (#555555): borders, secondary labels, file headers.
+    pub const MUTED: &'static str = "\x1b[38;5;59m";
     /// White on dark grey background: command display (bash inline).
     pub const COMMAND_BG: &'static str = "\x1b[48;5;236;38;5;255m";
     /// Bold green: file write/create.
@@ -48,14 +57,14 @@ impl Theme {
 
     /// Status bar foreground.
     pub fn status_bar_fg() -> &'static str {
-        "\x1b[90m"
+        Self::TEXT_SECONDARY
     }
 
     /// Permission prompt border.
     pub fn permission_border() -> String {
         format!(
             "{}────────────────────────────────────────────────{}",
-            Self::MUTED,
+            Self::BORDER_BRIGHT,
             Self::RESET
         )
     }
@@ -77,6 +86,10 @@ mod tests {
         assert!(!Theme::WARNING.is_empty());
         assert!(!Theme::MUTED.is_empty());
         assert!(!Theme::EDIT.is_empty());
+        assert!(!Theme::ACCENT.is_empty());
+        assert!(!Theme::TEXT.is_empty());
+        assert!(!Theme::TEXT_SECONDARY.is_empty());
+        assert!(!Theme::BORDER_BRIGHT.is_empty());
     }
 
     #[test]

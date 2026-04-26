@@ -29,15 +29,17 @@ impl StatusBar {
         let tokens_display = format_tokens(total_tokens);
         let branch_display = state.git_branch.as_deref().unwrap_or("?");
 
-        let content = format!(
-            " {} · {} · {} msgs · {} tokens · ${} · {}s · {} ",
-            model_display,
-            state.permission_mode,
-            state.message_count,
-            tokens_display,
+        // Build the content with cost highlighted in accent
+        let cost_display = format!(
+            "{}${}{}",
+            Theme::ACCENT,
             state.estimated_cost_usd,
-            secs,
-            branch_display,
+            Theme::TEXT_SECONDARY
+        );
+
+        let content = format!(
+            " model {}  {} tokens  {}  {}s  {} ",
+            model_display, tokens_display, cost_display, secs, branch_display,
         );
 
         // Truncate to terminal width (character count, not byte length)
@@ -48,11 +50,11 @@ impl StatusBar {
             content
         };
 
-        // ANSI: save position, move to col 0, clear line, dark grey, print, reset, restore
+        // ANSI: save position, move to col 0, clear line, base color, print, reset, restore
         write!(
             out,
             "\x1b7\x1b[0G\x1b[2K{}{}{}",
-            Theme::status_bar_fg(),
+            Theme::TEXT_SECONDARY,
             display,
             Theme::RESET,
         )?;

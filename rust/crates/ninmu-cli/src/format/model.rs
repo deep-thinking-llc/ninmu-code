@@ -216,7 +216,15 @@ pub(crate) fn provider_label(kind: ProviderKind) -> &'static str {
 
 pub(crate) fn format_connected_line(model: &str) -> String {
     let provider = provider_label(detect_provider_kind(model));
-    format!("Connected: {model} via {provider}")
+    format!(
+        "{}provider{} {}  {}model{} {}",
+        crate::tui::theme::Theme::MUTED,
+        crate::tui::theme::Theme::RESET,
+        provider,
+        crate::tui::theme::Theme::MUTED,
+        crate::tui::theme::Theme::RESET,
+        model,
+    )
 }
 
 pub(crate) fn filter_tool_specs(

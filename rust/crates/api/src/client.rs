@@ -81,6 +81,27 @@ impl ProviderClient {
         }
     }
 
+    /// Try to build a client from the primary model, falling back through
+    /// alternatives if the primary fails due to missing credentials.
+    ///
+    /// Returns the first successfully-built client along with the model name
+    /// that was used. Returns an error only when all models in the chain fail.
+    pub fn from_model_chain(
+        primary: &str,
+        fallbacks: &[String],
+    ) -> Result<(Self, String), ApiError> {
+        let mut last_error = None;
+        for model in std::iter::once(primary.to_string()).chain(fallbacks.iter().cloned()) {
+            match Self::from_model(&model) {
+                Ok(client) => return Ok((client, model)),
+                Err(e) => {
+                    last_error = Some(e);
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| ApiError::missing_credentials("any provider", &[])))
+    }
+
     #[must_use]
     pub const fn provider_kind(&self) -> ProviderKind {
         match self {
@@ -206,6 +227,7 @@ mod tests {
     use std::sync::{Mutex, OnceLock};
 
     use super::ProviderClient;
+    use crate::error::ApiError;
     use crate::providers::{detect_provider_kind, resolve_model_alias, ProviderKind};
 
     /// Serializes every test in this module that mutates process-wide
@@ -293,5 +315,34 @@ mod tests {
             }
             other => panic!("Expected ProviderClient::OpenAi for qwen-plus, got: {other:?}"),
         }
+    }
+
+    #[test]
+    fn fallback_chain_returns_first_successful_client() {
+        let _lock = env_lock();
+        let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", Some("sk-ant-test"));
+        let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", None);
+        let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+
+        // deepseek-chat fails (no key), but claude-sonnet-4-6 succeeds
+        let fallbacks = vec!["claude-sonnet-4-6".to_string()];
+        let (client, model) = ProviderClient::from_model_chain("deepseek-chat", &fallbacks)
+            .expect("should fall back to Anthropic");
+        assert_eq!(model, "claude-sonnet-4-6");
+        assert_eq!(client.provider_kind(), ProviderKind::Anthropic);
+    }
+
+    #[test]
+    fn fallback_chain_errors_when_all_fail() {
+        let _lock = env_lock();
+        let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", None);
+        let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", None);
+        let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+        let _xai = EnvVarGuard::set("XAI_API_KEY", None);
+
+        let fallbacks = vec!["deepseek-reasoner".to_string()];
+        let err = ProviderClient::from_model_chain("deepseek-chat", &fallbacks)
+            .expect_err("all models should fail");
+        assert!(matches!(err, ApiError::MissingCredentials { .. }));
     }
 }
