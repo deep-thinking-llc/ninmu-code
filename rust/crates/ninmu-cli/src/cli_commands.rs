@@ -1906,6 +1906,24 @@ fn check_providers_health() -> DiagnosticCheck {
             is_local: false,
             configured: env_present("QWEN_API_KEY") || env_present("OPENAI_API_KEY"),
         },
+        ProviderStatus {
+            label: "Mistral",
+            env_var: "MISTRAL_API_KEY",
+            is_local: false,
+            configured: env_present("MISTRAL_API_KEY"),
+        },
+        ProviderStatus {
+            label: "Gemini",
+            env_var: "GEMINI_API_KEY",
+            is_local: false,
+            configured: env_present("GEMINI_API_KEY"),
+        },
+        ProviderStatus {
+            label: "Cohere",
+            env_var: "COHERE_API_KEY",
+            is_local: false,
+            configured: env_present("COHERE_API_KEY"),
+        },
     ];
 
     let configured_count = providers.iter().filter(|p| p.configured).count();

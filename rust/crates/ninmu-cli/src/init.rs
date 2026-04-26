@@ -42,6 +42,15 @@ const PROVIDER_ENV_TEMPLATE: &str = concat!(
     "#\n",
     "# vLLM (local)\n",
     "#VLLM_BASE_URL=http://localhost:8000/v1\n",
+    "#\n",
+    "# Mistral\n",
+    "#MISTRAL_API_KEY=...\n",
+    "#\n",
+    "# Google Gemini\n",
+    "#GEMINI_API_KEY=...\n",
+    "#\n",
+    "# Cohere\n",
+    "#COHERE_API_KEY=...\n",
 );
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
