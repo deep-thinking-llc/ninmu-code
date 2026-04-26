@@ -167,7 +167,7 @@ Ninmu Code ships with native routing for these providers. Prefix your model name
 | **xAI (Grok)** | `XAI_API_KEY` | `XAI_BASE_URL` | `grok-*`, aliases: `grok`, `grok-mini`, `grok-2` |
 | **DeepSeek** | `DEEPSEEK_API_KEY` | `DEEPSEEK_BASE_URL` | `deepseek-chat`, `deepseek-reasoner`, alias: `deepseek-r1` |
 | **DashScope** (Alibaba) | `DASHSCOPE_API_KEY` | `DASHSCOPE_BASE_URL` | `qwen-*` (bare), `kimi-*`, `kimi` |
-| **Ollama** (local) | none | `OLLAMA_BASE_URL` | `ollama/*` |
+| **Ollama** (local/cloud) | `OLLAMA_API_KEY` (optional) | `OLLAMA_BASE_URL` | `ollama/*` |
 | **vLLM** (local) | none | `VLLM_BASE_URL` | `vllm/*` |
 | **Qwen** (external) | `QWEN_API_KEY` | `QWEN_BASE_URL` | `qwen/*` |
 
@@ -199,19 +199,21 @@ Add any OpenAI-compatible or Anthropic-compatible provider via `models.json` —
 
 ```
 ninmu-code/
-├── rust/                        # Rust workspace (13 crates)
-│   ├── crates/
-│   │   ├── sdk/                 # Agent SDK crate (public API)
-│   │   ├── api/                 # Provider layer (Anthropic, OpenAI, custom)
-│   │   ├── commands/            # Shared slash-command registry + help
-│   │   ├── compat-harness/      # TS manifest extraction harness
-│   │   ├── mock-anthropic-service/ # Deterministic mock for CLI tests
-│   │   ├── plugins/             # Plugin system
-│   │   ├── runtime/             # Session engine, permissions, plugins
-│   │   ├── ninmu-cli/           # CLI binary (`ninmu`)
-│   │   ├── telemetry/           # Session tracing + usage telemetry
-│   │   └── tools/               # Built-in tool implementations
-│   └── Cargo.toml               # Workspace root
+├── rust/                        # Rust workspace
+│   ├── Cargo.toml               # Workspace root
+│   └── crates/
+│       ├── api/                 # Provider clients (Anthropic, OpenAI, custom)
+│       ├── commands/            # Shared slash-command registry + help
+│       ├── compat-harness/      # TS manifest extraction harness
+│       ├── mock-anthropic-service/ # Deterministic mock for CLI tests
+│       ├── plugins/             # Plugin system
+│       ├── runtime/             # Session engine, permissions, MCP, auth
+│       ├── sdk/                 # Agent SDK (AgentSession, Orchestrator,
+│       │                       #   ReviewManager, NotificationDispatcher,
+│       │                       #   SecretScrubber, AuditLog, SetupReport)
+│       ├── ninmu-cli/           # CLI binary (`ninmu`)
+│       ├── telemetry/           # Session tracing + usage telemetry
+│       └── tools/               # Built-in tool implementations
 ├── docs/                        # Documentation
 │   ├── ROADMAP.md               # Project roadmap
 │   ├── AGENT-INTEGRATION.md     # Agent integration guide
