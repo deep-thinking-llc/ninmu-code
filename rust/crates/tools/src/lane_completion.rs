@@ -4,95 +4,84 @@
 //! This bridges the gap where `LaneContext::completed` was a passive bool
 //! that nothing automatically set. Now completion is detected from:
 //! - Agent output shows Finished status
-//! - No errors/blockers present  
+//! - No errors/blockers present
 //! - Tests passed (green status)
 //! - Code pushed (has output file)
 
-use runtime::{
-    evaluate, LaneBlocker, LaneContext, PolicyAction, PolicyCondition, PolicyEngine, PolicyRule,
-    ReviewStatus,
-};
-
-use crate::AgentOutput;
-
-/// Detects if a lane should be automatically marked as completed.
-///
-/// Returns `Some(LaneContext)` with `completed = true` if all conditions met,
-/// `None` if lane should remain active.
-#[allow(dead_code)]
-pub(crate) fn detect_lane_completion(
-    output: &AgentOutput,
-    test_green: bool,
-    has_pushed: bool,
-) -> Option<LaneContext> {
-    // Must be finished without errors
-    if output.error.is_some() {
-        return None;
-    }
-
-    // Must have finished status
-    if !output.status.eq_ignore_ascii_case("completed")
-        && !output.status.eq_ignore_ascii_case("finished")
-    {
-        return None;
-    }
-
-    // Must have no current blocker
-    if output.current_blocker.is_some() {
-        return None;
-    }
-
-    // Must have green tests
-    if !test_green {
-        return None;
-    }
-
-    // Must have pushed code
-    if !has_pushed {
-        return None;
-    }
-
-    // All conditions met — create completed context
-    Some(LaneContext {
-        lane_id: output.agent_id.clone(),
-        green_level: 3, // Workspace green
-        branch_freshness: std::time::Duration::from_secs(0),
-        blocker: LaneBlocker::None,
-        review_status: ReviewStatus::Approved,
-        diff_scope: runtime::DiffScope::Scoped,
-        completed: true,
-        reconciled: false,
-    })
-}
-
-/// Evaluates policy actions for a completed lane.
-#[allow(dead_code)]
-pub(crate) fn evaluate_completed_lane(context: &LaneContext) -> Vec<PolicyAction> {
-    let engine = PolicyEngine::new(vec![
-        PolicyRule::new(
-            "closeout-completed-lane",
-            PolicyCondition::And(vec![
-                PolicyCondition::LaneCompleted,
-                PolicyCondition::GreenAt { level: 3 },
-            ]),
-            PolicyAction::CloseoutLane,
-            10,
-        ),
-        PolicyRule::new(
-            "cleanup-completed-session",
-            PolicyCondition::LaneCompleted,
-            PolicyAction::CleanupSession,
-            5,
-        ),
-    ]);
-
-    evaluate(&engine, context)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use runtime::{DiffScope, LaneBlocker};
+    use crate::AgentOutput;
+    use runtime::{
+        evaluate, DiffScope, LaneBlocker, LaneContext, PolicyAction, PolicyCondition, PolicyEngine,
+        PolicyRule, ReviewStatus,
+    };
+
+    fn detect_lane_completion(
+        output: &AgentOutput,
+        test_green: bool,
+        has_pushed: bool,
+    ) -> Option<LaneContext> {
+        // Must be finished without errors
+        if output.error.is_some() {
+            return None;
+        }
+
+        // Must have finished status
+        if !output.status.eq_ignore_ascii_case("completed")
+            && !output.status.eq_ignore_ascii_case("finished")
+        {
+            return None;
+        }
+
+        // Must have no current blocker
+        if output.current_blocker.is_some() {
+            return None;
+        }
+
+        // Must have green tests
+        if !test_green {
+            return None;
+        }
+
+        // Must have pushed code
+        if !has_pushed {
+            return None;
+        }
+
+        // All conditions met — create completed context
+        Some(LaneContext {
+            lane_id: output.agent_id.clone(),
+            green_level: 3, // Workspace green
+            branch_freshness: std::time::Duration::from_secs(0),
+            blocker: LaneBlocker::None,
+            review_status: ReviewStatus::Approved,
+            diff_scope: runtime::DiffScope::Scoped,
+            completed: true,
+            reconciled: false,
+        })
+    }
+
+    fn evaluate_completed_lane(context: &LaneContext) -> Vec<PolicyAction> {
+        let engine = PolicyEngine::new(vec![
+            PolicyRule::new(
+                "closeout-completed-lane",
+                PolicyCondition::And(vec![
+                    PolicyCondition::LaneCompleted,
+                    PolicyCondition::GreenAt { level: 3 },
+                ]),
+                PolicyAction::CloseoutLane,
+                10,
+            ),
+            PolicyRule::new(
+                "cleanup-completed-session",
+                PolicyCondition::LaneCompleted,
+                PolicyAction::CleanupSession,
+                5,
+            ),
+        ]);
+
+        evaluate(&engine, context)
+    }
 
     fn test_output() -> AgentOutput {
         AgentOutput {

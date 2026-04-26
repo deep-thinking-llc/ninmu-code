@@ -75,6 +75,7 @@ class ParityAuditResult:
     archive_present: bool
     root_file_coverage: tuple[int, int]
     directory_coverage: tuple[int, int]
+    collapsed_dir_coverage: tuple[int, int]
     total_file_ratio: tuple[int, int]
     command_entry_ratio: tuple[int, int]
     tool_entry_ratio: tuple[int, int]
@@ -91,6 +92,7 @@ class ParityAuditResult:
             '',
             f'Root file coverage: **{self.root_file_coverage[0]}/{self.root_file_coverage[1]}**',
             f'Directory coverage: **{self.directory_coverage[0]}/{self.directory_coverage[1]}**',
+            f'Collapsed directory coverage: **{self.collapsed_dir_coverage[0]}/{self.collapsed_dir_coverage[1]}**',
             f'Total Python files vs archived TS-like files: **{self.total_file_ratio[0]}/{self.total_file_ratio[1]}**',
             f'Command entry coverage: **{self.command_entry_ratio[0]}/{self.command_entry_ratio[1]}**',
             f'Tool entry coverage: **{self.tool_entry_ratio[0]}/{self.tool_entry_ratio[1]}**',
@@ -121,15 +123,22 @@ def _snapshot_count(path: Path) -> int:
 def run_parity_audit() -> ParityAuditResult:
     current_entries = {path.name for path in CURRENT_ROOT.iterdir()}
     root_hits = [target for target in ARCHIVE_ROOT_FILES.values() if target in current_entries]
-    dir_hits = [target for target in ARCHIVE_DIR_MAPPINGS.values() if target in current_entries]
+    _package_dir_targets = {v for v in ARCHIVE_DIR_MAPPINGS.values() if not v.endswith('.py')}
+    _collapsed_dir_targets = {v for v in ARCHIVE_DIR_MAPPINGS.values() if v.endswith('.py')}
+    package_dir_hits = [target for target in _package_dir_targets if target in current_entries]
+    collapsed_dir_hits = [target for target in _collapsed_dir_targets if target in current_entries]
     missing_roots = tuple(target for target in ARCHIVE_ROOT_FILES.values() if target not in current_entries)
-    missing_dirs = tuple(target for target in ARCHIVE_DIR_MAPPINGS.values() if target not in current_entries)
+    missing_dirs = tuple(
+        target for target in ARCHIVE_DIR_MAPPINGS.values()
+        if target not in current_entries and not target.endswith('.py')
+    )
     current_python_files = sum(1 for path in CURRENT_ROOT.rglob('*.py') if path.is_file())
     reference = _reference_surface()
     return ParityAuditResult(
         archive_present=ARCHIVE_ROOT.exists(),
         root_file_coverage=(len(root_hits), len(ARCHIVE_ROOT_FILES)),
-        directory_coverage=(len(dir_hits), len(ARCHIVE_DIR_MAPPINGS)),
+        directory_coverage=(len(package_dir_hits), len(_package_dir_targets)),
+        collapsed_dir_coverage=(len(collapsed_dir_hits), len(_collapsed_dir_targets)),
         total_file_ratio=(current_python_files, int(reference['total_ts_like_files'])),
         command_entry_ratio=(_snapshot_count(COMMAND_SNAPSHOT_PATH), int(reference['command_entry_count'])),
         tool_entry_ratio=(_snapshot_count(TOOL_SNAPSHOT_PATH), int(reference['tool_entry_count'])),
