@@ -256,7 +256,7 @@ impl LiveCli {
         let mut spinner = Spinner::new();
         let mut stdout = io::stdout();
         spinner.tick(
-            "\u{1f980} Thinking...",
+            "-- thinking",
             TerminalRenderer::new().color_theme(),
             &mut stdout,
         )?;
@@ -267,7 +267,7 @@ impl LiveCli {
             Ok(summary) => {
                 self.replace_runtime(runtime)?;
                 spinner.finish(
-                    "\u{2728} Done",
+                    "-- done",
                     TerminalRenderer::new().color_theme(),
                     &mut stdout,
                 )?;
@@ -284,7 +284,7 @@ impl LiveCli {
             Err(error) => {
                 runtime.shutdown_plugins()?;
                 spinner.fail(
-                    "\u{274c} Request failed",
+                    "-- failed",
                     TerminalRenderer::new().color_theme(),
                     &mut stdout,
                 )?;
@@ -2878,7 +2878,7 @@ pub(crate) fn format_internal_prompt_progress_line(
     match event {
         InternalPromptProgressEvent::Started => {
             format!(
-                "\u{1f9ed} {} status \u{00b7} planning started \u{00b7} {status}",
+                "-- {} status · planning started · {status}",
                 snapshot.command_label
             )
         }

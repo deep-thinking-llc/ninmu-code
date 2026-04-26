@@ -34,7 +34,7 @@ impl ThinkingFrames {
 pub fn format_thinking_completed(elapsed: Duration) -> String {
     let secs = elapsed.as_secs_f64();
     format!(
-        "{}\u{25b6} Reasoned for {secs:.1}s{}",
+        "{}-- reasoned for {secs:.1}s{}",
         Theme::THINKING,
         Theme::RESET
     )
@@ -44,18 +44,18 @@ pub fn format_thinking_completed(elapsed: Duration) -> String {
 pub fn render_thinking_inline(char_count: Option<usize>, redacted: bool) -> String {
     let summary = if redacted {
         format!(
-            "{}\u{25b6} Thinking block hidden by provider{}",
+            "{}-- thinking block hidden by provider{}",
             Theme::THINKING,
             Theme::RESET
         )
     } else if let Some(char_count) = char_count {
         format!(
-            "{}\u{25b6} Reasoning ({char_count} chars){}",
+            "{}-- reasoning ({char_count} chars){}",
             Theme::THINKING,
             Theme::RESET
         )
     } else {
-        format!("{}\u{25b6} Reasoning{}", Theme::THINKING, Theme::RESET)
+        format!("{}-- reasoning{}", Theme::THINKING, Theme::RESET)
     };
     format!("\n{summary}\n")
 }
