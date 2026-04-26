@@ -1,6 +1,6 @@
-# Claw Code
+# Ninmu Code
 
-**Agent-first autonomous coding harness.** A Rust SDK and CLI for building, orchestrating, and reviewing AI-driven coding workflows — designed primarily for machine consumers, with a human escape hatch.
+**Agent-first autonomous coding harness.** A Rust SDK and CLI for building, orchestrating, and reviewing AI-driven coding workflows — designed primarily for machine consumers, with a human escape hatch. Ninmu Code provides the `ninmu` CLI and Ninmu SDK.
 
 <p align="center">
   <a href="./docs/ROADMAP.md">Roadmap</a>
@@ -14,9 +14,9 @@
 
 ---
 
-## What is Claw Code?
+## What is Ninmu Code?
 
-Claw Code is an **autonomous coding harness** — a system where AI agents execute coding tasks, manage sessions, branch conversations, coordinate with each other, and surface results for human review. It is:
+Ninmu Code is an **autonomous coding harness** — a system where AI agents execute coding tasks, manage sessions, branch conversations, coordinate with each other, and surface results for human review. It is:
 
 - **Agent-first:** The primary API consumer is an AI agent, not a human at a keyboard. The SDK, CLI, and event bus are designed for programmatic orchestration.
 - **Human-aware:** Humans get a "rip cord" — the ability to step in, review outputs, approve/reject changes, and orchestrate plans through an agent orchestrator interface.
@@ -33,11 +33,14 @@ Claw Code is an **autonomous coding harness** — a system where AI agents execu
 │  Agent A │  Agent B │  Agent C │  ...                   │
 │  (code)  │  (test)  │  (review)│                        │
 ├──────────┴──────────┴──────────┴────────────────────────┤
-│                     Claw SDK (Rust)                       │
-│  AgentSession · EventBus · SessionTree · AgentContext    │
-│  ToolRegistry · Extension · TaskRegistry                 │
+│                     Ninmu SDK (Rust)                       │
+│  AgentSession · AgentSessionBuilder · EventBus            │
+│  SessionTree · SessionTreeLog · AgentContext              │
+│  ToolRegistry · Extension · TaskRegistry                   │
+│  ReviewManager · NotificationDispatcher · SecretScrubber  │
+│  AuditLog · AgentOrchestrator · SetupReport                │
 ├─────────────────────────────────────────────────────────┤
-│                     Claw CLI (`claw`)                     │
+│                     Ninmu CLI (`ninmu`)                     │
 │  prompt · session · doctor · status · mcp · tools        │
 ├─────────────────────────────────────────────────────────┤
 │              Provider Layer (models.json)                 │
@@ -58,7 +61,7 @@ cargo build --workspace
 
 ### Configure a provider
 
-Create `~/.claw/models.json` for any OpenAI-compatible or Anthropic-compatible provider:
+Create `~/.ninmu/models.json` for any OpenAI-compatible or Anthropic-compatible provider:
 
 ```json
 {
@@ -85,16 +88,16 @@ export OPENAI_API_KEY="sk-..."
 
 ```bash
 # One-shot prompt
-./target/debug/claw prompt "explain this codebase"
+./target/debug/ninmu prompt "explain this codebase"
 
 # Interactive REPL
-./target/debug/claw
+./target/debug/ninmu
 
 # Health check
-./target/debug/claw doctor
+./target/debug/ninmu doctor
 
 # Structured JSON output (for agents)
-./target/debug/claw --output-format json status
+./target/debug/ninmu --output-format json status
 ```
 
 ### Use the SDK from Rust
@@ -103,8 +106,8 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sdk = { path = "../claw-code/rust/crates/sdk" }
-runtime = { path = "../claw-code/rust/crates/runtime" }
+sdk = { path = "../ninmu-code/rust/crates/sdk" }
+runtime = { path = "../ninmu-code/rust/crates/runtime" }
 ```
 
 ```rust
@@ -132,9 +135,9 @@ let result = session.run_turn("Read the main.rs and summarize it");
 Sessions persist conversation state across turns. They can be created, resumed, forked, and listed:
 
 ```bash
-claw                        # start interactive session
-claw prompt "do a thing"    # one-shot, auto-creates session
-claw --resume latest        # resume last session
+ninmu                        # start interactive session
+ninmu prompt "do a thing"    # one-shot, auto-creates session
+ninmu --resume latest        # resume last session
 ```
 
 ### Session Trees
@@ -155,7 +158,7 @@ Register custom tools and lifecycle hooks via the `Extension` trait. Extensions 
 
 ### Built-in Providers
 
-Claw Code ships with native routing for these providers. Prefix your model name to select a provider, or let the credential sniffer auto-detect from your environment.
+Ninmu Code ships with native routing for these providers. Prefix your model name to select a provider, or let the credential sniffer auto-detect from your environment.
 
 | Provider | Env var (API key) | Env var (base URL) | Model prefix / alias |
 |----------|------------------|---------------------|---------------------|
@@ -174,18 +177,18 @@ Claw Code ships with native routing for these providers. Prefix your model name 
 
 ```bash
 # Anthropic
-claw --model sonnet prompt "hello"
+ninmu --model sonnet prompt "hello"
 
 # DeepSeek
 export DEEPSEEK_API_KEY="sk-..."
-claw --model deepseek-chat prompt "hello"
+ninmu --model deepseek-chat prompt "hello"
 
 # Ollama (local)
-claw --model ollama/llama3.1:8b prompt "hello"
+ninmu --model ollama/llama3.1:8b prompt "hello"
 
 # vLLM (local)
 export VLLM_BASE_URL="http://localhost:8000/v1"
-claw --model vllm/meta-llama/Llama-3.1-8B prompt "hello"
+ninmu --model vllm/meta-llama/Llama-3.1-8B prompt "hello"
 ```
 
 ### Custom Providers
@@ -195,15 +198,19 @@ Add any OpenAI-compatible or Anthropic-compatible provider via `models.json` —
 ## Repository Layout
 
 ```
-claw-code/
-├── rust/                        # Rust workspace
+ninmu-code/
+├── rust/                        # Rust workspace (13 crates)
 │   ├── crates/
 │   │   ├── sdk/                 # Agent SDK crate (public API)
 │   │   ├── api/                 # Provider layer (Anthropic, OpenAI, custom)
-│   │   ├── runtime/             # Session engine, permissions, plugins
-│   │   ├── tools/               # Built-in tool implementations
+│   │   ├── commands/            # Shared slash-command registry + help
+│   │   ├── compat-harness/      # TS manifest extraction harness
+│   │   ├── mock-anthropic-service/ # Deterministic mock for CLI tests
 │   │   ├── plugins/             # Plugin system
-│   │   └── rusty-claude-cli/    # CLI binary (`claw`)
+│   │   ├── runtime/             # Session engine, permissions, plugins
+│   │   ├── ninmu-cli/           # CLI binary (`ninmu`)
+│   │   ├── telemetry/           # Session tracing + usage telemetry
+│   │   └── tools/               # Built-in tool implementations
 │   └── Cargo.toml               # Workspace root
 ├── docs/                        # Documentation
 │   ├── ROADMAP.md               # Project roadmap
@@ -240,4 +247,19 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## License
 
-This project is a fork of [claw-code](https://github.com/ultraworkers/claw-code) by UltraWorkers. See the upstream repository for original authorship and license details.
+MIT License. See [LICENSE](./LICENSE) for the full text.
+
+## Attribution
+
+Ninmu Code was originally forked from [claw-code](https://github.com/ultraworkers/claw-code) by [UltraWorkers](https://github.com/ultraworkers). The upstream project is an autonomous coding harness designed for machine-first orchestration of AI coding agents.
+
+### How Ninmu Code differs from claw-code
+
+While claw-code continues as a standalone autonomous coding harness focused on agent orchestration, Ninmu Code has diverged with different priorities:
+
+- **Simplified architecture** — removed compatibility layers and upstream tracking infrastructure in favor of a lean, self-contained codebase
+- **Different CLI identity** — the `ninmu` CLI binary and `Ninmu Code` branding distinguish it from the upstream `claw` command
+- **Independent roadmap** — development priorities and feature direction are set independently by [Deep Thinking LLC](https://github.com/deep-thinking-llc)
+- **Provider ecosystem** — expanded and reworked provider routing, configuration, and credential management
+
+The original claw-code project continues at [github.com/ultraworkers/claw-code](https://github.com/ultraworkers/claw-code). Ninmu Code incorporates significant original work by the UltraWorkers team and other contributors.

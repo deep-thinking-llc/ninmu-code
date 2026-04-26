@@ -308,7 +308,7 @@ struct ScenarioReport {
 }
 
 fn run_case(case: ScenarioCase, workspace: &HarnessWorkspace, base_url: &str) -> ScenarioRun {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_claw"));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_ninmu"));
     command
         .current_dir(&workspace.root)
         .env_clear()
@@ -345,16 +345,16 @@ fn run_case(case: ScenarioCase, workspace: &HarnessWorkspace, base_url: &str) ->
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .expect("claw should launch");
+            .expect("ninmu should launch");
         child
             .stdin
             .as_mut()
             .expect("stdin should be piped")
             .write_all(stdin.as_bytes())
             .expect("stdin should write");
-        child.wait_with_output().expect("claw should finish")
+        child.wait_with_output().expect("ninmu should finish")
     } else {
-        command.output().expect("claw should launch")
+        command.output().expect("ninmu should launch")
     };
 
     assert_success(&output);
@@ -881,7 +881,7 @@ fn unique_temp_dir(label: &str) -> PathBuf {
         .as_millis();
     let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "claw-mock-parity-{label}-{}-{millis}-{counter}",
+        "ninmu-mock-parity-{label}-{}-{millis}-{counter}",
         std::process::id()
     ))
 }

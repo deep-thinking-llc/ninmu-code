@@ -29,7 +29,7 @@ fn resumed_binary_accepts_slash_commands_with_arguments() {
         .expect("session should persist");
 
     // when
-    let output = run_claw(
+    let output = run_ninmu(
         &temp_dir,
         &[
             "--resume",
@@ -56,7 +56,7 @@ fn resumed_binary_accepts_slash_commands_with_arguments() {
     assert!(stdout.contains("Session cleared"));
     assert!(stdout.contains("Mode             resumed session reset"));
     assert!(stdout.contains("Previous session"));
-    assert!(stdout.contains("Resume previous  claw --resume"));
+    assert!(stdout.contains("Resume previous  ninmu --resume"));
     assert!(stdout.contains("Backup           "));
     assert!(stdout.contains("Session file     "));
 
@@ -87,7 +87,7 @@ fn status_command_applies_cli_flags_end_to_end() {
     fs::create_dir_all(&temp_dir).expect("temp dir should exist");
 
     // when
-    let output = run_claw(
+    let output = run_ninmu(
         &temp_dir,
         &[
             "--model",
@@ -136,7 +136,7 @@ fn resumed_config_command_loads_settings_files_end_to_end() {
     .expect("local config should write");
 
     // when
-    let output = run_claw_with_env(
+    let output = run_ninmu_with_env(
         &project_dir,
         &[
             "--resume",
@@ -206,7 +206,7 @@ fn resume_latest_restores_the_most_recent_managed_session() {
         .expect("newer session should persist");
 
     // when
-    let output = run_claw(&project_dir, &["--resume", "latest", "/status"]);
+    let output = run_ninmu(&project_dir, &["--resume", "latest", "/status"]);
 
     // then
     assert!(
@@ -238,7 +238,7 @@ fn resumed_status_command_emits_structured_json_when_requested() {
         .expect("session should persist");
 
     // when
-    let output = run_claw(
+    let output = run_ninmu(
         &temp_dir,
         &[
             "--output-format",
@@ -291,7 +291,7 @@ fn resumed_status_surfaces_persisted_model() {
     session.save_to_path(&session_path).expect("persist ok");
 
     // when
-    let output = run_claw(
+    let output = run_ninmu(
         &temp_dir,
         &[
             "--output-format",
@@ -329,7 +329,7 @@ fn resumed_sandbox_command_emits_structured_json_when_requested() {
         .expect("session should persist");
 
     // when
-    let output = run_claw(
+    let output = run_ninmu(
         &temp_dir,
         &[
             "--output-format",
@@ -369,7 +369,7 @@ fn resumed_version_command_emits_structured_json() {
         .save_to_path(&session_path)
         .expect("session should persist");
 
-    let output = run_claw(
+    let output = run_ninmu(
         &temp_dir,
         &[
             "--output-format",
@@ -404,7 +404,7 @@ fn resumed_export_command_emits_structured_json() {
         .expect("write ok");
     session.save_to_path(&session_path).expect("persist ok");
 
-    let output = run_claw(
+    let output = run_ninmu(
         &temp_dir,
         &[
             "--output-format",
@@ -436,7 +436,7 @@ fn resumed_help_command_emits_structured_json() {
         .save_to_path(&session_path)
         .expect("persist ok");
 
-    let output = run_claw(
+    let output = run_ninmu(
         &temp_dir,
         &[
             "--output-format",
@@ -471,7 +471,7 @@ fn resumed_no_command_emits_restored_json() {
         .expect("write ok");
     session.save_to_path(&session_path).expect("persist ok");
 
-    let output = run_claw(
+    let output = run_ninmu(
         &temp_dir,
         &[
             "--output-format",
@@ -503,7 +503,7 @@ fn resumed_stub_command_emits_not_implemented_json() {
         .save_to_path(&session_path)
         .expect("persist ok");
 
-    let output = run_claw(
+    let output = run_ninmu(
         &temp_dir,
         &[
             "--output-format",
@@ -529,21 +529,21 @@ fn resumed_stub_command_emits_not_implemented_json() {
     );
 }
 
-fn run_claw(current_dir: &Path, args: &[&str]) -> Output {
-    run_claw_with_env(current_dir, args, &[])
+fn run_ninmu(current_dir: &Path, args: &[&str]) -> Output {
+    run_ninmu_with_env(current_dir, args, &[])
 }
 
 fn workspace_session(root: &Path) -> Session {
     Session::new().with_workspace_root(root.to_path_buf())
 }
 
-fn run_claw_with_env(current_dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
-    let mut command = Command::new(env!("CARGO_BIN_EXE_claw"));
+fn run_ninmu_with_env(current_dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_ninmu"));
     command.current_dir(current_dir).args(args);
     for (key, value) in envs {
         command.env(key, value);
     }
-    command.output().expect("claw should launch")
+    command.output().expect("ninmu should launch")
 }
 
 fn unique_temp_dir(label: &str) -> PathBuf {
@@ -553,7 +553,7 @@ fn unique_temp_dir(label: &str) -> PathBuf {
         .as_millis();
     let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "claw-{label}-{}-{millis}-{counter}",
+        "ninmu-{label}-{}-{millis}-{counter}",
         std::process::id()
     ))
 }

@@ -86,9 +86,9 @@ pub(crate) const INTERNAL_PROGRESS_HEARTBEAT_INTERVAL: Duration = Duration::from
 pub(crate) const POST_TOOL_STALL_TIMEOUT: Duration = Duration::from_secs(10);
 pub(crate) const PRIMARY_SESSION_EXTENSION: &str = "jsonl";
 pub(crate) const LEGACY_SESSION_EXTENSION: &str = "json";
-pub(crate) const OFFICIAL_REPO_URL: &str = "https://github.com/ultraworkers/claw-code";
-pub(crate) const OFFICIAL_REPO_SLUG: &str = "ultraworkers/claw-code";
-pub(crate) const DEPRECATED_INSTALL_COMMAND: &str = "cargo install claw-code";
+pub(crate) const OFFICIAL_REPO_URL: &str = "https://github.com/deep-thinking-llc/ninmu-code";
+pub(crate) const OFFICIAL_REPO_SLUG: &str = "deep-thinking-llc/ninmu-code";
+pub(crate) const DEPRECATED_INSTALL_COMMAND: &str = "cargo install ninmu-code";
 pub(crate) const LATEST_SESSION_REFERENCE: &str = "latest";
 pub(crate) const SESSION_REFERENCE_ALIASES: &[&str] = &[LATEST_SESSION_REFERENCE, "last", "recent"];
 pub(crate) const CLI_OPTION_SUGGESTIONS: &[&str] = &[
@@ -170,7 +170,7 @@ fn main() {
             // #156: Add machine-readable error kind to text output so stderr observers
             // don't need to regex-scrape the prose.
             let kind = classify_error_kind(&message);
-            if message.contains("`claw --help`") {
+            if message.contains("`ninmu --help`") {
                 eprintln!(
                     "[error-kind: {kind}]
 error: {message}"
@@ -180,7 +180,7 @@ error: {message}"
                     "[error-kind: {kind}]
 error: {message}
 
-Run `claw --help` for usage."
+Run `ninmu --help` for usage."
                 );
             }
         }
@@ -394,7 +394,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                     && matches!(rest[0].as_str(), "prompt" | "commit" | "pr" | "issue") =>
             {
                 // `--help` following a subcommand that would otherwise forward
-                // the arg to the API (e.g. `claw prompt --help`) should show
+                // the arg to the API (e.g. `ninmu prompt --help`) should show
                 // top-level help instead. Subcommands that consume their own
                 // args (agents, mcp, plugins, skills) and local help-topic
                 // subcommands (status, sandbox, doctor, init, state, export,
@@ -505,7 +505,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 index += 1;
             }
             "-p" => {
-                // Claw Code compat: -p "prompt" = one-shot prompt
+                // Ninmu Code compat: -p "prompt" = one-shot prompt
                 let prompt = args[index + 1..].join(" ");
                 if prompt.trim().is_empty() {
                     return Err("-p requires a prompt string".to_string());
@@ -524,7 +524,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 });
             }
             "--print" => {
-                // Claw Code compat: --print makes output non-interactive
+                // Ninmu Code compat: --print makes output non-interactive
                 output_format = CliOutputFormat::Text;
                 index += 1;
             }
@@ -639,8 +639,8 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             output_format,
         }),
         // #145: `plugins` was routed through the prompt fallback because no
-        // top-level parser arm produced CliAction::Plugins. That made `claw
-        // plugins` (and `claw plugins --help`, `claw plugins list`, ...)
+        // top-level parser arm produced CliAction::Plugins. That made `ninmu
+        // plugins` (and `ninmu plugins --help`, `ninmu plugins list`, ...)
         // attempt an Anthropic network call, surfacing the misleading error
         // `missing Anthropic credentials` even though the command is purely
         // local introspection. Mirror `agents`/`mcp`/`skills`: action is the
@@ -651,7 +651,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             let target = tail.get(1).cloned();
             if tail.len() > 2 {
                 return Err(format!(
-                    "unexpected extra arguments after `claw plugins {}`: {}",
+                    "unexpected extra arguments after `ninmu plugins {}`: {}",
                     tail[..2].join(" "),
                     tail[2..].join(" ")
                 ));
@@ -665,7 +665,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         // #146: `config` is pure-local read-only introspection (merges
         // `.claw.json` + `.claw/settings.json` from disk, no network, no
         // state mutation). Previously callers had to spin up a session with
-        // `claw --resume SESSION.jsonl /config` to see their own config,
+        // `ninmu --resume SESSION.jsonl /config` to see their own config,
         // which is synthetic friction. Accepts an optional section name
         // (env|hooks|model|plugins) matching the slash command shape.
         "config" => {
@@ -673,7 +673,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             let section = tail.first().cloned();
             if tail.len() > 1 {
                 return Err(format!(
-                    "unexpected extra arguments after `claw config {}`: {}",
+                    "unexpected extra arguments after `ninmu config {}`: {}",
                     tail[0],
                     tail[1..].join(" ")
                 ));
@@ -688,7 +688,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         "diff" => {
             if rest.len() > 1 {
                 return Err(format!(
-                    "unexpected extra arguments after `claw diff`: {}",
+                    "unexpected extra arguments after `ninmu diff`: {}",
                     rest[1..].join(" ")
                 ));
             }
@@ -756,21 +756,21 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                         message.push_str(&line);
                     }
                     message.push_str(
-                        "\nRun `claw --help` for the full list. If you meant to send a prompt literally, use `claw prompt <text>`.",
+                        "\nRun `ninmu --help` for the full list. If you meant to send a prompt literally, use `ninmu prompt <text>`.",
                     );
                     return Err(message);
                 }
             }
             // #147: guard empty/whitespace-only prompts at the fallthrough
             // path the same way `"prompt"` arm above does. Without this,
-            // `claw ""`, `claw "   "`, and `claw "" ""` silently route to
+            // `ninmu ""`, `ninmu "   "`, and `ninmu "" ""` silently route to
             // the Anthropic call and surface a misleading
             // `missing Anthropic credentials` error (or burn API tokens on
             // an empty prompt when credentials are present).
             let joined = rest.join(" ");
             if joined.trim().is_empty() {
                 return Err(
-                    "empty prompt: provide a subcommand (run `claw --help`) or a non-empty prompt string"
+                    "empty prompt: provide a subcommand (run `ninmu --help`) or a non-empty prompt string"
                         .to_string(),
                 );
             }
@@ -903,11 +903,11 @@ fn bare_slash_command_guidance(command_name: &str) -> Option<String> {
         .find(|spec| spec.name == command_name)?;
     let guidance = if slash_command.resume_supported {
         format!(
-            "`claw {command_name}` is a slash command. Use `claw --resume SESSION.jsonl /{command_name}` or start `claw` and run `/{command_name}`."
+            "`ninmu {command_name}` is a slash command. Use `ninmu --resume SESSION.jsonl /{command_name}` or start `ninmu` and run `/{command_name}`."
         )
     } else {
         format!(
-            "`claw {command_name}` is a slash command. Start `claw` and run `/{command_name}` inside the REPL."
+            "`ninmu {command_name}` is a slash command. Start `ninmu` and run `/{command_name}` inside the REPL."
         )
     };
     Some(guidance)
@@ -915,7 +915,7 @@ fn bare_slash_command_guidance(command_name: &str) -> Option<String> {
 
 fn removed_auth_surface_error(command_name: &str) -> String {
     format!(
-        "`claw {command_name}` has been removed. Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead."
+        "`ninmu {command_name}` has been removed. Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead."
     )
 }
 
@@ -924,7 +924,7 @@ fn parse_acp_args(args: &[String], output_format: CliOutputFormat) -> Result<Cli
         [] => Ok(CliAction::Acp { output_format }),
         [subcommand] if subcommand == "serve" => Ok(CliAction::Acp { output_format }),
         _ => Err(String::from(
-            "unsupported ACP invocation. Use `claw acp`, `claw acp serve`, `claw --acp`, or `claw -acp`.",
+            "unsupported ACP invocation. Use `ninmu acp`, `ninmu acp serve`, `ninmu --acp`, or `ninmu -acp`.",
         )),
     }
 }
@@ -1002,7 +1002,7 @@ fn parse_direct_slash_cli_action(
         Ok(Some(command)) => Err({
             let _ = command;
             format!(
-                "slash command {command_name} is interactive-only. Start `claw` and run it there, or use `claw --resume SESSION.jsonl {command_name}` / `claw --resume {latest} {command_name}` when the command is marked [resume] in /help.",
+                "slash command {command_name} is interactive-only. Start `ninmu` and run it there, or use `ninmu --resume SESSION.jsonl {command_name}` / `ninmu --resume {latest} {command_name}` when the command is marked [resume] in /help.",
                 command_name = rest[0],
                 latest = LATEST_SESSION_REFERENCE,
             )
@@ -1019,7 +1019,7 @@ fn format_unknown_option(option: &str) -> String {
         message.push_str(suggestion);
         message.push('?');
     }
-    message.push_str("\nRun `claw --help` for usage.");
+    message.push_str("\nRun `ninmu --help` for usage.");
     message
 }
 
@@ -1034,7 +1034,7 @@ fn format_unknown_direct_slash_command(name: &str) -> String {
         message.push('\n');
         message.push_str(note);
     }
-    message.push_str("\nRun `claw --help` for CLI usage, or start `claw` and use /help.");
+    message.push_str("\nRun `ninmu --help` for CLI usage, or start `ninmu` and use /help.");
     message
 }
 
@@ -1056,7 +1056,7 @@ fn format_unknown_slash_command(name: &str) -> String {
 fn omc_compatibility_note_for_unknown_slash_command(name: &str) -> Option<&'static str> {
     name.starts_with("oh-my-claudecode:")
         .then_some(
-            "Compatibility note: `/oh-my-claudecode:*` is a Claude Code/OMC plugin command. `claw` does not yet load plugin slash commands, Claude statusline stdin, or OMC session hooks.",
+            "Compatibility note: `/oh-my-claudecode:*` is a Claude Code/OMC plugin command. `ninmu` does not yet load plugin slash commands, Claude statusline stdin, or OMC session hooks.",
         )
 }
 
@@ -1111,7 +1111,7 @@ fn ranked_suggestions<'a>(input: &str, candidates: &'a [&'a str]) -> Vec<&'a str
 }
 
 const DUMP_MANIFESTS_OVERRIDE_HINT: &str =
-    "Hint: set CLAUDE_CODE_UPSTREAM=/path/to/upstream or pass `claw dump-manifests --manifests-dir /path/to/upstream`.";
+    "Hint: set CLAUDE_CODE_UPSTREAM=/path/to/upstream or pass `ninmu dump-manifests --manifests-dir /path/to/upstream`.";
 
 fn version_json_value() -> serde_json::Value {
     json!({
@@ -1357,7 +1357,7 @@ fn run_resume_command(
             Ok(ResumeCommandOutcome {
                 session: cleared,
                 message: Some(format!(
-                    "Session cleared\n  Mode             resumed session reset\n  Previous session {previous_session_id}\n  Backup           {}\n  Resume previous  claw --resume {}\n  New session      {new_session_id}\n  Session file     {}",
+                    "Session cleared\n  Mode             resumed session reset\n  Previous session {previous_session_id}\n  Backup           {}\n  Resume previous  ninmu --resume {}\n  New session      {new_session_id}\n  Session file     {}",
                     backup_path.display(),
                     backup_path.display(),
                     session_path.display()
@@ -1518,7 +1518,7 @@ fn run_resume_command(
         SlashCommand::Skills { args } => {
             if let SkillSlashDispatch::Invoke(_) = classify_skills_slash_command(args.as_deref()) {
                 return Err(
-                    "resumed /skills invocations are interactive-only; start `claw` and run `/skills <skill>` in the REPL".into(),
+                    "resumed /skills invocations are interactive-only; start `ninmu` and run `/skills <skill>` in the REPL".into(),
                 );
             }
             let cwd = env::current_dir()?;
@@ -1754,95 +1754,95 @@ fn print_sandbox_status_snapshot(
 fn render_help_topic(topic: LocalHelpTopic) -> String {
     match topic {
         LocalHelpTopic::Status => "Status
-  Usage            claw status [--output-format <format>]
+  Usage            ninmu status [--output-format <format>]
   Purpose          show the local workspace snapshot without entering the REPL
   Output           model, permissions, git state, config files, and sandbox status
   Formats          text (default), json
-  Related          /status · claw --resume latest /status"
+  Related          /status · ninmu --resume latest /status"
             .to_string(),
         LocalHelpTopic::Sandbox => "Sandbox
-  Usage            claw sandbox [--output-format <format>]
+  Usage            ninmu sandbox [--output-format <format>]
   Purpose          inspect the resolved sandbox and isolation state for the current directory
   Output           namespace, network, filesystem, and fallback details
   Formats          text (default), json
-  Related          /sandbox · claw status"
+  Related          /sandbox · ninmu status"
             .to_string(),
         LocalHelpTopic::Doctor => "Doctor
-  Usage            claw doctor [--output-format <format>]
+  Usage            ninmu doctor [--output-format <format>]
   Purpose          diagnose local auth, config, workspace, sandbox, and build metadata
   Output           local-only health report; no provider request or session resume required
   Formats          text (default), json
-  Related          /doctor · claw --resume latest /doctor"
+  Related          /doctor · ninmu --resume latest /doctor"
             .to_string(),
         LocalHelpTopic::Acp => "ACP / Zed
-  Usage            claw acp [serve] [--output-format <format>]
-  Aliases          claw --acp · claw -acp
+  Usage            ninmu acp [serve] [--output-format <format>]
+  Aliases          ninmu --acp · ninmu -acp
   Purpose          explain the current editor-facing ACP/Zed launch contract without starting the runtime
   Status           discoverability only; `serve` is a status alias and does not launch a daemon yet
   Formats          text (default), json
-  Related          ROADMAP #64a (discoverability) · ROADMAP #76 (real ACP support) · claw --help"
+  Related          ROADMAP #64a (discoverability) · ROADMAP #76 (real ACP support) · ninmu --help"
             .to_string(),
         LocalHelpTopic::Init => "Init
-  Usage            claw init [--output-format <format>]
+  Usage            ninmu init [--output-format <format>]
   Purpose          create .claw/, .claw.json, .gitignore, and CLAUDE.md in the current project
   Output           list of created vs. skipped files (idempotent: safe to re-run)
   Formats          text (default), json
-  Related          claw status · claw doctor"
+  Related          ninmu status · ninmu doctor"
             .to_string(),
         LocalHelpTopic::State => "State
-  Usage            claw state [--output-format <format>]
+  Usage            ninmu state [--output-format <format>]
   Purpose          read .claw/worker-state.json written by the interactive REPL or a one-shot prompt
   Output           worker id, model, permissions, session reference (text or json)
   Formats          text (default), json
-  Produces state   `claw` (interactive REPL) or `claw prompt <text>` (one non-interactive turn)
-  Observes state   `claw state` reads; clawhip/CI may poll this file without HTTP
+  Produces state   `ninmu` (interactive REPL) or `ninmu prompt <text>` (one non-interactive turn)
+  Observes state   `ninmu state` reads; ninmuhip/CI may poll this file without HTTP
   Exit codes       0 if state file exists and parses; 1 with actionable hint otherwise
-  Related          claw status · ROADMAP #139 (this worker-concept contract)"
+  Related          ninmu status · ROADMAP #139 (this worker-concept contract)"
             .to_string(),
         LocalHelpTopic::Export => "Export
-  Usage            claw export [--session <id|latest>] [--output <path>] [--output-format <format>]
+  Usage            ninmu export [--session <id|latest>] [--output <path>] [--output-format <format>]
   Purpose          serialize a managed session to JSON for review, transfer, or archival
   Defaults         --session latest (most recent managed session in .claw/sessions/)
   Formats          text (default), json
-  Related          /session list · claw --resume latest"
+  Related          /session list · ninmu --resume latest"
             .to_string(),
         LocalHelpTopic::Version => "Version
-  Usage            claw version [--output-format <format>]
-  Aliases          claw --version · claw -V
-  Purpose          print the claw CLI version and build metadata
+  Usage            ninmu version [--output-format <format>]
+  Aliases          ninmu --version · ninmu -V
+  Purpose          print the ninmu CLI version and build metadata
   Formats          text (default), json
-  Related          claw doctor (full build/auth/config diagnostic)"
+  Related          ninmu doctor (full build/auth/config diagnostic)"
             .to_string(),
         LocalHelpTopic::SystemPrompt => "System Prompt
-  Usage            claw system-prompt [--cwd <path>] [--date YYYY-MM-DD] [--output-format <format>]
-  Purpose          render the resolved system prompt that `claw` would send for the given cwd + date
+  Usage            ninmu system-prompt [--cwd <path>] [--date YYYY-MM-DD] [--output-format <format>]
+  Purpose          render the resolved system prompt that `ninmu` would send for the given cwd + date
   Options          --cwd overrides the workspace dir · --date injects a deterministic date stamp
   Formats          text (default), json
-  Related          claw doctor · claw dump-manifests"
+  Related          ninmu doctor · ninmu dump-manifests"
             .to_string(),
         LocalHelpTopic::DumpManifests => "Dump Manifests
-  Usage            claw dump-manifests [--manifests-dir <path>] [--output-format <format>]
+  Usage            ninmu dump-manifests [--manifests-dir <path>] [--output-format <format>]
   Purpose          emit every skill/agent/tool manifest the resolver would load for the current cwd
   Options          --manifests-dir scopes discovery to a specific directory
   Formats          text (default), json
-  Related          claw skills · claw agents · claw doctor"
+  Related          ninmu skills · ninmu agents · ninmu doctor"
             .to_string(),
         LocalHelpTopic::BootstrapPlan => "Bootstrap Plan
-  Usage            claw bootstrap-plan [--output-format <format>]
+  Usage            ninmu bootstrap-plan [--output-format <format>]
   Purpose          list the ordered startup phases the CLI would execute before dispatch
   Output           phase names (text) or structured phase list (json) — primary output is the plan itself
   Formats          text (default), json
-  Related          claw doctor · claw status"
+  Related          ninmu doctor · ninmu status"
             .to_string(),
     }
 }
 
 fn print_acp_status(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Error>> {
-    let message = "ACP/Zed editor integration is not implemented in claw-code yet. `claw acp serve` is only a discoverability alias today; it does not launch a daemon or Zed-specific protocol endpoint. Use the normal terminal surfaces for now and track ROADMAP #76 for real ACP support.";
+    let message = "ACP/Zed editor integration is not implemented in ninmu-code yet. `ninmu acp serve` is only a discoverability alias today; it does not launch a daemon or Zed-specific protocol endpoint. Use the normal terminal surfaces for now and track ROADMAP #76 for real ACP support.";
     match output_format {
         CliOutputFormat::Text => {
             println!(
-                "ACP / Zed\n  Status           discoverability only\n  Launch           `claw acp serve` / `claw --acp` / `claw -acp` report status only; no editor daemon is available yet\n  Today            use `claw prompt`, the REPL, or `claw doctor` for local verification\n  Tracking         ROADMAP #76\n  Message          {message}"
+                "ACP / Zed\n  Status           discoverability only\n  Launch           `ninmu acp serve` / `ninmu --acp` / `ninmu -acp` report status only; no editor daemon is available yet\n  Today            use `ninmu prompt`, the REPL, or `ninmu doctor` for local verification\n  Tracking         ROADMAP #76\n  Message          {message}"
             );
         }
         CliOutputFormat::Json => {
@@ -1859,9 +1859,9 @@ fn print_acp_status(output_format: CliOutputFormat) -> Result<(), Box<dyn std::e
                     "discoverability_tracking": "ROADMAP #64a",
                     "tracking": "ROADMAP #76",
                     "recommended_workflows": [
-                        "claw prompt TEXT",
-                        "claw",
-                        "claw doctor"
+                        "ninmu prompt TEXT",
+                        "ninmu",
+                        "ninmu doctor"
                     ],
                 }))?
             );
@@ -2008,7 +2008,7 @@ fn render_version_report() -> String {
     let git_sha = GIT_SHA.unwrap_or("unknown");
     let target = BUILD_TARGET.unwrap_or("unknown");
     format!(
-        "Claw Code\n  Version          {VERSION}\n  Git SHA          {git_sha}\n  Target           {target}\n  Build date       {DEFAULT_DATE}"
+        "Ninmu Code\n  Version          {VERSION}\n  Git SHA          {git_sha}\n  Target           {target}\n  Build date       {DEFAULT_DATE}"
     )
 }
 
@@ -2489,7 +2489,7 @@ mod tests {
         );
         assert!(rendered.contains("Compact          /compact"), "{rendered}");
         assert!(
-            rendered.contains("Resume compact   claw --resume session-issue-32 /compact"),
+            rendered.contains("Resume compact   ninmu --resume session-issue-32 /compact"),
             "{rendered}"
         );
         assert!(
@@ -2562,7 +2562,7 @@ mod tests {
         );
         assert!(rendered.contains("Compact          /compact"), "{rendered}");
         assert!(
-            rendered.contains("Resume compact   claw --resume session-issue-32 /compact"),
+            rendered.contains("Resume compact   ninmu --resume session-issue-32 /compact"),
             "{rendered}"
         );
     }
@@ -3540,9 +3540,9 @@ mod tests {
 
     #[test]
     fn status_degrades_gracefully_on_malformed_mcp_config_143() {
-        // #143: previously `claw status` hard-failed on any config parse error,
+        // #143: previously `ninmu status` hard-failed on any config parse error,
         // taking down the entire health surface for one malformed MCP entry.
-        // `claw doctor` already degrades gracefully; this test locks `status`
+        // `ninmu doctor` already degrades gracefully; this test locks `status`
         // to the same contract.
         let _guard = env_lock();
         let root = temp_dir();
@@ -3670,15 +3670,15 @@ mod tests {
         );
         // New actionable hints — this is what #139 is fixing.
         assert!(
-            message.contains("claw prompt"),
-            "error should name `claw prompt <text>` as a producer: {message}"
+            message.contains("ninmu prompt"),
+            "error should name `ninmu prompt <text>` as a producer: {message}"
         );
         assert!(
             message.contains("REPL"),
             "error should mention the interactive REPL as a producer: {message}"
         );
         assert!(
-            message.contains("claw state"),
+            message.contains("ninmu state"),
             "error should tell the user what to rerun once state exists: {message}"
         );
         // And the State --help topic must document the worker relationship
@@ -3689,8 +3689,8 @@ mod tests {
             "state help must document how state is produced: {state_help}"
         );
         assert!(
-            state_help.contains("claw prompt"),
-            "state help must name `claw prompt <text>` as a producer: {state_help}"
+            state_help.contains("ninmu prompt"),
+            "state help must name `ninmu prompt <text>` as a producer: {state_help}"
         );
     }
 
@@ -4269,7 +4269,7 @@ mod tests {
         let error = parse_args(&["/status".to_string()])
             .expect_err("/status should remain REPL-only when invoked directly");
         assert!(error.contains("interactive-only"));
-        assert!(error.contains("claw --resume SESSION.jsonl /status"));
+        assert!(error.contains("ninmu --resume SESSION.jsonl /status"));
     }
 
     #[test]
@@ -4484,7 +4484,7 @@ mod tests {
         let error = parse_args(&["--resum".to_string()]).expect_err("unknown option should fail");
         assert!(error.contains("unknown option: --resum"));
         assert!(error.contains("Did you mean --resume?"));
-        assert!(error.contains("claw --help"));
+        assert!(error.contains("ninmu --help"));
     }
 
     #[test]
@@ -4828,20 +4828,20 @@ mod tests {
         let mut help = Vec::new();
         print_help_to(&mut help).expect("help should render");
         let help = String::from_utf8(help).expect("help should be utf8");
-        assert!(help.contains("claw help"));
-        assert!(help.contains("claw version"));
-        assert!(help.contains("claw status"));
-        assert!(help.contains("claw sandbox"));
-        assert!(help.contains("claw init"));
-        assert!(help.contains("claw acp [serve]"));
-        assert!(help.contains("claw agents"));
-        assert!(help.contains("claw mcp"));
-        assert!(help.contains("claw skills"));
-        assert!(help.contains("claw /skills"));
-        assert!(help.contains("ultraworkers/claw-code"));
-        assert!(help.contains("cargo install claw-code"));
-        assert!(!help.contains("claw login"));
-        assert!(!help.contains("claw logout"));
+        assert!(help.contains("ninmu help"));
+        assert!(help.contains("ninmu version"));
+        assert!(help.contains("ninmu status"));
+        assert!(help.contains("ninmu sandbox"));
+        assert!(help.contains("ninmu init"));
+        assert!(help.contains("ninmu acp [serve]"));
+        assert!(help.contains("ninmu agents"));
+        assert!(help.contains("ninmu mcp"));
+        assert!(help.contains("ninmu skills"));
+        assert!(help.contains("ninmu /skills"));
+        assert!(help.contains("deep-thinking-llc/ninmu-code"));
+        assert!(help.contains("cargo install ninmu-code"));
+        assert!(!help.contains("ninmu login"));
+        assert!(!help.contains("ninmu logout"));
     }
 
     #[test]
@@ -5237,10 +5237,10 @@ UU conflicted.rs",
         let mut help = Vec::new();
         print_help_to(&mut help).expect("help should render");
         let help = String::from_utf8(help).expect("help should be utf8");
-        assert!(help.contains("claw --resume [SESSION.jsonl|session-id|latest]"));
+        assert!(help.contains("ninmu --resume [SESSION.jsonl|session-id|latest]"));
         assert!(help.contains("Use `latest` with --resume, /resume, or /session switch"));
-        assert!(help.contains("claw --resume latest"));
-        assert!(help.contains("claw --resume latest /status /diff /export notes.txt"));
+        assert!(help.contains("ninmu --resume latest"));
+        assert!(help.contains("ninmu --resume latest /status /diff /export notes.txt"));
     }
 
     #[test]
@@ -5414,7 +5414,7 @@ UU conflicted.rs",
             .duration_since(std::time::UNIX_EPOCH)
             .expect("system time should be after epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("claw-cli-{label}-{nanos}"))
+        std::env::temp_dir().join(format!("ninmu-cli-{label}-{nanos}"))
     }
 
     #[test]
@@ -6432,7 +6432,7 @@ mod dump_manifests_tests {
     #[test]
     fn dump_manifests_shows_helpful_error_when_manifests_missing() {
         let root = std::env::temp_dir().join(format!(
-            "claw_test_missing_manifests_{}",
+            "ninmu_test_missing_manifests_{}",
             std::process::id()
         ));
         let workspace = root.join("workspace");
@@ -6469,7 +6469,7 @@ mod dump_manifests_tests {
     #[test]
     fn dump_manifests_uses_explicit_manifest_dir() {
         let root = std::env::temp_dir().join(format!(
-            "claw_test_explicit_manifest_dir_{}",
+            "ninmu_test_explicit_manifest_dir_{}",
             std::process::id()
         ));
         let workspace = root.join("workspace");

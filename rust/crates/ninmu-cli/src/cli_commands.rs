@@ -1,7 +1,7 @@
 //! Subcommand runner functions extracted from main.rs.
 //!
 //! These are the standalone functions that implement individual CLI subcommands
-//! (`claw init`, `claw doctor`, `claw config`, etc.). They were previously
+//! (`ninmu init`, `ninmu doctor`, `ninmu config`, etc.). They were previously
 //! defined inline in `main.rs` and are now available from this module.
 
 use std::env;
@@ -437,7 +437,7 @@ pub(crate) fn run_mcp_serve() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     let spec = runtime::McpServerSpec {
-        server_name: "claw".to_string(),
+        server_name: "ninmu".to_string(),
         server_version: VERSION.to_string(),
         tools,
         tool_handler: Box::new(execute_tool),
@@ -751,7 +751,7 @@ pub(crate) fn run_worker_state(
     let state_path = cwd.join(".claw").join("worker-state.json");
     if !state_path.exists() {
         return Err(format!(
-            "no worker state file found at {path}\n  Hint: worker state is written by the interactive REPL or a non-interactive prompt.\n  Run:   claw               # start the REPL (writes state on first turn)\n  Or:    claw prompt <text> # run one non-interactive turn\n  Then rerun: claw state [--output-format json]",
+            "no worker state file found at {path}\n  Hint: worker state is written by the interactive REPL or a non-interactive prompt.\n  Run:   ninmu               # start the REPL (writes state on first turn)\n  Or:    ninmu prompt <text> # run one non-interactive turn\n  Then rerun: ninmu state [--output-format json]",
             path = state_path.display()
         )
         .into());
@@ -1033,7 +1033,7 @@ pub(crate) fn run_resume_command(
             Ok(ResumeCommandOutcome {
                 session: cleared,
                 message: Some(format!(
-                    "Session cleared\n  Mode             resumed session reset\n  Previous session {previous_session_id}\n  Backup           {}\n  Resume previous  claw --resume {}\n  New session      {new_session_id}\n  Session file     {}",
+                    "Session cleared\n  Mode             resumed session reset\n  Previous session {previous_session_id}\n  Backup           {}\n  Resume previous  ninmu --resume {}\n  New session      {new_session_id}\n  Session file     {}",
                     backup_path.display(),
                     backup_path.display(),
                     session_path.display()
@@ -1192,7 +1192,7 @@ pub(crate) fn run_resume_command(
         SlashCommand::Skills { args } => {
             if let SkillSlashDispatch::Invoke(_) = classify_skills_slash_command(args.as_deref()) {
                 return Err(
-                    "resumed /skills invocations are interactive-only; start `claw` and run `/skills <skill>` in the REPL".into(),
+                    "resumed /skills invocations are interactive-only; start `ninmu` and run `/skills <skill>` in the REPL".into(),
                 );
             }
             let cwd = env::current_dir()?;
@@ -1325,7 +1325,7 @@ pub(crate) fn dump_manifests(
 }
 
 const DUMP_MANIFESTS_OVERRIDE_HINT: &str =
-    "Hint: set CLAUDE_CODE_UPSTREAM=/path/to/upstream or pass `claw dump-manifests --manifests-dir /path/to/upstream`.";
+    "Hint: set CLAUDE_CODE_UPSTREAM=/path/to/upstream or pass `ninmu dump-manifests --manifests-dir /path/to/upstream`.";
 
 pub(crate) fn dump_manifests_at_path(
     workspace_dir: &std::path::Path,
@@ -1417,11 +1417,11 @@ pub(crate) fn init_json_value(
 pub(crate) fn print_acp_status(
     output_format: CliOutputFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let message = "ACP/Zed editor integration is not implemented in claw-code yet. `claw acp serve` is only a discoverability alias today; it does not launch a daemon or Zed-specific protocol endpoint. Use the normal terminal surfaces for now and track ROADMAP #76 for real ACP support.";
+    let message = "ACP/Zed editor integration is not implemented in ninmu-code yet. `ninmu acp serve` is only a discoverability alias today; it does not launch a daemon or Zed-specific protocol endpoint. Use the normal terminal surfaces for now and track ROADMAP #76 for real ACP support.";
     match output_format {
         CliOutputFormat::Text => {
             println!(
-                "ACP / Zed\n  Status           discoverability only\n  Launch           `claw acp serve` / `claw --acp` / `claw -acp` report status only; no editor daemon is available yet\n  Today            use `claw prompt`, the REPL, or `claw doctor` for local verification\n  Tracking         ROADMAP #76\n  Message          {message}"
+                "ACP / Zed\n  Status           discoverability only\n  Launch           `ninmu acp serve` / `ninmu --acp` / `ninmu -acp` report status only; no editor daemon is available yet\n  Today            use `ninmu prompt`, the REPL, or `ninmu doctor` for local verification\n  Tracking         ROADMAP #76\n  Message          {message}"
             );
         }
         CliOutputFormat::Json => {
@@ -1438,9 +1438,9 @@ pub(crate) fn print_acp_status(
                     "discoverability_tracking": "ROADMAP #64a",
                     "tracking": "ROADMAP #76",
                     "recommended_workflows": [
-                        "claw prompt TEXT",
-                        "claw",
-                        "claw doctor"
+                        "ninmu prompt TEXT",
+                        "ninmu",
+                        "ninmu doctor"
                     ],
                 }))?
             );
@@ -2102,7 +2102,7 @@ fn check_auth_health() -> DiagnosticCheck {
                     token_set.scopes.join(",")
                 }
             ),
-            "Suggested action  set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN; `claw login` is removed"
+            "Suggested action  set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN; `ninmu login` is removed"
                 .to_string(),
         ])
         .with_data(Map::from_iter([
@@ -2259,7 +2259,7 @@ fn check_install_source_health() -> DiagnosticCheck {
         "Recommended path  build from this repo or use the upstream binary documented in README.md"
             .to_string(),
         format!(
-            "Deprecated crate  `{DEPRECATED_INSTALL_COMMAND}` installs a deprecated stub and does not provide the `claw` binary"
+            "Deprecated crate  `{DEPRECATED_INSTALL_COMMAND}` installs a deprecated stub and does not provide the `ninmu` binary"
         )
             .to_string(),
     ])
@@ -2458,7 +2458,7 @@ pub(crate) fn render_version_report() -> String {
     let git_sha = GIT_SHA.unwrap_or("unknown");
     let target = BUILD_TARGET.unwrap_or("unknown");
     format!(
-        "Claw Code\n  Version          {VERSION}\n  Git SHA          {git_sha}\n  Target           {target}\n  Build date       {DEFAULT_DATE}"
+        "Ninmu Code\n  Version          {VERSION}\n  Git SHA          {git_sha}\n  Target           {target}\n  Build date       {DEFAULT_DATE}"
     )
 }
 

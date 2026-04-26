@@ -159,3 +159,29 @@ impl Drop for EnvVarGuard {
         }
     }
 }
+
+#[test]
+fn provider_client_routes_deepseek_reasoner_alias() {
+    let _lock = env_lock();
+    let _ds_key = EnvVarGuard::set("DEEPSEEK_API_KEY", Some("sk-test"));
+
+    // deepseek-r1 is an alias for deepseek-reasoner
+    let client =
+        ProviderClient::from_model("deepseek-r1").expect("deepseek-r1 alias should resolve");
+
+    assert_eq!(client.provider_kind(), ProviderKind::DeepSeek);
+}
+
+#[test]
+fn provider_client_detects_ollama_via_base_url_env() {
+    let _lock = env_lock();
+    let _ollama_url = EnvVarGuard::set("OLLAMA_BASE_URL", Some("http://localhost:11434/v1"));
+    let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", None);
+    let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+
+    // No API key, just base URL — should still work (auth_optional)
+    let client = ProviderClient::from_model("ollama/llama3.1:8b")
+        .expect("ollama should work without API key");
+
+    assert_eq!(client.provider_kind(), ProviderKind::Ollama);
+}

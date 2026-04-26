@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claw Code (clawcode.dev) when working with code in this repository.
+This file provides guidance to Ninmu Code (ninmu.dev) when working with code in this repository.
 
 ## Detected stack
 - Languages: Rust.

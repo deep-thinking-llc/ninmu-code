@@ -8,7 +8,7 @@
 
 ## 1. Motivation
 
-Claw-code aims to serve as an **autonomous AI coding harness** — a system where machines (claws, orchestrators, CI pipelines) drive coding agents without human babysitting. The pi-mono project provides a mature reference implementation of several key primitives:
+Claw-code aims to serve as an **autonomous AI coding harness** — a system where machines (agents, orchestrators, CI pipelines) drive coding agents without human babysitting. The pi-mono project provides a mature reference implementation of several key primitives:
 
 - Runtime model configuration (no recompile to add providers)
 - Programmatic SDK for embedding agent capabilities
@@ -17,13 +17,13 @@ Claw-code aims to serve as an **autonomous AI coding harness** — a system wher
 - Inter-agent communication
 - Event bus for typed lifecycle events
 
-This document compares pi-mono's approach with claw-code's, tracks what's been implemented, and identifies remaining gaps.
+This document compares pi-mono's approach with ninmu-code's, tracks what's been implemented, and identifies remaining gaps.
 
 ---
 
 ## 2. Architectural Comparison
 
-| Dimension | Pi-mono (TypeScript) | Claw-code (Rust) |
+| Dimension | Pi-mono (TypeScript) | Ninmu Code (Rust) |
 |-----------|----------------------|-------------------|
 | **Language** | TypeScript / Node.js | Rust |
 | **Philosophy** | Minimal core, extensions for everything | Monolithic core + SDK extraction layer |
@@ -36,7 +36,7 @@ This document compares pi-mono's approach with claw-code's, tracks what's been i
 | **Model config** | Rich compat flags, shell-command keys, modelOverrides, hot reload | Basic provider/model with env-var keys, no compat, no hot reload |
 | **Orchestration focus** | Human-facing TUI extension ecosystem | Autonomous multi-agent orchestration with lane events, policy engine, recovery |
 
-**Key insight:** Pi-mono optimizes for **human extensibility** (rich extension API, TUI hooks, package gallery). Claw-code optimizes for **machine orchestration** (typed lane events, policy engine, recovery recipes, worktree isolation). The parity work focuses on the primitives both need, while preserving claw-code's automation-first philosophy.
+**Key insight:** Pi-mono optimizes for **human extensibility** (rich extension API, TUI hooks, package gallery). Ninmu Code optimizes for **machine orchestration** (typed lane events, policy engine, recovery recipes, worktree isolation). The parity work focuses on the primitives both need, while preserving ninmu-code's automation-first philosophy.
 
 ---
 
@@ -46,7 +46,7 @@ This document compares pi-mono's approach with claw-code's, tracks what's been i
 
 **Pi-mono reference:** `~/.pi/agent/models.json` with providers, models, compat flags, shell-command API key resolution, and hot reload.
 
-**Claw-code implementation:** `rust/crates/api/src/providers/models_file.rs`
+**Ninmu Code implementation:** `rust/crates/api/src/providers/models_file.rs`
 
 #### Schema
 
@@ -108,7 +108,7 @@ Custom models are hooked into the existing provider dispatch chain:
 
 **Pi-mono reference:** `@mariozechner/pi-coding-agent` npm package with `createAgentSession()`, `AgentSessionRuntime`, `ResourceLoader`, `defineTool()`.
 
-**Claw-code implementation:** `rust/crates/sdk/` (workspace crate)
+**Ninmu Code implementation:** `rust/crates/sdk/` (workspace crate)
 
 #### Module structure
 
@@ -162,7 +162,7 @@ sdk/
 
 **Pi-mono reference:** TypeScript modules with `registerTool()`, `registerCommand()`, `registerShortcut()`, `on(event, handler)`, UI access (`ctx.ui.confirm()`, `ctx.ui.select()`), tool interception (`tool_call`, `tool_result`), hot reload.
 
-**Claw-code implementation:** `rust/crates/sdk/extension.rs`
+**Ninmu Code implementation:** `rust/crates/sdk/extension.rs`
 
 #### Design
 
@@ -185,7 +185,7 @@ pub trait Extension: Debug + Send {
 
 #### Complementary systems in runtime
 
-The SDK extension trait is lightweight by design. Claw-code already has richer extension/plugin mechanisms in the runtime crate:
+The SDK extension trait is lightweight by design. Ninmu Code already has richer extension/plugin mechanisms in the runtime crate:
 
 - **`crates/runtime/plugin_lifecycle.rs`** — `PluginLifecycle` trait with `validate_config()`, `healthcheck()`, `discover()`, `shutdown()`. States: `Unconfigured → Validated → Starting → Healthy | Degraded | Failed → ShuttingDown → Stopped`
 - **`crates/runtime/mcp_stdio.rs`** — Full MCP server lifecycle (spawn, handshake, tool discovery, invocation)
@@ -208,7 +208,7 @@ The SDK extension trait is lightweight by design. Claw-code already has richer e
 
 **Pi-mono reference:** JSONL tree with `id`/`parentId` per entry, compaction summaries, branch labels, custom entries, model/thinking change entries, `/tree` navigation, `/fork` to new file, `buildSessionContext()`.
 
-**Claw-code implementation:** `rust/crates/sdk/session_tree.rs`
+**Ninmu Code implementation:** `rust/crates/sdk/session_tree.rs`
 
 #### Design
 
@@ -249,9 +249,9 @@ Operations:
 
 **Pi-mono reference:** No built-in sub-agents. Pi delegates this to extensions. Cross-extension communication via `pi.events` event bus.
 
-**Claw-code implementation:** `rust/crates/sdk/agent_context.rs`
+**Ninmu Code implementation:** `rust/crates/sdk/agent_context.rs`
 
-This is an area where claw-code diverges from pi-mono's philosophy. Pi treats sub-agents as an extension concern. Claw-code bakes multi-agent coordination into the core.
+This is an area where ninmu-code diverges from pi-mono's philosophy. Pi treats sub-agents as an extension concern. Ninmu Code bakes multi-agent coordination into the core.
 
 #### Design
 

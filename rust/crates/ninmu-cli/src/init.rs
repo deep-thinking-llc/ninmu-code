@@ -8,13 +8,13 @@ const STARTER_CLAW_JSON: &str = concat!(
     "  }\n",
     "}\n",
 );
-const GITIGNORE_COMMENT: &str = "# Claw Code local artifacts";
+const GITIGNORE_COMMENT: &str = "# Ninmu Code local artifacts";
 const GITIGNORE_ENTRIES: [&str; 3] = [".claw/settings.local.json", ".claw/sessions/", ".clawhip/"];
 
-/// Template `.env.example` written by `claw init` so users can copy to `.env`
+/// Template `.env.example` written by `ninmu init` so users can copy to `.env`
 /// and uncomment the provider they want to use.
 const PROVIDER_ENV_TEMPLATE: &str = concat!(
-    "# Claw Code — provider credentials (copy to .env and uncomment)\n",
+    "# Ninmu Code — provider credentials (copy to .env and uncomment)\n",
     "#\n",
     "# Anthropic\n",
     "#ANTHROPIC_API_KEY=sk-ant-...\n",
@@ -245,7 +245,7 @@ pub(crate) fn render_init_claude_md(cwd: &Path) -> String {
     let mut lines = vec![
         "# CLAUDE.md".to_string(),
         String::new(),
-        "This file provides guidance to Claw Code (clawcode.dev) when working with code in this repository.".to_string(),
+        "This file provides guidance to Ninmu Code (ninmu.dev) when working with code in this repository.".to_string(),
         String::new(),
     ];
 
@@ -444,7 +444,7 @@ mod tests {
         assert!(root.join(".claw.json").is_file());
         assert!(root.join("CLAUDE.md").is_file());
         assert_eq!(
-            fs::read_to_string(root.join(".claw.json")).expect("read claw json"),
+            fs::read_to_string(root.join(".claw.json")).expect("read ninmu json"),
             concat!(
                 "{\n",
                 "  \"permissions\": {\n",

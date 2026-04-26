@@ -16,11 +16,18 @@ use crate::types::{
 
 use super::preflight_message_request;
 
+/// Default base URL for xAI (Grok) API.
 pub const DEFAULT_XAI_BASE_URL: &str = "https://api.x.ai/v1";
+/// Default base URL for OpenAI API.
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
+/// Default base URL for Alibaba DashScope compatible-mode endpoint.
 pub const DEFAULT_DASHSCOPE_BASE_URL: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+/// Default base URL for DeepSeek API.
 pub const DEFAULT_DEEPSEEK_BASE_URL: &str = "https://api.deepseek.com/v1";
+/// Default base URL for local Ollama. Set `OLLAMA_BASE_URL` to override
+/// (e.g. `https://api.ollama.com/v1` for Ollama Cloud).
 pub const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434/v1";
+/// Default base URL for local vLLM. Set `VLLM_BASE_URL` to override.
 pub const DEFAULT_VLLM_BASE_URL: &str = "http://localhost:8000/v1";
 const REQUEST_ID_HEADER: &str = "request-id";
 const ALT_REQUEST_ID_HEADER: &str = "x-request-id";
@@ -28,6 +35,11 @@ const DEFAULT_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
 const DEFAULT_MAX_BACKOFF: Duration = Duration::from_secs(128);
 const DEFAULT_MAX_RETRIES: u32 = 8;
 
+/// Configuration for an OpenAI-compatible provider backend.
+///
+/// Each built-in provider gets a pre-built config via a constructor like
+/// [`OpenAiCompatConfig::deepseek()`]. The config drives credential
+/// discovery (env vars), base URL resolution, and request body size limits.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OpenAiCompatConfig {
     pub provider_name: &'static str,
@@ -197,6 +209,11 @@ impl OpenAiCompatConfig {
     }
 }
 
+/// OpenAI-compatible HTTP client for chat completions.
+///
+/// Used by all OpenAI-compat providers (OpenAI, xAI, DeepSeek,
+/// DashScope, Ollama, Qwen external, vLLM). Supports both streaming
+/// and non-streaming requests with configurable retry/backoff.
 #[derive(Debug, Clone)]
 pub struct OpenAiCompatClient {
     http: reqwest::Client,
@@ -461,6 +478,10 @@ fn jitter_for_base(base: Duration) -> Duration {
     Duration::from_nanos(jitter_nanos)
 }
 
+/// Streaming response iterator for OpenAI-compatible chat completions.
+///
+/// Call [`next_event`] to pull individual [`StreamEvent`] values
+/// (text deltas, thinking deltas, tool calls, etc.).
 #[derive(Debug)]
 pub struct MessageStream {
     request_id: Option<String>,
@@ -949,13 +970,10 @@ struct ErrorBody {
     message: Option<String>,
 }
 
-/// Returns true for models known to reject tuning parameters like temperature,
-/// `top_p`, `frequency_penalty`, and `presence_penalty`. These are typically
-/// reasoning/chain-of-thought models with fixed sampling.
-/// Returns true for models known to reject tuning parameters like temperature,
-/// `top_p`, `frequency_penalty`, and `presence_penalty`. These are typically
-/// reasoning/chain-of-thought models with fixed sampling.
-/// Public for benchmarking and testing purposes.
+/// Returns `true` for models that reject tuning parameters like
+/// `temperature`, `top_p`, etc. These are reasoning/chain-of-thought
+/// models with fixed sampling (o1/o3/o4, `grok-3-mini`, `deepseek-reasoner`,
+/// Qwen thinking variants).
 #[must_use]
 pub fn is_reasoning_model(model: &str) -> bool {
     let lowered = model.to_ascii_lowercase();
@@ -1495,6 +1513,8 @@ fn read_env_non_empty(key: &str) -> Result<Option<String>, ApiError> {
     }
 }
 
+/// Check whether an API key env var is set to a non-empty value,
+/// looking in both the process environment and `.env` files.
 #[must_use]
 pub fn has_api_key(key: &str) -> bool {
     read_env_non_empty(key)
@@ -1504,6 +1524,8 @@ pub fn has_api_key(key: &str) -> bool {
 }
 
 #[must_use]
+/// Resolve the base URL for a provider, checking the primary env var,
+/// then the fallback env var, then the hardcoded default.
 pub fn read_base_url(config: OpenAiCompatConfig) -> String {
     std::env::var(config.base_url_env)
         .or_else(|_| {
@@ -2565,5 +2587,55 @@ mod tests {
         );
 
         std::env::remove_var("OLLAMA_API_KEY");
+    }
+
+    #[test]
+    fn strip_routing_prefix_handles_new_providers() {
+        // deepseek/ prefix stripped
+        assert_eq!(
+            super::strip_routing_prefix("deepseek/deepseek-chat"),
+            "deepseek-chat"
+        );
+        // ollama/ prefix stripped
+        assert_eq!(
+            super::strip_routing_prefix("ollama/llama3.1:8b"),
+            "llama3.1:8b"
+        );
+        // vllm/ prefix stripped
+        assert_eq!(
+            super::strip_routing_prefix("vllm/meta-llama/Llama-3.1-8B"),
+            "meta-llama/Llama-3.1-8B"
+        );
+        // Semicolon in model name is not stripped
+        assert_eq!(
+            super::strip_routing_prefix("meta-llama/Llama-3.1-8B"),
+            "meta-llama/Llama-3.1-8B"
+        );
+        // No prefix, unchanged
+        assert_eq!(
+            super::strip_routing_prefix("deepseek-chat"),
+            "deepseek-chat"
+        );
+    }
+
+    #[test]
+    fn read_base_url_uses_fallback_env_var() {
+        let _lock = env_lock();
+        std::env::remove_var("QWEN_BASE_URL");
+        std::env::set_var("OPENAI_BASE_URL", "https://fallback.test/v1");
+
+        let url = super::read_base_url(OpenAiCompatConfig::qwen());
+        assert_eq!(url, "https://fallback.test/v1");
+
+        std::env::remove_var("OPENAI_BASE_URL");
+    }
+
+    #[test]
+    fn read_base_url_returns_default_when_all_absent() {
+        let _lock = env_lock();
+        std::env::remove_var("DEEPSEEK_BASE_URL");
+
+        let url = super::read_base_url(OpenAiCompatConfig::deepseek());
+        assert!(url.contains("api.deepseek.com"));
     }
 }

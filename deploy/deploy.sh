@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claw deployment script — run from repo root.
+# Ninmu deployment script — run from repo root.
 # Usage: ./deploy/deploy.sh [local|docker|fly]
 
 set -euo pipefail
@@ -12,7 +12,7 @@ function print_usage() {
     echo ""
     echo "Targets:"
     echo "  local       Build release binary and symlink to /usr/local/bin"
-    echo "  docker      Build Docker image and run 'claw doctor'"
+    echo "  docker      Build Docker image and run 'ninmu doctor'"
     echo "  docker-rpc  Build Docker image for JSON-RPC server"
     echo "  fly         Deploy to Fly.io (requires flyctl)"
 }
@@ -20,36 +20,36 @@ function print_usage() {
 function target_local() {
     echo "=== Building local release binary ==="
     cd "${PROJECT_ROOT}/rust"
-    cargo build --release -p rusty-claude-cli
-    echo "Binary: ${PROJECT_ROOT}/rust/target/release/claw"
-    echo "Install: sudo ln -sf ${PROJECT_ROOT}/rust/target/release/claw /usr/local/bin/claw"
+    cargo build --release -p ninmu-cli
+    echo "Binary: ${PROJECT_ROOT}/rust/target/release/ninmu"
+    echo "Install: sudo ln -sf ${PROJECT_ROOT}/rust/target/release/ninmu /usr/local/bin/ninmu"
 }
 
 function target_docker() {
     echo "=== Building Docker image ==="
     cd "${PROJECT_ROOT}"
-    docker build -f deploy/Dockerfile -t claw:latest .
+    docker build -f deploy/Dockerfile -t ninmu:latest .
     echo ""
     echo "=== Running smoke test ==="
-    docker run --rm claw:latest --version
+    docker run --rm ninmu:latest --version
     echo ""
     echo "=== To run the agent interactively ==="
     cat <<EOF
 docker run -it --rm \\
     -v \$(pwd):/workspace/project \\
     -e ANTHROPIC_API_KEY \\
-    claw:latest
+    ninmu:latest
 EOF
 }
 
 function target_docker_rpc() {
     echo "=== Building Docker image for RPC ==="
     cd "${PROJECT_ROOT}"
-    docker build -f deploy/Dockerfile -t claw-rpc:latest .
+    docker build -f deploy/Dockerfile -t ninmu-rpc:latest .
     echo ""
     echo "=== Starting RPC server on localhost:6688 ==="
-    docker rm -f claw-rpc 2>/dev/null || true
-    docker run -d --name claw-rpc \\n        -p 127.0.0.1:6688:6688 \\n        -v "$(pwd):/workspace/project" \\n        --env-file .env \\n        claw-rpc:latest rpc
+    docker rm -f ninmu-rpc 2>/dev/null || true
+    docker run -d --name ninmu-rpc \\n        -p 127.0.0.1:6688:6688 \\n        -v "$(pwd):/workspace/project" \\n        --env-file .env \\n        ninmu-rpc:latest rpc
     echo "RPC server running. Test: curl -X POST http://localhost:6688"
 }
 
