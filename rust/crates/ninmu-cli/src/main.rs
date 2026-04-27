@@ -619,7 +619,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             base_commit,
             reasoning_effort: reasoning_effort.clone(),
             allow_broad_cwd,
-            tui: false,
+            tui,
         });
     }
     if rest.first().map(String::as_str) == Some("--resume") {
