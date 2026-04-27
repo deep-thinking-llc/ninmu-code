@@ -1510,6 +1510,10 @@ NO_EQUALS_LINE
         let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
         let _xai = EnvVarGuard::set("XAI_API_KEY", None);
         let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", None);
+        let _qwen = EnvVarGuard::set("QWEN_API_KEY", None);
+        let _mistral = EnvVarGuard::set("MISTRAL_API_KEY", None);
+        let _gemini = EnvVarGuard::set("GEMINI_API_KEY", None);
+        let _cohere = EnvVarGuard::set("COHERE_API_KEY", None);
 
         assert_eq!(
             detect_provider_kind("unknown-model"),
@@ -1526,6 +1530,11 @@ NO_EQUALS_LINE
         let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
         let _xai = EnvVarGuard::set("XAI_API_KEY", None);
         let _ollama = EnvVarGuard::set("OLLAMA_BASE_URL", None);
+        let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", None);
+        let _qwen = EnvVarGuard::set("QWEN_API_KEY", None);
+        let _mistral = EnvVarGuard::set("MISTRAL_API_KEY", None);
+        let _gemini = EnvVarGuard::set("GEMINI_API_KEY", None);
+        let _cohere = EnvVarGuard::set("COHERE_API_KEY", None);
 
         assert_eq!(
             detect_provider_kind("unknown-model"),
