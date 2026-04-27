@@ -1683,15 +1683,14 @@ NO_EQUALS_LINE
     fn cohere_alias_resolves_to_command_r_plus() {
         assert_eq!(resolve_model_alias("command-r"), "command-r-plus");
         // Verify alias resolves and token limits apply
-        let aliased = model_token_limit("command-r")
-            .expect("command-r alias should resolve and have limits");
+        let aliased =
+            model_token_limit("command-r").expect("command-r alias should resolve and have limits");
         assert_eq!(aliased.max_output_tokens, 4_096);
     }
 
     #[test]
     fn returns_context_window_metadata_for_grok2() {
-        let grok2 = model_token_limit("grok-2")
-            .expect("grok-2 should have token limit metadata");
+        let grok2 = model_token_limit("grok-2").expect("grok-2 should have token limit metadata");
         assert_eq!(grok2.max_output_tokens, 16_384);
         assert_eq!(grok2.context_window_tokens, 131_072);
     }

@@ -1051,11 +1051,11 @@ pub fn is_reasoning_model(model: &str) -> bool {
         || canonical.starts_with("qwen-qwq")
         || canonical.starts_with("qwq")
         || canonical.contains("thinking")
-        // NOTE: Gemini 2.5 Pro/Flash have a thinking mode but they do NOT
-        // reject temperature/top_p — the endpoint accepts these params even
-        // when thinking is active, so they are intentionally NOT listed here.
-        // Use provider defaults in settings.json to suppress temperature
-        // for Gemini if desired.
+    // NOTE: Gemini 2.5 Pro/Flash have a thinking mode but they do NOT
+    // reject temperature/top_p — the endpoint accepts these params even
+    // when thinking is active, so they are intentionally NOT listed here.
+    // Use provider defaults in settings.json to suppress temperature
+    // for Gemini if desired.
 }
 
 /// Strip routing prefix (e.g., "openai/gpt-4" → "gpt-4") for the wire.
