@@ -3,6 +3,10 @@
 /// Stores rendered lines with scroll offset tracking.
 /// Used by the full-screen TUI mode to provide scrollable
 /// conversation history.
+///
+/// Supports collapsible entries: a single logical entry (e.g. long tool output)
+/// can be stored in collapsed or expanded form, and toggled interactively.
+/// Collapsible entries are tracked by their starting line index.
 pub struct Scrollback {
     /// Rendered lines in display order (newest appended).
     lines: Vec<String>,
@@ -10,6 +14,9 @@ pub struct Scrollback {
     max_lines: usize,
     /// Current scroll offset (0 = bottom/newest, N = N lines up).
     scroll_offset: usize,
+    /// Entries that can be collapsed/expanded, keyed by starting line index.
+    /// Stores (line_index, full_content_lines, collapsed_summary_lines, is_expanded).
+    collapsible_entries: Vec<(usize, Vec<String>, Vec<String>, bool)>,
 }
 
 impl Scrollback {
@@ -19,6 +26,7 @@ impl Scrollback {
             lines: Vec::with_capacity(max_lines.min(1024)),
             max_lines,
             scroll_offset: 0,
+            collapsible_entries: Vec::new(),
         }
     }
 
@@ -44,6 +52,144 @@ impl Scrollback {
             // Keep an empty line for trailing newlines
             self.push(String::new());
         }
+    }
+
+    /// Push a collapsible entry: full content is stored but only the first
+    /// `visible_lines` are rendered initially. Pressing Tab toggles expand/collapse.
+    /// Returns the number of lines pushed.
+    pub fn push_collapsible(
+        &mut self,
+        full_lines: &[String],
+        visible_lines: usize,
+    ) -> usize {
+        let start_idx = self.lines.len();
+        let collapsed_count = visible_lines.min(full_lines.len());
+        let has_hint = full_lines.len() > collapsed_count;
+        let collapsed_lines: Vec<String> = full_lines
+            .iter()
+            .take(collapsed_count)
+            .cloned()
+            .collect();
+
+        // Push the collapsed (or full) lines
+        for line in &collapsed_lines {
+            self.push(line.clone());
+        }
+        let display_lines = if has_hint {
+            let extra = full_lines.len() - collapsed_count;
+            let hint = format!(
+                "[+] [Tab to expand · {} more lines]",
+                extra
+            );
+            self.push(hint);
+            let mut with_hint = collapsed_lines;
+            with_hint.push(format!(
+                "[+] [Tab to expand · {} more lines]",
+                extra
+            ));
+            with_hint
+        } else {
+            collapsed_lines
+        };
+
+        self.collapsible_entries.push((
+            start_idx,
+            full_lines.to_vec(),
+            display_lines,
+            false,
+        ));
+
+        full_lines.len()
+    }
+
+    /// Toggle the expansion state of the collapsible entry at the given cursor
+    /// position (line index). Returns true if a toggle occurred.
+    pub fn toggle_expand_at(&mut self, line_index: usize) -> bool {
+        // Find the entry that contains this line
+        // Entries are sorted by start_idx; find the last one whose start_idx <= line_index
+        let entry_pos = self
+            .collapsible_entries
+            .iter()
+            .rposition(|(start, full, _, _)| {
+                let end = start + full.len();
+                *start <= line_index && line_index < end
+            });
+
+        let Some(ep) = entry_pos else {
+            return false;
+        };
+
+        let (start, full, collapsed, is_expanded) =
+            self.collapsible_entries.remove(ep);
+        let now_expanded = !is_expanded;
+
+        // Calculate the height delta
+        let old_count = if is_expanded {
+            full.len()
+        } else {
+            collapsed.len()
+        };
+        let new_count = if now_expanded {
+            full.len()
+        } else {
+            collapsed.len()
+        };
+
+        // Replace lines in the buffer
+        if now_expanded {
+            // Expand: replace collapsed lines with full lines
+            let to_replace: Vec<String> = full.clone();
+            // Remove old lines at this position
+            let _ = self.lines.drain(start..start + old_count);
+            // Insert new lines
+            for (i, l) in to_replace.into_iter().enumerate() {
+                self.lines.insert(start + i, l);
+            }
+        } else {
+            // Collapse: replace full lines with collapsed + hint
+            let to_replace: Vec<String> = collapsed.clone();
+            let _ = self.lines.drain(start..start + old_count);
+            for (i, l) in to_replace.into_iter().enumerate() {
+                self.lines.insert(start + i, l);
+            }
+        }
+
+        // Update start indices for all subsequent entries
+        let height_diff = new_count as isize - old_count as isize;
+        for entry in &mut self.collapsible_entries {
+            if entry.0 > start {
+                entry.0 = (entry.0 as isize + height_diff) as usize;
+            }
+        }
+
+        // Re-insert the updated entry
+        self.collapsible_entries.push((
+            start,
+            full,
+            collapsed,
+            now_expanded,
+        ));
+
+        // Sort by start_idx (insert order may have shifted)
+        self.collapsible_entries.sort_by_key(|e| e.0);
+
+        // Adjust scroll offset if needed
+        if height_diff < 0 {
+            // Content got shorter; clamp offset
+            let max = self.max_scroll();
+            if self.scroll_offset > max {
+                self.scroll_offset = max;
+            }
+        }
+
+        true
+    }
+
+    /// Whether the given line index is the start of a collapsible entry.
+    pub fn is_collapsible_start(&self, line_index: usize) -> bool {
+        self.collapsible_entries
+            .iter()
+            .any(|(start, _, _, _)| *start == line_index)
     }
 
     /// Total lines stored.
@@ -260,5 +406,99 @@ mod tests {
         // After eviction: buffer = [5,6,7,8,9] (5 lines), max_scroll=4
         // offset=3 is within bounds, stays
         assert_eq!(sb.scroll_offset(), 3);
+    }
+
+    // ── Collapsible entry tests ──────────────────────────────────────────
+
+    #[test]
+    fn push_collapsible_short_fits_without_hint() {
+        let mut sb = Scrollback::new(100);
+        let lines: Vec<String> = vec!["a".to_string(), "b".to_string()];
+        let count = sb.push_collapsible(&lines, 10);
+        assert_eq!(count, 2);
+        assert_eq!(sb.len(), 2);
+        // Should not contain "[+]" since it fits
+        let (visible, _, _) = sb.visible(10);
+        let joined = visible.join("\n");
+        assert!(!joined.contains("[Tab"));
+    }
+
+    #[test]
+    fn push_collapsible_long_shows_hint() {
+        let mut sb = Scrollback::new(100);
+        let lines: Vec<String> = (1..=20).map(|i| format!("line {i}")).collect();
+        let count = sb.push_collapsible(&lines, 5);
+        assert_eq!(count, 20);
+        // 5 visible lines + 1 hint line
+        assert_eq!(sb.len(), 6);
+        let (visible, _, _) = sb.visible(20);
+        let joined = visible.join("\n");
+        assert!(joined.contains("[Tab to expand"));
+        assert!(joined.contains("15 more lines"));
+    }
+
+    #[test]
+    fn toggle_expand_reveals_full_content() {
+        let mut sb = Scrollback::new(100);
+        let lines: Vec<String> = (1..=10).map(|i| format!("line {i}")).collect();
+        sb.push_collapsible(&lines, 3);
+        // Initially collapsed: 3 lines + hint
+        assert_eq!(sb.len(), 4);
+
+        // Toggle at line 0 (start of the entry)
+        let toggled = sb.toggle_expand_at(0);
+        assert!(toggled);
+        // Now expanded: all 10 lines
+        assert_eq!(sb.len(), 10);
+        let (visible, _, _) = sb.visible(20);
+        assert!(visible[0].contains("line 1"));
+        assert!(visible[9].contains("line 10"));
+    }
+
+    #[test]
+    fn toggle_collapse_restores_collapsed_view() {
+        let mut sb = Scrollback::new(100);
+        let lines: Vec<String> = (1..=10).map(|i| format!("line {i}")).collect();
+        sb.push_collapsible(&lines, 3);
+        // Expand
+        sb.toggle_expand_at(0);
+        assert_eq!(sb.len(), 10);
+        // Collapse again
+        let toggled = sb.toggle_expand_at(0);
+        assert!(toggled);
+        assert_eq!(sb.len(), 4); // 3 + hint
+        let (visible, _, _) = sb.visible(20);
+        let joined = visible.join("\n");
+        assert!(joined.contains("[Tab to expand"));
+    }
+
+    #[test]
+    fn toggle_expand_outside_entry_returns_false() {
+        let mut sb = Scrollback::new(100);
+        sb.push("plain line".to_string());
+        let toggled = sb.toggle_expand_at(0);
+        assert!(!toggled);
+    }
+
+    #[test]
+    fn is_collapsible_start_identifies_entry_start() {
+        let mut sb = Scrollback::new(100);
+        sb.push("before".to_string());
+        let lines: Vec<String> = (1..=5).map(|i| format!("line {i}")).collect();
+        sb.push_collapsible(&lines, 2);
+        assert!(!sb.is_collapsible_start(0));
+        assert!(sb.is_collapsible_start(1));
+    }
+
+    #[test]
+    fn toggle_expand_after_scroll_adjusts_offset_if_needed() {
+        let mut sb = Scrollback::new(50);
+        let lines: Vec<String> = (1..=20).map(|i| format!("line {i}")).collect();
+        sb.push_collapsible(&lines, 3);
+        sb.scroll_to_top();
+        // Toggle expand — offset should be clamped to max_scroll
+        sb.toggle_expand_at(0);
+        // After expansion there are 20 lines, max_scroll = 19
+        assert!(sb.scroll_offset() <= sb.max_scroll());
     }
 }

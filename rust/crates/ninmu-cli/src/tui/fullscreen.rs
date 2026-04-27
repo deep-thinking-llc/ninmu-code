@@ -25,6 +25,7 @@ const HELP_OVERLAY: &str = "\
 ── Keyboard Shortcuts ─────────────────────
   PageUp / PageDown    Scroll conversation
   Home / End           Top / bottom
+  Tab                  Expand/collapse tool output
   Ctrl+C               Interrupt
   ?                    Toggle this help
   /exit                Exit TUI
@@ -224,6 +225,20 @@ impl FullScreenTui {
                     crossterm::event::KeyCode::End => {
                         cursor = buffer.len();
                         Self::render_input_line(stdout, prompt_row, &buffer, cursor)?;
+                    }
+                    crossterm::event::KeyCode::Tab => {
+                        // Toggle expand/collapse on the first visible entry
+                        let (_, start, _) = self.scrollback.visible(conv_height as usize);
+                        if self.scrollback.toggle_expand_at(start) {
+                            self.render_conversation(stdout, conv_height as usize, 80)?;
+                            queue!(
+                                stdout,
+                                MoveTo(0, conv_height),
+                                Clear(ClearType::CurrentLine),
+                                Print(PROMPT),
+                            )?;
+                            Self::render_input_line(stdout, prompt_row, &buffer, cursor)?;
+                        }
                     }
                     crossterm::event::KeyCode::PageUp => {
                         let n = conv_height.saturating_sub(1) as usize;

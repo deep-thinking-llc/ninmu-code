@@ -2333,7 +2333,7 @@ const STUB_COMMANDS: &[&str] = &[
 ];
 
 const DISPLAY_TRUNCATION_NOTICE: &str =
-    "\x1b[2m… output truncated for display; full result preserved in session.\x1b[0m";
+    "\x1b[2m… output truncated for display; use /debug-tool-call to inspect the full result.\x1b[0m";
 const READ_DISPLAY_MAX_LINES: usize = 80;
 const READ_DISPLAY_MAX_CHARS: usize = 6_000;
 const TOOL_OUTPUT_DISPLAY_MAX_LINES: usize = 60;
@@ -5690,7 +5690,7 @@ UU conflicted.rs",
         assert!(rendered.contains("line 000"));
         assert!(rendered.contains("line 079"));
         assert!(!rendered.contains("line 199"));
-        assert!(rendered.contains("full result preserved in session"));
+        assert!(rendered.contains("output truncated for display"));
         assert!(output.contains("line 199"));
     }
 
@@ -5713,7 +5713,7 @@ UU conflicted.rs",
         assert!(rendered.contains("stdout 009"));
         assert!(!rendered.contains("stdout 010"));
         assert!(!rendered.contains("stdout 119"));
-        assert!(rendered.contains("full result preserved in session"));
+        assert!(rendered.contains("output truncated for display"));
         assert!(output.contains("stdout 119"));
     }
 

@@ -6,7 +6,7 @@ use crate::tui::theme::Theme;
 use crate::tui::tool_panel::{collapse_tool_output, ToolDisplayConfig};
 
 const DISPLAY_TRUNCATION_NOTICE: &str =
-    "\x1b[2m… output truncated for display; full result preserved in session.\x1b[0m";
+    "\x1b[2m… output truncated for display; use /debug-tool-call to inspect the full result.\x1b[0m";
 const READ_DISPLAY_MAX_LINES: usize = 80;
 const READ_DISPLAY_MAX_CHARS: usize = 6_000;
 
