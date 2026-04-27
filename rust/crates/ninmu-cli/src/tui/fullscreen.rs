@@ -72,7 +72,7 @@ impl FullScreenTui {
             )?;
             stdout.flush()?;
 
-            let input = self.read_input(&mut stdout, conv_height as u16, width)?;
+            let input = self.read_input(&mut stdout, conv_height as u16, conv_height as u16)?;
 
             match input.as_str() {
                 "/exit" | "/quit" => {
@@ -158,10 +158,10 @@ impl FullScreenTui {
 
     /// Read a line of input from the user (crossterm event loop).
     fn read_input(
-        &self,
+        &mut self,
         stdout: &mut impl Write,
         prompt_row: u16,
-        _width: u16,
+        conv_height: u16,
     ) -> io::Result<String> {
         let mut buffer = String::new();
         loop {
@@ -190,8 +190,24 @@ impl FullScreenTui {
                             stdout.flush()?;
                         }
                     }
-                    crossterm::event::KeyCode::PageUp => {}
-                    crossterm::event::KeyCode::PageDown => {}
+                    crossterm::event::KeyCode::PageUp => {
+                        let n = conv_height.saturating_sub(1) as usize;
+                        self.scrollback.scroll_up(n);
+                        return Ok(String::new());
+                    }
+                    crossterm::event::KeyCode::PageDown => {
+                        let n = conv_height.saturating_sub(1) as usize;
+                        self.scrollback.scroll_down(n);
+                        return Ok(String::new());
+                    }
+                    crossterm::event::KeyCode::Home => {
+                        self.scrollback.scroll_to_top();
+                        return Ok(String::new());
+                    }
+                    crossterm::event::KeyCode::End => {
+                        self.scrollback.scroll_to_bottom();
+                        return Ok(String::new());
+                    }
                     crossterm::event::KeyCode::Esc => {}
                     _ => {}
                 },

@@ -87,20 +87,14 @@ pub fn format_thinking_completed(elapsed: Duration) -> String {
 /// Render a short inline thinking indicator for non-animated use.
 /// Uses a distinct label depending on whether the model is reasoning vs processing.
 pub fn render_thinking_inline(char_count: Option<usize>, redacted: bool) -> String {
+    let t = Theme::THINKING;
+    let r = Theme::RESET;
     let summary = if redacted {
-        format!(
-            "{}-- thinking block hidden by provider{}",
-            Theme::THINKING,
-            Theme::RESET
-        )
+        format!("{t}  ◇ thinking block hidden by provider{r}")
     } else if let Some(char_count) = char_count {
-        format!(
-            "{}  reasoning ({char_count} chars){}",
-            Theme::THINKING,
-            Theme::RESET
-        )
+        format!("{t}  ◆ reasoning ({char_count} chars){r}")
     } else {
-        format!("{}  reasoning{}", Theme::THINKING, Theme::RESET)
+        format!("{t}  ◆ reasoning{r}")
     };
     format!("\n{summary}\n")
 }
