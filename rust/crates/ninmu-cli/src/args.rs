@@ -41,6 +41,7 @@ const CLI_OPTION_SUGGESTIONS: &[&str] = &[
     "--compact",
     "--base-commit",
     "-p",
+    "--tui",
 ];
 
 // Build-time constants injected by build.rs (fall back to static values when
@@ -185,6 +186,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
     let mut wants_version = false;
     let mut allowed_tool_values = Vec::new();
     let mut compact = false;
+    let mut tui = false;
     let mut base_commit: Option<String> = None;
     let mut reasoning_effort: Option<String> = None;
     let mut allow_broad_cwd = false;
@@ -276,6 +278,10 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
             }
             "--compact" => {
                 compact = true;
+                index += 1;
+            }
+            "--tui" => {
+                tui = true;
                 index += 1;
             }
             "--mode" => {
@@ -438,7 +444,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
             base_commit,
             reasoning_effort: reasoning_effort.clone(),
             allow_broad_cwd,
-            tui: false,
+            tui,
         });
     }
     if rest.first().map(String::as_str) == Some("--resume") {

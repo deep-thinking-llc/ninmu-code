@@ -8,9 +8,15 @@ archive/
 # Ninmu Code local artifacts
 .claw/settings.local.json
 .claw/sessions/
+.port_sessions/
 .clawhip/
 status-help.txt
 DESIGN.md
 # WIP design and implementation docs (drop the _ prefix to commit)
 _*.md
 _docs/
+# Implementation pass documents (auto-generated)
+docs/implementation_pass.md
+
+# macOS
+.DS_Store

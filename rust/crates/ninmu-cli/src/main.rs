@@ -110,6 +110,7 @@ pub(crate) const CLI_OPTION_SUGGESTIONS: &[&str] = &[
     "--compact",
     "--base-commit",
     "-p",
+    "--tui",
 ];
 
 pub(crate) type AllowedToolSet = BTreeSet<String>;
@@ -386,6 +387,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     let mut base_commit: Option<String> = None;
     let mut reasoning_effort: Option<String> = None;
     let mut allow_broad_cwd = false;
+    let mut tui = false;
     let mut rest: Vec<String> = Vec::new();
     let mut index = 0;
 
@@ -471,6 +473,10 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             }
             "--compact" => {
                 compact = true;
+                index += 1;
+            }
+            "--tui" => {
+                tui = true;
                 index += 1;
             }
             "--base-commit" => {

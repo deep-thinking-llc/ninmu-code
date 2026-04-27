@@ -3,12 +3,12 @@ name = "compat-harness"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
+publish = true
 
 [dependencies]
-commands = { path = "../commands" }
-tools = { path = "../tools" }
-runtime = { path = "../runtime" }
+commands = { version = "0.1.0", path = "../commands" }
+tools = { version = "0.1.0", path = "../tools" }
+runtime = { version = "0.1.0", path = "../runtime" }
 
 [lints]
 workspace = true
