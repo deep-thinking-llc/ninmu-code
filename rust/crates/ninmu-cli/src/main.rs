@@ -349,6 +349,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             base_commit,
             reasoning_effort,
             allow_broad_cwd,
+            tui,
         } => run_repl(
             model,
             allowed_tools,
@@ -356,7 +357,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             base_commit,
             reasoning_effort,
             allow_broad_cwd,
-            None,
+            if tui { Some(crate::app::BannerStyle::None) } else { None },
         )?,
         CliAction::HelpTopic(topic) => print_help_topic(topic),
         CliAction::Help { output_format } => print_help(output_format)?,
@@ -608,6 +609,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             base_commit,
             reasoning_effort: reasoning_effort.clone(),
             allow_broad_cwd,
+            tui: false,
         });
     }
     if rest.first().map(String::as_str) == Some("--resume") {
@@ -2679,6 +2681,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
+                tui: false,
             }
         );
     }
@@ -3057,6 +3060,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
+                tui: false,
             }
         );
     }
@@ -3078,6 +3082,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
+                tui: false,
             }
         );
     }
@@ -3135,6 +3140,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
+                tui: false,
             }
         );
     }

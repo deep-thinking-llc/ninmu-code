@@ -221,4 +221,44 @@ mod tests {
         assert_eq!(visible.len(), 1);
         assert_eq!(total, 1);
     }
+
+    #[test]
+    fn push_str_without_trailing_newline() {
+        let mut sb = Scrollback::new(100);
+        sb.push_str("hello\nworld");
+        assert_eq!(sb.len(), 2);
+        let (visible, _, _) = sb.visible(10);
+        assert_eq!(visible[0], "hello");
+        assert_eq!(visible[1], "world");
+    }
+
+    #[test]
+    fn push_str_empty_does_nothing() {
+        let mut sb = Scrollback::new(100);
+        sb.push_str("");
+        assert_eq!(sb.len(), 0);
+    }
+
+    #[test]
+    fn push_str_with_only_newline() {
+        let mut sb = Scrollback::new(100);
+        sb.push_str("\n");
+        assert_eq!(sb.len(), 2);
+    }
+
+    #[test]
+    fn scroll_offset_clamped_after_eviction() {
+        let mut sb = Scrollback::new(5);
+        for i in 0..5 {
+            sb.push(format!("line {i}"));
+        }
+        sb.scroll_up(3);
+        assert_eq!(sb.scroll_offset(), 3);
+        for i in 5..10 {
+            sb.push(format!("line {i}"));
+        }
+        // After eviction: buffer = [5,6,7,8,9] (5 lines), max_scroll=4
+        // offset=3 is within bounds, stays
+        assert_eq!(sb.scroll_offset(), 3);
+    }
 }

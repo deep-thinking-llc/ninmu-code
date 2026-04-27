@@ -3,7 +3,13 @@ name = "ninmu-cli"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-publish.workspace = true
+publish = true
+description = "Ninmu Code — agentic AI coding assistant for the terminal"
+authors = ["deep-thinking-llc"]
+homepage = "https://ninmu.dev"
+repository = "https://github.com/deep-thinking-llc/claw-code"
+keywords = ["ai", "coding", "assistant", "cli", "agent"]
+categories = ["command-line-utilities", "development-tools"]
 
 [[bin]]
 name = "ninmu"

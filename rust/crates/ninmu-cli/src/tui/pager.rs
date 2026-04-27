@@ -279,4 +279,61 @@ mod tests {
         let total_lines = lines.len();
         assert!(total_lines <= page_size);
     }
+
+    #[test]
+    fn scroll_percentage_at_top() {
+        let total_lines = 100usize;
+        let page_size = 20usize;
+        let max_offset = total_lines.saturating_sub(page_size);
+        let offset = 0usize;
+        let pct = if max_offset > 0 {
+            (offset as f64 / max_offset as f64 * 100.0) as u8
+        } else {
+            100
+        };
+        assert_eq!(pct, 0);
+    }
+
+    #[test]
+    fn scroll_percentage_at_middle() {
+        let total_lines = 100usize;
+        let page_size = 20usize;
+        let max_offset = total_lines.saturating_sub(page_size);
+        let offset = 40usize;
+        let pct = if max_offset > 0 {
+            (offset as f64 / max_offset as f64 * 100.0) as u8
+        } else {
+            100
+        };
+        assert_eq!(pct, 50);
+    }
+
+    #[test]
+    fn scroll_percentage_at_bottom() {
+        let total_lines = 100usize;
+        let page_size = 20usize;
+        let max_offset = total_lines.saturating_sub(page_size);
+        let offset = max_offset;
+        let pct = if max_offset > 0 {
+            (offset as f64 / max_offset as f64 * 100.0) as u8
+        } else {
+            100
+        };
+        assert_eq!(pct, 100);
+    }
+
+    #[test]
+    fn scroll_percentage_fits_in_one_page() {
+        let total_lines = 20usize;
+        let page_size = 20usize;
+        let max_offset = total_lines.saturating_sub(page_size);
+        // When content fits exactly in one page, max_offset=0, so pct=100
+        let offset = max_offset;
+        let pct = if max_offset > 0 {
+            (offset as f64 / max_offset as f64 * 100.0) as u8
+        } else {
+            100
+        };
+        assert_eq!(pct, 100);
+    }
 }

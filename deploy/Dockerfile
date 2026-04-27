@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-# Multi-stage build for the Claw CLI agent.
+# Multi-stage build for the Ninmu Code CLI agent.
 
 FROM rust:bookworm AS builder
 
@@ -14,8 +14,8 @@ RUN apt-get update \
         pkg-config \
     && rm -rf /var/lib/apt/lists/*
 
-RUN cargo build --release -p rusty-claude-cli \
-    && cp target/release/claw /usr/local/bin/claw
+RUN cargo build --release -p ninmu-cli \
+    && cp target/release/ninmu /usr/local/bin/ninmu
 
 # ---------------------------------------------------------------------------
 # Runtime stage — minimal debian image
@@ -30,20 +30,20 @@ RUN apt-get update \
         openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
-RUN groupadd -r claw \
-    && useradd -r -g claw -d /workspace -s /bin/bash claw
+RUN groupadd -r ninmu \
+    && useradd -r -g ninmu -d /workspace -s /bin/bash ninmu
 
-COPY --from=builder /usr/local/bin/claw /usr/local/bin/claw
-RUN chmod +x /usr/local/bin/claw
+COPY --from=builder /usr/local/bin/ninmu /usr/local/bin/ninmu
+RUN chmod +x /usr/local/bin/ninmu
 
-ENV CLAW_HOME=/workspace
-ENV CLAW_PERMISSION=ask
+ENV NINMU_HOME=/workspace
+ENV NINMU_PERMISSION=ask
 WORKDIR /workspace
-RUN mkdir -p /workspace && chown -R claw:claw /workspace
-USER claw
+RUN mkdir -p /workspace && chown -R ninmu:ninmu /workspace
+USER ninmu
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=5s --retries=3 \
-    CMD claw --version || exit 1
+    CMD ninmu --version || exit 1
 
-ENTRYPOINT ["claw"]
+ENTRYPOINT ["ninmu"]
 CMD ["--help"]

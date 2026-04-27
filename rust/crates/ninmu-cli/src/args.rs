@@ -145,6 +145,7 @@ pub(crate) enum CliAction {
         base_commit: Option<String>,
         reasoning_effort: Option<String>,
         allow_broad_cwd: bool,
+        tui: bool,
     },
     HelpTopic(crate::format::LocalHelpTopic),
     // prompt-mode formatting is only supported for non-interactive runs
@@ -437,6 +438,7 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
             base_commit,
             reasoning_effort: reasoning_effort.clone(),
             allow_broad_cwd,
+            tui: false,
         });
     }
     if rest.first().map(String::as_str) == Some("--resume") {
