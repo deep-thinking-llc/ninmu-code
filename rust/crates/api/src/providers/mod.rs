@@ -532,9 +532,13 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
         }),
         // Mistral models
         // Source: https://docs.mistral.ai/getting-started/models/models_overview/
-        "mistral-large-latest" => Some(ModelTokenLimit {
+        "mistral-large-latest" | "mistral-medium-latest" => Some(ModelTokenLimit {
             max_output_tokens: 8_192,
             context_window_tokens: 128_000,
+        }),
+        "mistral-small-latest" => Some(ModelTokenLimit {
+            max_output_tokens: 4_096,
+            context_window_tokens: 32_000,
         }),
         // Google Gemini models
         // Source: https://ai.google.dev/gemini-api/docs/models
@@ -542,11 +546,25 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
             max_output_tokens: 65_536,
             context_window_tokens: 1_048_576,
         }),
+        "gemini-2.5-flash" | "gemini-2.5-flash-preview-05-20" => Some(ModelTokenLimit {
+            max_output_tokens: 65_536,
+            context_window_tokens: 1_048_576,
+        }),
+        "gemini-2.0-flash" => Some(ModelTokenLimit {
+            max_output_tokens: 8_192,
+            context_window_tokens: 1_048_576,
+        }),
         // Cohere models
         // Source: https://docs.cohere.com/docs/models
         "command-r-plus" => Some(ModelTokenLimit {
             max_output_tokens: 4_096,
             context_window_tokens: 128_000,
+        }),
+        // xAI models
+        // Source: https://docs.x.ai/docs/models
+        "grok-2" => Some(ModelTokenLimit {
+            max_output_tokens: 16_384,
+            context_window_tokens: 131_072,
         }),
         _ => None,
     }
@@ -1608,6 +1626,17 @@ NO_EQUALS_LINE
             .expect("mistral-large-latest should have token limit metadata");
         assert_eq!(limit.max_output_tokens, 8_192);
         assert_eq!(limit.context_window_tokens, 128_000);
+
+        // mistral-medium shares the same limits as mistral-large
+        let medium = model_token_limit("mistral-medium-latest")
+            .expect("mistral-medium-latest should have token limit metadata");
+        assert_eq!(medium.max_output_tokens, 8_192);
+        assert_eq!(medium.context_window_tokens, 128_000);
+
+        let small = model_token_limit("mistral-small-latest")
+            .expect("mistral-small-latest should have token limit metadata");
+        assert_eq!(small.max_output_tokens, 4_096);
+        assert_eq!(small.context_window_tokens, 32_000);
     }
 
     #[test]
@@ -1617,10 +1646,24 @@ NO_EQUALS_LINE
 
     #[test]
     fn returns_context_window_metadata_for_gemini_models() {
-        let limit = model_token_limit("gemini-2.5-pro")
+        let pro = model_token_limit("gemini-2.5-pro")
             .expect("gemini-2.5-pro should have token limit metadata");
-        assert_eq!(limit.max_output_tokens, 65_536);
-        assert_eq!(limit.context_window_tokens, 1_048_576);
+        assert_eq!(pro.max_output_tokens, 65_536);
+        assert_eq!(pro.context_window_tokens, 1_048_576);
+
+        let flash = model_token_limit("gemini-2.5-flash")
+            .expect("gemini-2.5-flash should have token limit metadata");
+        assert_eq!(flash.max_output_tokens, 65_536);
+        assert_eq!(flash.context_window_tokens, 1_048_576);
+
+        let flash_preview = model_token_limit("gemini-2.5-flash-preview-05-20")
+            .expect("gemini-2.5-flash-preview-05-20 should have token limit metadata");
+        assert_eq!(flash_preview.context_window_tokens, 1_048_576);
+
+        let flash2 = model_token_limit("gemini-2.0-flash")
+            .expect("gemini-2.0-flash should have token limit metadata");
+        assert_eq!(flash2.max_output_tokens, 8_192);
+        assert_eq!(flash2.context_window_tokens, 1_048_576);
     }
 
     #[test]
@@ -1630,14 +1673,26 @@ NO_EQUALS_LINE
 
     #[test]
     fn returns_context_window_metadata_for_cohere_models() {
-        let limit = model_token_limit("command-r-plus")
+        let plus = model_token_limit("command-r-plus")
             .expect("command-r-plus should have token limit metadata");
-        assert_eq!(limit.max_output_tokens, 4_096);
-        assert_eq!(limit.context_window_tokens, 128_000);
+        assert_eq!(plus.max_output_tokens, 4_096);
+        assert_eq!(plus.context_window_tokens, 128_000);
     }
 
     #[test]
     fn cohere_alias_resolves_to_command_r_plus() {
         assert_eq!(resolve_model_alias("command-r"), "command-r-plus");
+        // Verify alias resolves and token limits apply
+        let aliased = model_token_limit("command-r")
+            .expect("command-r alias should resolve and have limits");
+        assert_eq!(aliased.max_output_tokens, 4_096);
+    }
+
+    #[test]
+    fn returns_context_window_metadata_for_grok2() {
+        let grok2 = model_token_limit("grok-2")
+            .expect("grok-2 should have token limit metadata");
+        assert_eq!(grok2.max_output_tokens, 16_384);
+        assert_eq!(grok2.context_window_tokens, 131_072);
     }
 }

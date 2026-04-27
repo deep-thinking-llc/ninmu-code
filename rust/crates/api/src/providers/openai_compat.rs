@@ -1051,9 +1051,11 @@ pub fn is_reasoning_model(model: &str) -> bool {
         || canonical.starts_with("qwen-qwq")
         || canonical.starts_with("qwq")
         || canonical.contains("thinking")
-        // Google Gemini thinking models (reject temperature/top_p when thinking is active)
-        || canonical.starts_with("gemini-2.5-pro")
-        || canonical.starts_with("gemini-2.5-flash")
+        // NOTE: Gemini 2.5 Pro/Flash have a thinking mode but they do NOT
+        // reject temperature/top_p — the endpoint accepts these params even
+        // when thinking is active, so they are intentionally NOT listed here.
+        // Use provider defaults in settings.json to suppress temperature
+        // for Gemini if desired.
 }
 
 /// Strip routing prefix (e.g., "openai/gpt-4" → "gpt-4") for the wire.
@@ -2006,11 +2008,14 @@ mod tests {
     }
 
     #[test]
-    fn gemini_thinking_models_are_reasoning_models() {
-        assert!(is_reasoning_model("gemini-2.5-pro"));
-        assert!(is_reasoning_model("gemini-2.5-flash"));
-        assert!(is_reasoning_model("gemini/gemini-2.5-pro"));
-        assert!(is_reasoning_model("gemini/gemini-2.5-flash"));
+    fn gemini_models_are_not_reasoning_models() {
+        // Gemini 2.5 Pro/Flash accept temperature/top_p via the OpenAI-compat
+        // endpoint, even when thinking mode is active — they should NOT be
+        // classified as reasoning models that reject those params.
+        assert!(!is_reasoning_model("gemini-2.5-pro"));
+        assert!(!is_reasoning_model("gemini-2.5-flash"));
+        assert!(!is_reasoning_model("gemini/gemini-2.5-pro"));
+        assert!(!is_reasoning_model("gemini-2.5-flash-preview-05-20"));
     }
 
     #[test]
