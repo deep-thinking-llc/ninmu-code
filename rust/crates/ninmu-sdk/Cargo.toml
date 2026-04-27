@@ -9,9 +9,13 @@ description = "SDK for building on the Ninmu Code ecosystem"
 
 [dependencies]
 ninmu-runtime = { version = "0.1.0", path = "../ninmu-runtime" }
-tokio = { version = "1", features = ["sync", "macros"] }
+tokio = { version = "1", features = ["sync", "macros", "rt"] }
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
 
 [features]
 default = ["rpc"]

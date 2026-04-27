@@ -39,10 +39,13 @@
 //! assert!(result.is_err()); // Dummy client always fails
 
 mod agent_context;
+mod conflict;
 mod event_bus;
 mod extension;
+mod message_bus;
 mod notification;
 mod orchestrator;
+mod policy_engine;
 mod resource_loader;
 mod review;
 #[cfg(feature = "rpc")]
@@ -53,14 +56,17 @@ mod session_manager;
 mod session_tree;
 mod session_tree_log;
 mod setup;
+mod shared_staging;
 mod tool_registry;
 
 pub use agent_context::{AgentContext, AgentTask, TaskRegistry};
+pub use conflict::{Conflict, ConflictDetector, MergeEngine, MergeResult, MergeStrategy};
 pub use event_bus::{
     AgentSessionEvent, EventBus, EventSubscription, SessionLifecycleEvent, ToolExecutionEvent,
     TurnEvent,
 };
 pub use extension::{Extension, ExtensionRegistry, SimpleExtension};
+pub use message_bus::{AgentMessage, MessageBus};
 pub use notification::{
     ConsoleSink, EmailSink, EventType, FileSink, Notification, NotificationDispatcher,
     NotificationFilter, NotificationSink, Severity, SinkRegistration, WebhookSink,
@@ -68,16 +74,20 @@ pub use notification::{
 pub use orchestrator::{
     AgentDefinition, AgentOrchestrator, OrchestratedTask, ResourceLock, TaskState,
 };
+pub use policy_engine::{
+    Policy, PolicyAction, PolicyCondition, PolicyDecision, PolicyEngine, PolicyKind, RiskLevel,
+};
 pub use resource_loader::{DefaultResourceLoader, ResourceLoader};
 pub use review::{
     ChangeRecord, Decision, FileChange, FileChangeType, ReviewDecision, ReviewGate, ReviewManager,
-    RiskClassifier, RiskLevel,
+    RiskClassifier, RiskLevel as ReviewRiskLevel,
 };
 pub use security::{AuditEntry, AuditEvent, AuditLog, SecretMatch, SecretScrubber, SecurityConfig};
 pub use session::{AgentSession, AgentSessionBuilder, BoxedApiClient, DummyApiClient};
 pub use session_manager::{SessionManager, SessionManagerConfig};
 pub use session_tree::{SessionTree, SessionTreeNode};
 pub use session_tree_log::{SessionTreeLog, TreeEntry};
+pub use shared_staging::{SharedStaging, StagingLock};
 pub use setup::{
     check_tool, detect_providers, detect_tools, template_library, DetectedProvider, DetectedTool,
     SessionTemplate, SetupReport,
