@@ -5,10 +5,21 @@ from __future__ import annotations
 import json
 import subprocess
 import threading
+import time
 from types import TracebackType
 from typing import Any, Generator, TextIO
 
-from .errors import NinmuConnectionError, NinmuProtocolError, NinmuRuntimeError
+from .errors import (
+    NinmuBinaryError,
+    NinmuConnectionError,
+    NinmuProtocolError,
+    NinmuRuntimeError,
+    NinmuTimeoutError,
+)
+
+_RETRY_CODES = {-32700}  # Parse error — retryable
+_MAX_RETRIES = 3
+_READ_TIMEOUT = 30.0
 
 
 def _drain_stderr(stream: TextIO | None) -> None:
@@ -56,10 +67,14 @@ class NinmuClient:
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
-        except FileNotFoundError:
-            raise NinmuConnectionError(
+        except FileNotFoundError as exc:
+            raise NinmuBinaryError(
                 f"binary not found: {binary!r}. Is ninmu installed and on PATH?"
-            ) from None
+            ) from exc
+        except OSError as exc:
+            raise NinmuBinaryError(
+                f"binary could not be executed: {binary!r}: {exc}"
+            ) from exc
 
         self._stdin: TextIO | None = self._proc.stdin  # type: ignore[assignment]
         self._stdout: TextIO | None = self._proc.stdout  # type: ignore[assignment]
@@ -94,6 +109,11 @@ class NinmuClient:
 
     def _send_request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         """Send a JSON-RPC request and return the decoded response."""
+        return self._send_request_with_retry(method, params, attempt=0)
+
+    def _send_request_with_retry(
+        self, method: str, params: dict[str, Any] | None, attempt: int
+    ) -> dict[str, Any]:
         req_id = self._next_id()
         request = {
             "jsonrpc": "2.0",
@@ -116,6 +136,16 @@ class NinmuClient:
                 raise NinmuConnectionError("stdout closed")
 
             try:
+                try:
+                    import select as _select
+                    ready = _select.select([self._stdout], [], [], _READ_TIMEOUT)[0]
+                except (TypeError, ValueError, OSError):
+                    # Mock/non-real file descriptor — fall through to blocking read
+                    ready = True
+                if not ready:
+                    raise NinmuTimeoutError(
+                        f"no response within {_READ_TIMEOUT}s for method {method!r}"
+                    )
                 response_line = self._stdout.readline()
             except (OSError, ValueError) as exc:
                 raise NinmuConnectionError(f"read failed: {exc}") from exc
@@ -127,12 +157,17 @@ class NinmuClient:
         try:
             response = json.loads(response_line)
         except json.JSONDecodeError as exc:
+            retrying = attempt < _MAX_RETRIES - 1
+            if retrying:
+                return self._send_request_with_retry(method, params, attempt + 1)
             raise NinmuConnectionError(f"invalid JSON response: {response_line!r}") from exc
 
         if "error" in response:
             err = response["error"]
             code = err.get("code", -32000)
             msg = err.get("message", "unknown error")
+            if code in _RETRY_CODES and attempt < _MAX_RETRIES - 1:
+                return self._send_request_with_retry(method, params, attempt + 1)
             if code == -32601:
                 raise NinmuProtocolError(code, msg)
             raise NinmuRuntimeError(f"[{code}] {msg}")

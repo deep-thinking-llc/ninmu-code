@@ -20,3 +20,11 @@ class NinmuProtocolError(NinmuError):
 
 class NinmuRuntimeError(NinmuError):
     """The server returned a generic runtime error."""
+
+
+class NinmuTimeoutError(NinmuError):
+    """A request timed out waiting for a response."""
+
+
+class NinmuBinaryError(NinmuError):
+    """The ninmu binary could not be found or executed."""

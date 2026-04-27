@@ -123,3 +123,89 @@ def mock_process(monkeypatch: pytest.MonkeyPatch) -> MockProcess:
     proc = MockProcess()
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: proc)
     return proc
+
+
+class MockProcessEvents(MockProcess):
+    """Mock process that pre-seeds event notifications before the subscribe response."""
+
+    def __init__(self) -> None:
+        super().__init__({"events.subscribe": {"status": "subscribed"}})
+        # Pre-seed events into the stdout queue
+        self.stdout._queue.put(json.dumps({
+            "jsonrpc": "2.0",
+            "method": "events.stream",
+            "params": {"event": "connected", "data": {}},
+        }) + "\n")
+        self.stdout._queue.put(json.dumps({
+            "jsonrpc": "2.0",
+            "method": "events.stream",
+            "params": {"event": "turn_started", "data": {"input": "hello"}},
+        }) + "\n")
+
+
+@pytest.fixture
+def mock_process_queue(monkeypatch: pytest.MonkeyPatch) -> MockProcessEvents:
+    """Mock process that produces event stream notifications."""
+    proc = MockProcessEvents()
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: proc)
+    return proc
+
+
+class MockProcessLarge(MockProcess):
+    """Mock process that returns a 5000-char turn summary."""
+
+    def __init__(self) -> None:
+        large_summary = "x" * 5000
+        responses = dict(_DEFAULT_METHOD_RESPONSES)
+        responses["session.turn"] = {
+            "sessionId": "session-abc",
+            "status": "ok",
+            "summary": large_summary,
+        }
+        super().__init__(responses)
+
+
+@pytest.fixture
+def mock_process_large(monkeypatch: pytest.MonkeyPatch) -> MockProcessLarge:
+    """Mock process with a large 5000-char response."""
+    proc = MockProcessLarge()
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: proc)
+    return proc
+
+
+class MockProcessCrash(MockProcess):
+    """Mock process that exits before responding."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.returncode = 1
+        self._done.set()  # Stop background polling thread
+        # Put None into the queue so readline() returns "" immediately
+        self.stdout._queue.put(None)
+
+
+@pytest.fixture
+def mock_process_crash(monkeypatch: pytest.MonkeyPatch) -> MockProcessCrash:
+    """Mock process that crashes immediately."""
+    proc = MockProcessCrash()
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: proc)
+    return proc
+
+
+class MockProcessSlowExit(MockProcess):
+    """Mock process that needs a kill after timeout."""
+
+    def wait(self, timeout: float | None = None) -> int:
+        # Simulate timeout by not exiting
+        import time
+        time.sleep(0.05)
+        self.returncode = 0
+        return 0
+
+
+@pytest.fixture
+def mock_process_slow_exit(monkeypatch: pytest.MonkeyPatch) -> MockProcessSlowExit:
+    """Mock process that simulates a slow exit (tests kill fallback)."""
+    proc = MockProcessSlowExit()
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: proc)
+    return proc

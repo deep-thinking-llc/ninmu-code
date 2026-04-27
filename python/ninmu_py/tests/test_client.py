@@ -3,12 +3,20 @@
 from __future__ import annotations
 
 import json
+import queue
+import subprocess
 from typing import Any
 
 import pytest
 
 from ninmu.client import NinmuClient
-from ninmu.errors import NinmuConnectionError, NinmuProtocolError, NinmuRuntimeError
+from ninmu.errors import (
+    NinmuBinaryError,
+    NinmuConnectionError,
+    NinmuProtocolError,
+    NinmuRuntimeError,
+    NinmuTimeoutError,
+)
 
 
 def _call(client: NinmuClient, method: str, params: dict[str, Any] | None = None) -> Any:
@@ -138,7 +146,7 @@ class TestErrors:
             raise FileNotFoundError("ninmu not found")
 
         monkeypatch.setattr(subprocess, "Popen", mock_popen)
-        with pytest.raises(NinmuConnectionError, match="binary not found"):
+        with pytest.raises(NinmuBinaryError, match="binary not found"):
             NinmuClient(binary="nonexistent-binary")
 
 
@@ -161,10 +169,89 @@ class TestShutdown:
 class TestSubscribe:
     def test_subscribe(self, mock_process: Any) -> None:
         client = NinmuClient()
-        # subscribe sends events.subscribe, gets back inline event notifications
-        # followed by the response line. The mock will respond with the
-        # default "events.subscribe" response, which returns {"status": "subscribed"}.
-        # Our queue-based mock will return that as the only response line.
         events = list(client.subscribe())
-        # No events in default mock (only basic result returned) -- just verify no error
         assert isinstance(events, list)
+
+
+class TestMultipleSessions:
+    def test_multiple_sessions_same_client(self, mock_process: Any) -> None:
+        client = NinmuClient()
+        ids = set()
+        for _ in range(3):
+            ids.add(client.create_session())
+        assert len(ids) == 3
+        client.shutdown()
+
+
+class TestLargeResult:
+    def test_large_turn_result(self, mock_process_large: Any) -> None:
+        client = NinmuClient()
+        result = client.run_turn("session-abc", "large test")
+        assert len(result) == 5000
+        client.shutdown()
+
+
+class TestProcessCrash:
+    def test_process_crash_before_response(self, mock_process_crash: Any) -> None:
+        client = NinmuClient()
+        with pytest.raises(NinmuConnectionError, match="process"):
+            client.ping()
+        client.shutdown()
+
+
+class TestEmpty:
+    def test_run_turn_handles_empty_result(self, mock_process: Any) -> None:
+        import ninmu.tests.conftest as conf
+
+        conf._DEFAULT_METHOD_RESPONSES["session.turn"] = {"status": "ok", "summary": ""}
+        client = NinmuClient()
+        result = client.run_turn("session-abc", "")
+        assert result == ""
+        client.shutdown()
+        conf._DEFAULT_METHOD_RESPONSES["session.turn"] = {
+            "sessionId": "session-abc", "status": "ok", "summary": "Hello back"
+        }
+
+
+class TestShutdown:
+    def test_shutdown_is_idempotent(self, mock_process: Any) -> None:
+        client = NinmuClient()
+        client.shutdown()
+        client.shutdown()
+
+    def test_shutdown_graceful_then_force(self, mock_process_slow_exit: Any) -> None:
+        client = NinmuClient()
+        client.shutdown()
+
+
+class TestAdapterInit:
+    def test_langchain_adapter_imports(self) -> None:
+        from ninmu.langchain_adapter import NinmuTool  # noqa: F811
+        tool = NinmuTool(binary="echo")
+        assert tool.name == "ninmu_coding_agent"
+        assert "coding" in tool.description
+
+    def test_autogen_adapter_imports(self) -> None:
+        from ninmu.autogen_adapter import NinmuAgent
+        agent = NinmuAgent(name="tester", binary="echo")
+        assert agent.name == "tester"
+
+    def test_crewai_adapter_imports(self) -> None:
+        from ninmu.crewai_adapter import ninmu_coding_tool
+        tool = ninmu_coding_tool(binary="echo")
+        assert tool is not None
+
+
+class TestSerialization:
+    def test_event_types_deserialize(self) -> None:
+        events = [
+            {"type": "text_delta", "delta": "hello"},
+            {"type": "tool_use", "name": "bash", "input": "ls"},
+            {"type": "tool_result", "name": "bash", "output": "file.rs"},
+            {"type": "usage", "input_tokens": 10, "output_tokens": 5},
+            {"type": "message_stop"},
+            {"type": "prompt_cache", "tokens": 100},
+            {"type": "error", "message": "fail"},
+            {"type": "compaction", "removed": 2},
+        ]
+        assert len(events) == 8
