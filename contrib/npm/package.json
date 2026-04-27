@@ -1,0 +1,20 @@
+{
+  "name": "ninmu",
+  "version": "0.1.0",
+  "description": "Agentic AI coding assistant for the terminal",
+  "homepage": "https://ninmu.dev",
+  "repository": "github:deep-thinking-llc/claw-code",
+  "license": "MIT",
+  "bin": {
+    "ninmu": "./install.js"
+  },
+  "scripts": {
+    "postinstall": "node ./install.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "install.js"
+  ]
+}
