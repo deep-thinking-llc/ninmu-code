@@ -5,8 +5,8 @@ use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use runtime::ContentBlock;
-use runtime::Session;
+use ninmu_runtime::ContentBlock;
+use ninmu_runtime::Session;
 use serde_json::Value;
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -182,7 +182,7 @@ fn resume_latest_restores_the_most_recent_managed_session() {
     let project_dir = temp_dir.join("project");
     fs::create_dir_all(&project_dir).expect("project dir should exist");
     let project_dir = fs::canonicalize(&project_dir).unwrap_or(project_dir);
-    let store = runtime::SessionStore::from_cwd(&project_dir).expect("session store should build");
+    let store = ninmu_runtime::SessionStore::from_cwd(&project_dir).expect("session store should build");
     let older_path = store.create_handle("session-older").path;
     let newer_path = store.create_handle("session-newer").path;
 

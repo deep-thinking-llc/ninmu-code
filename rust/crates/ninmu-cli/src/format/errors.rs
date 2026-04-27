@@ -1,5 +1,5 @@
 use crate::format::tool_fmt::truncate_for_summary;
-use commands::slash_command_specs;
+use ninmu_commands::slash_command_specs;
 
 /// Classify an error message into a short category tag for structured logging
 /// and downstream routing (#77).
@@ -227,7 +227,7 @@ pub(crate) fn levenshtein_distance(left: &str, right: &str) -> usize {
     previous[right_chars.len()]
 }
 
-pub(crate) fn format_user_visible_api_error(session_id: &str, error: &api::ApiError) -> String {
+pub(crate) fn format_user_visible_api_error(session_id: &str, error: &ninmu_api::ApiError) -> String {
     if error.is_context_window_failure() {
         format_context_window_blocked_error(session_id, error)
     } else if error.is_generic_fatal_wrapper() {
@@ -248,7 +248,7 @@ pub(crate) fn format_user_visible_api_error(session_id: &str, error: &api::ApiEr
 
 pub(crate) fn format_context_window_blocked_error(
     session_id: &str,
-    error: &api::ApiError,
+    error: &ninmu_api::ApiError,
 ) -> String {
     let mut lines = vec![
         "Context window blocked".to_string(),
@@ -261,7 +261,7 @@ pub(crate) fn format_context_window_blocked_error(
     }
 
     match error {
-        api::ApiError::ContextWindowExceeded {
+        ninmu_api::ApiError::ContextWindowExceeded {
             model,
             estimated_input_tokens,
             requested_output_tokens,
@@ -280,7 +280,7 @@ pub(crate) fn format_context_window_blocked_error(
             ));
             lines.push(format!("  Context window   {context_window_tokens} tokens"));
         }
-        api::ApiError::Api { message, body, .. } => {
+        ninmu_api::ApiError::Api { message, body, .. } => {
             let detail = message.as_deref().unwrap_or(body).trim();
             if !detail.is_empty() {
                 lines.push(format!(
@@ -289,9 +289,9 @@ pub(crate) fn format_context_window_blocked_error(
                 ));
             }
         }
-        api::ApiError::RetriesExhausted { last_error, .. } => {
+        ninmu_api::ApiError::RetriesExhausted { last_error, .. } => {
             let detail = match last_error.as_ref() {
-                api::ApiError::Api { message, body, .. } => message.as_deref().unwrap_or(body),
+                ninmu_api::ApiError::Api { message, body, .. } => message.as_deref().unwrap_or(body),
                 other => return format_context_window_blocked_error(session_id, other),
             }
             .trim();

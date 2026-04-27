@@ -23,7 +23,7 @@ use args::*;
 use format::*;
 // Selective imports from app — avoid conflicting with format::* names
 use app::*;
-use cli_ninmu_commands::*;
+use cli_commands::*;
 
 use std::collections::BTreeSet;
 use std::env;
@@ -52,7 +52,7 @@ use ninmu_commands::{
     render_slash_command_help_filtered, resolve_skill_invocation, resume_supported_slash_commands,
     slash_command_specs, validate_slash_command_input, SkillSlashDispatch, SlashCommand,
 };
-use compat_harness::{extract_manifest, UpstreamPaths};
+use ninmu_compat_harness::{extract_manifest, UpstreamPaths};
 use init::initialize_repo;
 use ninmu_plugins::{PluginHooks, PluginManager, PluginManagerConfig, PluginRegistry};
 use render::{MarkdownStreamState, Spinner, TerminalRenderer};

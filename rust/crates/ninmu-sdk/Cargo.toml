@@ -1,0 +1,21 @@
+[package]
+name = "ninmu-sdk"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = true
+homepage = "https://ninmu.dev"
+description = "SDK for building on the Ninmu Code ecosystem"
+
+[dependencies]
+ninmu-runtime = { version = "0.1.0", path = "../ninmu-runtime" }
+tokio = { version = "1", features = ["sync", "macros"] }
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+
+[features]
+default = ["rpc"]
+rpc = []
+
+[lints]
+workspace = true

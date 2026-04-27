@@ -4,7 +4,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use runtime::{ContentBlock, MessageRole, Session, SessionStore};
+use ninmu_runtime::{ContentBlock, MessageRole, Session, SessionStore};
 
 pub(crate) const DEFAULT_HISTORY_LIMIT: usize = 20;
 

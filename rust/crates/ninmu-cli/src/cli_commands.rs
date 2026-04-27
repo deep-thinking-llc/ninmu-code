@@ -18,14 +18,14 @@ use crate::{
     BUILD_TARGET, DEFAULT_DATE, DEPRECATED_INSTALL_COMMAND, GIT_SHA, OFFICIAL_REPO_SLUG,
     OFFICIAL_REPO_URL, VERSION,
 };
-use api::detect_provider_kind;
-use commands::{
+use ninmu_api::detect_provider_kind;
+use ninmu_commands::{
     classify_skills_slash_command, handle_agents_slash_command, handle_mcp_slash_command,
     handle_mcp_slash_command_json, handle_skills_slash_command, handle_skills_slash_command_json,
     SkillSlashDispatch, SlashCommand,
 };
-use compat_harness::{extract_manifest, UpstreamPaths};
-use runtime::{
+use ninmu_compat_harness::{extract_manifest, UpstreamPaths};
+use ninmu_runtime::{
     check_base_commit, format_stale_base_warning, format_usd, load_oauth_credentials,
     load_system_prompt, pricing_for_model, resolve_expected_base, resolve_sandbox_status,
     ApiClient, ApiRequest, AssistantEvent, CompactionConfig, ConfigLoader, ConfigSource,
@@ -35,7 +35,7 @@ use runtime::{
     ToolError, ToolExecutor, UsageTracker,
 };
 use serde_json::{json, Map, Value};
-use tools::{execute_tool, mvp_tool_specs, GlobalToolRegistry};
+use ninmu_tools::{execute_tool, mvp_tool_specs, GlobalToolRegistry};
 
 // ---------------------------------------------------------------------------
 // Constants referenced by functions below — imported from crate root (main.rs)
@@ -227,7 +227,7 @@ pub(crate) fn render_doctor_report() -> Result<DoctorReport, Box<dyn std::error:
     let (project_root, git_branch) =
         parse_git_status_metadata(project_context.git_status.as_deref());
     let git_summary = parse_git_workspace_summary(project_context.git_status.as_deref());
-    let empty_config = runtime::RuntimeConfig::empty();
+    let empty_config = ninmu_runtime::RuntimeConfig::empty();
     let sandbox_config = config.as_ref().ok().unwrap_or(&empty_config);
     let context = StatusContext {
         cwd: cwd.clone(),
@@ -436,7 +436,7 @@ pub(crate) fn run_mcp_serve() -> Result<(), Box<dyn std::error::Error>> {
         })
         .collect();
 
-    let spec = runtime::McpServerSpec {
+    let spec = ninmu_runtime::McpServerSpec {
         server_name: "ninmu".to_string(),
         server_version: VERSION.to_string(),
         tools,
@@ -447,7 +447,7 @@ pub(crate) fn run_mcp_serve() -> Result<(), Box<dyn std::error::Error>> {
         .enable_all()
         .build()?;
     tokio_runtime.block_on(async move {
-        let mut server = runtime::McpServer::new(spec);
+        let mut server = ninmu_runtime::McpServer::new(spec);
         server.run().await
     })?;
     Ok(())
@@ -803,7 +803,7 @@ pub(crate) fn print_system_prompt(
 pub(crate) fn print_bootstrap_plan(
     output_format: CliOutputFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let phases = runtime::BootstrapPlan::claude_code_default()
+    let phases = ninmu_runtime::BootstrapPlan::claude_code_default()
         .phases()
         .iter()
         .map(|phase| format!("{phase:?}"))
@@ -989,7 +989,7 @@ pub(crate) fn run_resume_command(
             json: Some(serde_json::json!({ "kind": "help", "text": render_repl_help() })),
         }),
         SlashCommand::Compact => {
-            let result = runtime::compact_session(
+            let result = ninmu_runtime::compact_session(
                 session,
                 CompactionConfig {
                     max_estimated_tokens: 0,
@@ -2178,7 +2178,7 @@ fn check_auth_health() -> DiagnosticCheck {
 
 fn check_config_health(
     config_loader: &ConfigLoader,
-    config: Result<&runtime::RuntimeConfig, &runtime::ConfigError>,
+    config: Result<&ninmu_runtime::RuntimeConfig, &ninmu_runtime::ConfigError>,
 ) -> DiagnosticCheck {
     let discovered = config_loader.discover();
     let discovered_count = discovered.len();
@@ -2366,7 +2366,7 @@ fn check_workspace_health(context: &StatusContext) -> DiagnosticCheck {
     ]))
 }
 
-fn check_sandbox_health(status: &runtime::SandboxStatus) -> DiagnosticCheck {
+fn check_sandbox_health(status: &ninmu_runtime::SandboxStatus) -> DiagnosticCheck {
     let degraded = status.enabled && !status.active;
     let mut details = vec![
         format!("Enabled          {}", status.enabled),
@@ -2429,8 +2429,8 @@ fn check_sandbox_health(status: &runtime::SandboxStatus) -> DiagnosticCheck {
     ]))
 }
 
-fn check_system_health(cwd: &Path, config: Option<&runtime::RuntimeConfig>) -> DiagnosticCheck {
-    let default_model = config.and_then(runtime::RuntimeConfig::model);
+fn check_system_health(cwd: &Path, config: Option<&ninmu_runtime::RuntimeConfig>) -> DiagnosticCheck {
+    let default_model = config.and_then(ninmu_runtime::RuntimeConfig::model);
     let mut details = vec![
         format!("OS               {} {}", env::consts::OS, env::consts::ARCH),
         format!("Working dir      {}", cwd.display()),

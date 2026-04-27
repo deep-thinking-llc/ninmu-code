@@ -6,7 +6,7 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
-use runtime::{ConfigLoader, ProjectContext, SandboxStatus, TokenUsage};
+use ninmu_runtime::{ConfigLoader, ProjectContext, SandboxStatus, TokenUsage};
 use serde_json::{json, Value};
 
 use crate::format::model::{ModelProvenance, ModelSource};
@@ -299,7 +299,7 @@ pub(crate) fn status_context(
     let (loaded_config_files, sandbox_status, config_load_error) = match loader.load() {
         Ok(runtime_config) => (
             runtime_config.loaded_entries().len(),
-            runtime::resolve_sandbox_status(runtime_config.sandbox(), &cwd),
+            ninmu_runtime::resolve_sandbox_status(runtime_config.sandbox(), &cwd),
             None,
         ),
         Err(err) => (
@@ -309,7 +309,7 @@ pub(crate) fn status_context(
             // produce the same output as a runtime config with no sandbox
             // overrides, which is the right degraded-mode shape: we cannot
             // report what the user *intended*, only what is actually in effect.
-            runtime::resolve_sandbox_status(&runtime::SandboxConfig::default(), &cwd),
+            ninmu_runtime::resolve_sandbox_status(&ninmu_runtime::SandboxConfig::default(), &cwd),
             Some(err.to_string()),
         ),
     };

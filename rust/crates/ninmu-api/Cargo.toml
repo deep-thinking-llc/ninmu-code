@@ -1,0 +1,24 @@
+[package]
+name = "ninmu-api"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = true
+
+[dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+ninmu-runtime = { version = "0.1.0", path = "../ninmu-runtime" }
+serde = { version = "1", features = ["derive"] }
+serde_json.workspace = true
+ninmu-telemetry = { version = "0.1.0", path = "../ninmu-telemetry" }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "time"] }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[lints]
+workspace = true
+
+[[bench]]
+name = "request_building"
+harness = false

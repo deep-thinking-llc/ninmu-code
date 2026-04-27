@@ -18,7 +18,7 @@ use ninmu_api::{
     StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition, ToolResultContentBlock,
 };
 
-use crate::cli_ninmu_commands::*;
+use crate::cli_commands::*;
 use crate::init::initialize_repo;
 use crate::input;
 use crate::render::{MarkdownStreamState, Spinner, TerminalRenderer};
@@ -29,7 +29,7 @@ use ninmu_commands::{
     render_slash_command_help_filtered, resolve_skill_invocation, resume_supported_slash_commands,
     slash_command_specs, validate_slash_command_input, SkillSlashDispatch, SlashCommand,
 };
-use compat_harness::{extract_manifest, UpstreamPaths};
+use ninmu_compat_harness::{extract_manifest, UpstreamPaths};
 use ninmu_plugins::{PluginHooks, PluginManager, PluginManagerConfig, PluginRegistry};
 use ninmu_runtime::{
     check_base_commit, format_stale_base_warning, format_usd, load_oauth_credentials,

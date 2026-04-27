@@ -1,0 +1,97 @@
+//! # Claw SDK
+//!
+//! Programmatic API for embedding Claw's agent capabilities in Rust applications.
+//!
+//! ## Modules
+//!
+//! | Module | Purpose |
+//! |--------|---------|
+//! | [`AgentContext`] | Thread-safe shared context between agents |
+//! | [`AgentSession`] | Run a conversational agent turn-by-turn |
+//! | [`AgentOrchestrator`] | Multi-agent coordination with task queues and resource locking |
+//! | [`NotificationDispatcher`] | Route events to webhooks, files, or console |
+//! | [`SecretScrubber`] | Redact API keys and secrets from logs |
+//! | [`AuditLog`] | Append-only structured audit trail |
+//! | [`ReviewManager`] | Risk-classify changes and enforce approval gates |
+//! | [`SessionTreeLog`] | Branching session history with JSONL persistence |
+//! | [`SetupReport`] | Detect providers, tools, and onboarding state |
+//!
+//! ## Quick start
+//!
+//! ```rust,no_run
+//! use ninmu_sdk::AgentSession;
+//! use ninmu_runtime::PermissionMode;
+//!
+//! // Create a session (event bus is created internally)
+//! let (mut session, mut event_bus) = AgentSession::new(
+//!     "claude-sonnet-4-6",
+//!     vec!["You are a helpful assistant.".to_string()],
+//!    ninmu_sdk::ToolRegistry::new(),
+//!     PermissionMode::DangerFullAccess,
+//! )
+//! .expect("session should create");
+//!
+//! // Subscribe to events via the returned event bus
+//! let _sub = event_bus.subscribe();
+//!
+//! // Run a turn (will fail with dummy client; use real ApiClient in production)
+//! let result = session.run_turn("Hello, what files are here?");
+//! assert!(result.is_err()); // Dummy client always fails
+
+mod agent_context;
+mod event_bus;
+mod extension;
+mod notification;
+mod orchestrator;
+mod resource_loader;
+mod review;
+#[cfg(feature = "rpc")]
+mod rpc;
+mod security;
+mod session;
+mod session_manager;
+mod session_tree;
+mod session_tree_log;
+mod setup;
+mod tool_registry;
+
+pub use agent_context::{AgentContext, AgentTask, TaskRegistry};
+pub use event_bus::{
+    AgentSessionEvent, EventBus, EventSubscription, SessionLifecycleEvent, ToolExecutionEvent,
+    TurnEvent,
+};
+pub use extension::{Extension, ExtensionRegistry, SimpleExtension};
+pub use notification::{
+    ConsoleSink, EmailSink, EventType, FileSink, Notification, NotificationDispatcher,
+    NotificationFilter, NotificationSink, Severity, SinkRegistration, WebhookSink,
+};
+pub use orchestrator::{
+    AgentDefinition, AgentOrchestrator, OrchestratedTask, ResourceLock, TaskState,
+};
+pub use resource_loader::{DefaultResourceLoader, ResourceLoader};
+pub use review::{
+    ChangeRecord, Decision, FileChange, FileChangeType, ReviewDecision, ReviewGate, ReviewManager,
+    RiskClassifier, RiskLevel,
+};
+pub use security::{AuditEntry, AuditEvent, AuditLog, SecretMatch, SecretScrubber, SecurityConfig};
+pub use session::{AgentSession, AgentSessionBuilder, BoxedApiClient, DummyApiClient};
+pub use session_manager::{SessionManager, SessionManagerConfig};
+pub use session_tree::{SessionTree, SessionTreeNode};
+pub use session_tree_log::{SessionTreeLog, TreeEntry};
+pub use setup::{
+    check_tool, detect_providers, detect_tools, template_library, DetectedProvider, DetectedTool,
+    SessionTemplate, SetupReport,
+};
+pub use tool_registry::{
+    create_builtin_tools, define_tool, FnToolHandler, SchemaValidationError, SchemaValidator,
+    SdkToolExecutor, ToolDefinition, ToolDefinitionBuilder, ToolHandler, ToolRegistry,
+};
+
+#[cfg(feature = "rpc")]
+pub use rpc::run_rpc_server;
+
+// Re-export key runtime types for convenience
+pub use ninmu_runtime::{
+    ConversationRuntime, PermissionMode, RuntimeError, Session, StaticToolExecutor, ToolError,
+    ToolExecutor, TurnSummary,
+};

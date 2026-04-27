@@ -1,4 +1,4 @@
-use runtime::TokenUsage;
+use ninmu_runtime::TokenUsage;
 
 pub(crate) const PRIMARY_SESSION_EXTENSION: &str = "jsonl";
 pub(crate) const LATEST_SESSION_REFERENCE: &str = "latest";

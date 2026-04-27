@@ -36,19 +36,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
 
 [[package]]
-name = "api"
-version = "0.1.0"
-dependencies = [
- "criterion",
- "reqwest",
- "runtime",
- "serde",
- "serde_json",
- "telemetry",
- "tokio",
-]
-
-[[package]]
 name = "atomic-waker"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -189,24 +176,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bde03770d3df201d4fb868f2c9c59e66a3e4e2bd06692a0fe701e7103c7e84d4"
 dependencies = [
  "error-code",
-]
-
-[[package]]
-name = "commands"
-version = "0.1.0"
-dependencies = [
- "plugins",
- "runtime",
- "serde_json",
-]
-
-[[package]]
-name = "compat-harness"
-version = "0.1.0"
-dependencies = [
- "commands",
- "runtime",
- "tools",
 ]
 
 [[package]]
@@ -1061,15 +1030,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "mock-anthropic-service"
-version = "0.1.0"
-dependencies = [
- "api",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "native-tls"
 version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1096,25 +1056,121 @@ dependencies = [
 ]
 
 [[package]]
+name = "ninmu-api"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "ninmu-runtime",
+ "ninmu-telemetry",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "ninmu-cli"
 version = "0.1.0"
 dependencies = [
- "api",
- "commands",
- "compat-harness",
  "crossterm",
- "mock-anthropic-service",
- "plugins",
+ "ninmu-api",
+ "ninmu-commands",
+ "ninmu-compat-harness",
+ "ninmu-mock-anthropic-service",
+ "ninmu-plugins",
+ "ninmu-runtime",
+ "ninmu-sdk",
+ "ninmu-tools",
  "pulldown-cmark",
  "reqwest",
- "runtime",
  "rustyline",
- "sdk",
  "serde",
  "serde_json",
  "syntect",
  "tokio",
- "tools",
+]
+
+[[package]]
+name = "ninmu-commands"
+version = "0.1.0"
+dependencies = [
+ "ninmu-plugins",
+ "ninmu-runtime",
+ "serde_json",
+]
+
+[[package]]
+name = "ninmu-compat-harness"
+version = "0.1.0"
+dependencies = [
+ "ninmu-commands",
+ "ninmu-runtime",
+ "ninmu-tools",
+]
+
+[[package]]
+name = "ninmu-mock-anthropic-service"
+version = "0.1.0"
+dependencies = [
+ "ninmu-api",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "ninmu-plugins"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ninmu-runtime"
+version = "0.1.0"
+dependencies = [
+ "glob",
+ "ninmu-plugins",
+ "ninmu-telemetry",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tokio",
+ "walkdir",
+]
+
+[[package]]
+name = "ninmu-sdk"
+version = "0.1.0"
+dependencies = [
+ "ninmu-runtime",
+ "serde",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "ninmu-telemetry"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ninmu-tools"
+version = "0.1.0"
+dependencies = [
+ "flate2",
+ "ninmu-api",
+ "ninmu-commands",
+ "ninmu-plugins",
+ "ninmu-runtime",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
@@ -1152,9 +1208,9 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "onig"
-version = "6.5.2"
+version = "6.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e9f0430136375a315630bfaf61d6bca71a048258b312be75f26f910fb4333e44"
+checksum = "0cc3cbf698f9438986c11a880c90a6d04b9de27575afd28bbf45b154b6c709e2"
 dependencies = [
  "bitflags",
  "libc",
@@ -1164,9 +1220,9 @@ dependencies = [
 
 [[package]]
 name = "onig_sys"
-version = "69.9.2"
+version = "69.9.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "725f3ee364ae6d02cfca12ef2be392cfee2733c2a01f0ed386fb74fa94a0fd26"
+checksum = "1e68317604e77e53b85896388e1a803c1d21b74c899ec9e5e1112db90735edd7"
 dependencies = [
  "cc",
  "pkg-config",
@@ -1302,14 +1358,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "51bae2ac328883f7acdfea3d66a7c35751187f870bc81f94563733a154d7a670"
 dependencies = [
  "plotters-backend",
-]
-
-[[package]]
-name = "plugins"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
 ]
 
 [[package]]
@@ -1617,21 +1665,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "runtime"
-version = "0.1.0"
-dependencies = [
- "glob",
- "plugins",
- "regex",
- "serde",
- "serde_json",
- "sha2",
- "telemetry",
- "tokio",
- "walkdir",
-]
-
-[[package]]
 name = "rustc-hash"
 version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1755,16 +1788,6 @@ name = "scopeguard"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
-
-[[package]]
-name = "sdk"
-version = "0.1.0"
-dependencies = [
- "runtime",
- "serde",
- "serde_json",
- "tokio",
-]
 
 [[package]]
 name = "security-framework"
@@ -2012,14 +2035,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "telemetry"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2175,21 +2190,6 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "pin-project-lite",
- "tokio",
-]
-
-[[package]]
-name = "tools"
-version = "0.1.0"
-dependencies = [
- "api",
- "commands",
- "flate2",
- "plugins",
- "reqwest",
- "runtime",
- "serde",
- "serde_json",
  "tokio",
 ]
 

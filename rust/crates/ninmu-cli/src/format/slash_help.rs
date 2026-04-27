@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::io::{self, Write};
 
-use commands::{render_slash_command_help_filtered, slash_command_specs};
+use ninmu_commands::{render_slash_command_help_filtered, slash_command_specs};
 
 use crate::format::cost::{LATEST_SESSION_REFERENCE, PRIMARY_SESSION_EXTENSION};
 
@@ -358,7 +358,7 @@ pub(crate) fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "Interactive slash commands:")?;
     writeln!(out, "{}", render_slash_command_help_filtered(STUB_COMMANDS))?;
     writeln!(out)?;
-    let resume_commands = commands::resume_supported_slash_commands()
+    let resume_commands = ninmu_commands::resume_supported_slash_commands()
         .into_iter()
         .map(|spec| match spec.argument_hint {
             Some(argument_hint) => format!("/{} {}", spec.name, argument_hint),
