@@ -1,7 +1,9 @@
 //! Full-screen TUI mode -- split-pane conversation view using crossterm.
 //!
-//! Entered via the `--tui` flag. Provides a scrollable conversation pane
+//! Entered via the `--tui` flag. Provides a scrollable conversation history pane
 //! and a fixed input line at the bottom, all within the alternate screen buffer.
+//! The execute_turn closure handles dispatching input to the model and returns
+//! rendered output text that gets appended to the scrollback.
 
 use std::io::{self, Write};
 
@@ -13,94 +15,85 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen},
 };
 
-use crate::input::LineEditor;
 use crate::tui::scrollback::Scrollback;
-use crate::tui::terminal::TerminalSize;
 use crate::tui::theme::Theme;
 
-/// Minimum height for the input area to be usable.
-const MIN_INPUT_HEIGHT: u16 = 3;
+const INPUT_HEIGHT: u16 = 3;
+const PROMPT: &str = "> ";
 
-/// Keyboard shortcuts help text.
 const HELP_OVERLAY: &str = "\
 ── Keyboard Shortcuts ─────────────────────
   PageUp / PageDown    Scroll conversation
   Home / End           Top / bottom
-  Ctrl+C               Interrupt / exit
-  Ctrl+J               Insert newline
-  Shift+Enter          Insert newline
-  Tab                  Complete (@file, commands)
+  Ctrl+C               Interrupt
   ?                    Toggle this help
-  Ctrl+D / /exit       Exit TUI
+  /exit                Exit TUI
 ───────────────────────────────────────────";
 
-/// Manages the full-screen TUI layout and rendering.
+/// Full-screen TUI manager using crossterm only (no ratatui).
 pub struct FullScreenTui {
-    terminal: TerminalSize,
     scrollback: Scrollback,
     help_visible: bool,
     running: bool,
 }
 
 impl FullScreenTui {
-    /// Create a new full-screen TUI manager.
     pub fn new() -> Self {
         Self {
-            terminal: TerminalSize::new(),
             scrollback: Scrollback::default(),
             help_visible: false,
             running: false,
         }
     }
 
-    /// Enter the full-screen TUI.
-    /// Takes an input handler and a turn executor function.
-    pub fn run<F>(&mut self, editor: &mut LineEditor, execute_turn: F) -> io::Result<()>
+    /// Run the full-screen TUI. `execute_turn` receives user input and
+    /// returns the rendered output text to append to scrollback.
+    pub fn run<F>(&mut self, mut execute_turn: F) -> io::Result<()>
     where
-        F: FnMut(&str, &mut LineEditor) -> Result<(), Box<dyn std::error::Error>>,
+        F: FnMut(&str) -> Result<String, Box<dyn std::error::Error>>,
     {
         self.running = true;
-        let mut executor = execute_turn;
-
         enable_raw_mode()?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, Clear(ClearType::All))?;
 
-        // Main loop
         while self.running {
             let (width, height) = crossterm::terminal::size()?;
-            let input_height = MIN_INPUT_HEIGHT;
-            let conversation_height = height.saturating_sub(input_height);
+            let conv_height = height.saturating_sub(INPUT_HEIGHT) as usize;
 
-            // Render conversation pane
-            self.render_conversation(&mut stdout, conversation_height as usize, width)?;
+            self.render_conversation(&mut stdout, conv_height, width)?;
 
-            // Render input prompt line
-            let prompt = "> ";
+            // Render prompt line
             queue!(
                 stdout,
-                MoveTo(0, conversation_height),
+                MoveTo(0, conv_height as u16),
                 Clear(ClearType::CurrentLine),
-                Print(prompt),
+                Print(PROMPT),
             )?;
             stdout.flush()?;
 
-            // Read input with crossterm
-            let input = self.read_input(&mut stdout, conversation_height, width)?;
+            let input = self.read_input(&mut stdout, conv_height as u16, width)?;
+
             match input.as_str() {
-                "/exit" | "/quit" | "" if self.should_exit() => {
+                "/exit" | "/quit" => {
                     self.running = false;
                     break;
                 }
                 "?" => {
                     self.help_visible = !self.help_visible;
                 }
+                _ if input.is_empty() => {}
                 _ => {
-                    // Echo input to scrollback
-                    self.scrollback.push(format!("> {input}"));
-                    // Execute turn
-                    if let Err(error) = (executor)(&input, editor) {
-                        self.scrollback.push(format!("error: {error}"));
+                    self.scrollback.push(format!(" > {input}"));
+                    match execute_turn(&input) {
+                        Ok(output) => {
+                            if !output.is_empty() {
+                                self.scrollback.push_str(&output);
+                            }
+                        }
+                        Err(error) => {
+                            self.scrollback.push(format!("error: {error}"));
+                        }
                     }
                 }
             }
@@ -111,7 +104,6 @@ impl FullScreenTui {
         Ok(())
     }
 
-    /// Render the conversation scrollback into the top pane.
     fn render_conversation(
         &self,
         stdout: &mut impl Write,
@@ -120,71 +112,51 @@ impl FullScreenTui {
     ) -> io::Result<()> {
         let (visible, start, total) = self.scrollback.visible(viewport_height);
 
-        // Clear conversation area
         for row in 0..viewport_height {
-            queue!(stdout, MoveTo(0, row as u16), Clear(ClearType::CurrentLine),)?;
+            queue!(stdout, MoveTo(0, row as u16), Clear(ClearType::CurrentLine))?;
         }
 
-        // Render visible lines
         for (i, line) in visible.iter().enumerate() {
-            // Truncate lines that exceed the terminal width
             let truncated = if line.len() > width as usize {
                 &line[..width.saturating_sub(3) as usize]
             } else {
-                line
+                line.as_str()
             };
-            queue!(stdout, MoveTo(0, i as u16), Print(truncated),)?;
+            queue!(stdout, MoveTo(0, i as u16), Print(truncated))?;
         }
 
-        // Render scroll indicator if not at bottom
         if !self.scrollback.is_at_bottom() {
             let indicator = format!(
-                "{}[lines {}-{} of {} · press j/k to scroll, q to exit]{}",
-                Theme::MUTED,
-                start + 1,
-                start + visible.len(),
-                total,
-                Theme::RESET,
+                "{muted}[lines {start}-{end} of {total} · j/k scroll · q quit]{reset}",
+                muted = Theme::MUTED,
+                start = start + 1,
+                end = start + visible.len(),
+                total = total,
+                reset = Theme::RESET,
             );
-            // Place at the last line of conversation pane
-            let indicator_row = viewport_height.saturating_sub(1) as u16;
+            let row = viewport_height.saturating_sub(1) as u16;
             queue!(
                 stdout,
-                MoveTo(0, indicator_row),
+                MoveTo(0, row),
                 Clear(ClearType::CurrentLine),
                 Print(indicator),
             )?;
         }
 
-        // Render help overlay if visible
         if self.help_visible {
-            self.render_help_overlay(stdout, viewport_height, width)?;
+            let help_lines: Vec<&str> = HELP_OVERLAY.lines().collect();
+            let help_h = help_lines.len();
+            let start_row = (viewport_height.saturating_sub(help_h)) / 2;
+            for (i, line) in help_lines.iter().enumerate() {
+                queue!(stdout, MoveTo(2, (start_row + i) as u16), Print(line))?;
+            }
         }
 
         stdout.flush()?;
         Ok(())
     }
 
-    /// Render help overlay in the center of the screen.
-    fn render_help_overlay(
-        &self,
-        stdout: &mut impl Write,
-        viewport_height: usize,
-        _width: u16,
-    ) -> io::Result<()> {
-        let help_lines: Vec<&str> = HELP_OVERLAY.lines().collect();
-        let help_height = help_lines.len();
-        let start_row = (viewport_height.saturating_sub(help_height)) / 2;
-
-        // Draw a simple box around the help text
-        for (i, line) in help_lines.iter().enumerate() {
-            queue!(stdout, MoveTo(2, (start_row + i) as u16), Print(line),)?;
-        }
-        Ok(())
-    }
-
-    /// Read a single line of input using crossterm event handling.
-    /// Returns the accumulated input string.
+    /// Read a line of input from the user (crossterm event loop).
     fn read_input(
         &self,
         stdout: &mut impl Write,
@@ -202,70 +174,31 @@ impl FullScreenTui {
                     }
                     crossterm::event::KeyCode::Char(c) => {
                         buffer.push(c);
-                        // Echo character
+                        let col = PROMPT.len() + buffer.len() - 1;
                         queue!(
                             stdout,
-                            MoveTo(2 + buffer.len() as u16 - 1, prompt_row),
+                            MoveTo(col as u16, prompt_row),
                             Print(c.to_string()),
                         )?;
                         stdout.flush()?;
                     }
                     crossterm::event::KeyCode::Backspace => {
-                        buffer.pop();
-                        queue!(
-                            stdout,
-                            MoveTo(2 + buffer.len() as u16, prompt_row),
-                            Print(" "),
-                        )?;
-                        stdout.flush()?;
+                        if !buffer.is_empty() {
+                            buffer.pop();
+                            let col = PROMPT.len() + buffer.len();
+                            queue!(stdout, MoveTo(col as u16, prompt_row), Print(" "))?;
+                            stdout.flush()?;
+                        }
                     }
-                    crossterm::event::KeyCode::PageUp => {
-                        // Scrolling will be handled externally
-                    }
-                    crossterm::event::KeyCode::PageDown => {
-                        // Scrolling will be handled externally
-                    }
-                    crossterm::event::KeyCode::Esc => {
-                        return Ok(String::new());
-                    }
+                    crossterm::event::KeyCode::PageUp => {}
+                    crossterm::event::KeyCode::PageDown => {}
+                    crossterm::event::KeyCode::Esc => {}
                     _ => {}
                 },
-                Ok(crossterm::event::Event::Resize(_, _)) => {
-                    // Will be handled on next render pass
-                }
+                Ok(crossterm::event::Event::Resize(..)) => {}
                 _ => {}
             }
         }
-    }
-
-    /// Check whether the user wants to exit (for empty input handling).
-    fn should_exit(&self) -> bool {
-        // If we get an empty input, check if the input line was empty
-        true
-    }
-
-    /// Scroll the conversation up by one page.
-    pub fn page_up(&mut self) {
-        let (_, height) = crossterm::terminal::size().unwrap_or((80, 24));
-        self.scrollback
-            .scroll_up((height.saturating_sub(MIN_INPUT_HEIGHT)) as usize);
-    }
-
-    /// Scroll the conversation down by one page.
-    pub fn page_down(&mut self) {
-        let (_, height) = crossterm::terminal::size().unwrap_or((80, 24));
-        self.scrollback
-            .scroll_down((height.saturating_sub(MIN_INPUT_HEIGHT)) as usize);
-    }
-
-    /// Append rendered output to the scrollback.
-    pub fn append_output(&mut self, text: &str) {
-        self.scrollback.push_str(text);
-    }
-
-    /// Scroll to the bottom (live view).
-    pub fn scroll_to_bottom(&mut self) {
-        self.scrollback.scroll_to_bottom();
     }
 }
 
@@ -281,36 +214,34 @@ mod tests {
     use crate::tui::scrollback::Scrollback;
 
     #[test]
-    fn fullscreen_tui_initializes_cleanly() {
+    fn tui_initializes_cleanly() {
         let tui = FullScreenTui::new();
         assert!(!tui.help_visible);
         assert!(!tui.running);
     }
 
     #[test]
-    fn scrollback_pages_correctly() {
+    fn scrollback_append_and_visible() {
         let mut tui = FullScreenTui::new();
-        for i in 0..100 {
+        for i in 0..50 {
             tui.scrollback.push(format!("line {i}"));
         }
-        assert_eq!(tui.scrollback.len(), 100);
-        assert!(tui.scrollback.is_at_bottom());
+        let (visible, _, total) = tui.scrollback.visible(10);
+        assert_eq!(visible.len(), 10);
+        assert_eq!(total, 50);
     }
 
     #[test]
-    fn help_overlay_lines_have_required_content() {
+    fn help_overlay_content() {
         assert!(HELP_OVERLAY.contains("PageUp"));
-        assert!(HELP_OVERLAY.contains("PageDown"));
         assert!(HELP_OVERLAY.contains("?"));
         assert!(HELP_OVERLAY.contains("/exit"));
     }
 
     #[test]
-    fn append_output_adds_to_scrollback() {
+    fn append_output_adds_lines() {
         let mut tui = FullScreenTui::new();
-        tui.append_output("hello\nworld");
+        tui.scrollback.push_str("hello\nworld");
         assert_eq!(tui.scrollback.len(), 2);
-        let (visible, _, _) = tui.scrollback.visible(10);
-        assert_eq!(visible.len(), 2);
     }
 }

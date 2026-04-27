@@ -11,18 +11,18 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use api::{
+use ninmu_api::{
     detect_provider_kind, resolve_startup_auth_source, AnthropicClient, AuthSource,
     ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest, MessageResponse,
     OutputContentBlock, PromptCache, ProviderClient as ApiProviderClient, ProviderKind,
     StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition, ToolResultContentBlock,
 };
 
-use crate::cli_commands::*;
+use crate::cli_ninmu_commands::*;
 use crate::init::initialize_repo;
 use crate::input;
 use crate::render::{MarkdownStreamState, Spinner, TerminalRenderer};
-use commands::{
+use ninmu_commands::{
     classify_skills_slash_command, handle_agents_slash_command, handle_agents_slash_command_json,
     handle_mcp_slash_command, handle_mcp_slash_command_json, handle_plugins_slash_command,
     handle_skills_slash_command, handle_skills_slash_command_json, render_slash_command_help,
@@ -30,8 +30,8 @@ use commands::{
     slash_command_specs, validate_slash_command_input, SkillSlashDispatch, SlashCommand,
 };
 use compat_harness::{extract_manifest, UpstreamPaths};
-use plugins::{PluginHooks, PluginManager, PluginManagerConfig, PluginRegistry};
-use runtime::{
+use ninmu_plugins::{PluginHooks, PluginManager, PluginManagerConfig, PluginRegistry};
+use ninmu_runtime::{
     check_base_commit, format_stale_base_warning, format_usd, load_oauth_credentials,
     load_system_prompt, pricing_for_model, resolve_expected_base, resolve_sandbox_status,
     ApiClient, ApiRequest, AssistantEvent, CompactionConfig, ConfigLoader, ConfigSource,
@@ -42,7 +42,7 @@ use runtime::{
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
-use tools::{
+use ninmu_tools::{
     execute_tool, mvp_tool_specs, GlobalToolRegistry, RuntimeToolDefinition, ToolSearchOutput,
 };
 
@@ -243,7 +243,7 @@ impl LiveCli {
         &self,
         emit_output: bool,
     ) -> Result<(BuiltRuntime, HookAbortMonitor), Box<dyn std::error::Error>> {
-        let hook_abort_signal = runtime::HookAbortSignal::new();
+        let hook_abort_signal = ninmu_runtime::HookAbortSignal::new();
         let runtime = build_runtime(
             self.runtime.session().clone(),
             &self.session.id,
@@ -413,7 +413,7 @@ impl LiveCli {
                 "estimated_cost": format_usd(
                     summary.usage.estimate_cost_usd_with_pricing(
                         pricing_for_model(&self.model)
-                            .unwrap_or_else(runtime::ModelPricing::default_sonnet_tier)
+                            .unwrap_or_else(ninmu_runtime::ModelPricing::default_sonnet_tier)
                     ).total_cost_usd()
                 )
             })
@@ -673,7 +673,7 @@ impl LiveCli {
         let loader = ConfigLoader::default_for(&cwd);
         let runtime_config = loader
             .load()
-            .unwrap_or_else(|_| runtime::RuntimeConfig::empty());
+            .unwrap_or_else(|_| ninmu_runtime::RuntimeConfig::empty());
         println!(
             "{}",
             format_sandbox_report(&resolve_sandbox_status(runtime_config.sandbox(), &cwd))
@@ -1267,7 +1267,7 @@ impl BuiltRuntime {
         }
     }
 
-    fn with_hook_abort_signal(mut self, hook_abort_signal: runtime::HookAbortSignal) -> Self {
+    fn with_hook_abort_signal(mut self, hook_abort_signal: ninmu_runtime::HookAbortSignal) -> Self {
         let runtime = self
             .runtime
             .take()
@@ -1357,7 +1357,7 @@ pub(crate) struct ReadMcpResourceRequest {
 // ═══════════════════════════════════════════════════════════════════════════
 
 pub(crate) struct RuntimePluginState {
-    pub(crate) feature_config: runtime::RuntimeFeatureConfig,
+    pub(crate) feature_config: ninmu_runtime::RuntimeFeatureConfig,
     pub(crate) tool_registry: GlobalToolRegistry,
     pub(crate) plugin_registry: PluginRegistry,
     pub(crate) mcp_state: Option<Arc<Mutex<RuntimeMcpState>>>,
@@ -1371,13 +1371,13 @@ pub(crate) struct RuntimeMcpState {
     runtime: tokio::runtime::Runtime,
     manager: McpServerManager,
     pending_servers: Vec<String>,
-    degraded_report: Option<runtime::McpDegradedReport>,
+    degraded_report: Option<ninmu_runtime::McpDegradedReport>,
 }
 
 impl RuntimeMcpState {
     fn new(
-        runtime_config: &runtime::RuntimeConfig,
-    ) -> Result<Option<(Self, runtime::McpToolDiscoveryReport)>, Box<dyn std::error::Error>> {
+        runtime_config: &ninmu_runtime::RuntimeConfig,
+    ) -> Result<Option<(Self, ninmu_runtime::McpToolDiscoveryReport)>, Box<dyn std::error::Error>> {
         let mut manager = McpServerManager::from_runtime_config(runtime_config);
         if manager.server_names().is_empty() && manager.unsupported_servers().is_empty() {
             return Ok(None);
@@ -1413,11 +1413,11 @@ impl RuntimeMcpState {
             discovery
                 .failed_servers
                 .iter()
-                .map(|failure| runtime::McpFailedServer {
+                .map(|failure| ninmu_runtime::McpFailedServer {
                     server_name: failure.server_name.clone(),
-                    phase: runtime::McpLifecyclePhase::ToolDiscovery,
-                    error: runtime::McpErrorSurface::new(
-                        runtime::McpLifecyclePhase::ToolDiscovery,
+                    phase: ninmu_runtime::McpLifecyclePhase::ToolDiscovery,
+                    error: ninmu_runtime::McpErrorSurface::new(
+                        ninmu_runtime::McpLifecyclePhase::ToolDiscovery,
                         Some(failure.server_name.clone()),
                         failure.error.clone(),
                         std::collections::BTreeMap::new(),
@@ -1425,11 +1425,11 @@ impl RuntimeMcpState {
                     ),
                 })
                 .chain(discovery.unsupported_servers.iter().map(|server| {
-                    runtime::McpFailedServer {
+                    ninmu_runtime::McpFailedServer {
                         server_name: server.server_name.clone(),
-                        phase: runtime::McpLifecyclePhase::ServerRegistration,
-                        error: runtime::McpErrorSurface::new(
-                            runtime::McpLifecyclePhase::ServerRegistration,
+                        phase: ninmu_runtime::McpLifecyclePhase::ServerRegistration,
+                        error: ninmu_runtime::McpErrorSurface::new(
+                            ninmu_runtime::McpLifecyclePhase::ServerRegistration,
                             Some(server.server_name.clone()),
                             server.reason.clone(),
                             std::collections::BTreeMap::from([(
@@ -1442,7 +1442,7 @@ impl RuntimeMcpState {
                 }))
                 .collect::<Vec<_>>();
         let degraded_report = (!failed_servers.is_empty()).then(|| {
-            runtime::McpDegradedReport::new(
+            ninmu_runtime::McpDegradedReport::new(
                 working_servers,
                 failed_servers,
                 available_tools.clone(),
@@ -1470,7 +1470,7 @@ impl RuntimeMcpState {
         (!self.pending_servers.is_empty()).then(|| self.pending_servers.clone())
     }
 
-    pub(crate) fn degraded_report(&self) -> Option<runtime::McpDegradedReport> {
+    pub(crate) fn degraded_report(&self) -> Option<ninmu_runtime::McpDegradedReport> {
         self.degraded_report.clone()
     }
 
@@ -1580,7 +1580,7 @@ pub(crate) struct HookAbortMonitor {
 }
 
 impl HookAbortMonitor {
-    pub(crate) fn spawn(abort_signal: runtime::HookAbortSignal) -> Self {
+    pub(crate) fn spawn(abort_signal: ninmu_runtime::HookAbortSignal) -> Self {
         Self::spawn_with_waiter(abort_signal, move |stop_rx, abort_signal| {
             let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
@@ -1607,11 +1607,11 @@ impl HookAbortMonitor {
     }
 
     pub(crate) fn spawn_with_waiter<F>(
-        abort_signal: runtime::HookAbortSignal,
+        abort_signal: ninmu_runtime::HookAbortSignal,
         wait_for_interrupt: F,
     ) -> Self
     where
-        F: FnOnce(Receiver<()>, runtime::HookAbortSignal) + Send + 'static,
+        F: FnOnce(Receiver<()>, ninmu_runtime::HookAbortSignal) + Send + 'static,
     {
         let (stop_tx, stop_rx) = mpsc::channel();
         let join_handle = thread::spawn(move || wait_for_interrupt(stop_rx, abort_signal));
@@ -1637,7 +1637,7 @@ impl HookAbortMonitor {
 // ═══════════════════════════════════════════════════════════════════════════
 
 pub(crate) fn build_runtime_mcp_state(
-    runtime_config: &runtime::RuntimeConfig,
+    runtime_config: &ninmu_runtime::RuntimeConfig,
 ) -> Result<RuntimePluginStateBuildOutput, Box<dyn std::error::Error>> {
     let Some((mcp_state, discovery)) = RuntimeMcpState::new(runtime_config)? else {
         return Ok((None, Vec::new()));
@@ -1655,7 +1655,7 @@ pub(crate) fn build_runtime_mcp_state(
     Ok((Some(Arc::new(Mutex::new(mcp_state))), runtime_tools))
 }
 
-pub(crate) fn mcp_runtime_tool_definition(tool: &runtime::ManagedMcpTool) -> RuntimeToolDefinition {
+pub(crate) fn mcp_runtime_tool_definition(tool: &ninmu_runtime::ManagedMcpTool) -> RuntimeToolDefinition {
     RuntimeToolDefinition {
         name: tool.qualified_name.clone(),
         description: Some(
@@ -1847,7 +1847,7 @@ pub(crate) fn build_runtime_plugin_state() -> Result<RuntimePluginState, Box<dyn
 pub(crate) fn build_runtime_plugin_state_with_loader(
     cwd: &Path,
     loader: &ConfigLoader,
-    runtime_config: &runtime::RuntimeConfig,
+    runtime_config: &ninmu_runtime::RuntimeConfig,
 ) -> Result<RuntimePluginState, Box<dyn std::error::Error>> {
     let plugin_manager = build_plugin_manager(cwd, loader, runtime_config);
     let plugin_registry = plugin_manager.plugin_registry()?;
@@ -1875,7 +1875,7 @@ pub(crate) fn build_runtime_plugin_state_with_loader(
 pub(crate) fn build_plugin_manager(
     cwd: &Path,
     loader: &ConfigLoader,
-    runtime_config: &runtime::RuntimeConfig,
+    runtime_config: &ninmu_runtime::RuntimeConfig,
 ) -> PluginManager {
     let plugin_settings = runtime_config.plugins();
     let mut plugin_config = PluginManagerConfig::new(loader.config_home().to_path_buf());
@@ -1910,8 +1910,8 @@ pub(crate) fn resolve_plugin_path(cwd: &Path, config_home: &Path, value: &str) -
 
 pub(crate) fn runtime_hook_config_from_plugin_hooks(
     hooks: PluginHooks,
-) -> runtime::RuntimeHookConfig {
-    runtime::RuntimeHookConfig::new(
+) -> ninmu_runtime::RuntimeHookConfig {
+    ninmu_runtime::RuntimeHookConfig::new(
         hooks.pre_tool_use,
         hooks.post_tool_use,
         hooks.post_tool_use_failure,
@@ -1924,10 +1924,10 @@ pub(crate) fn runtime_hook_config_from_plugin_hooks(
 
 pub(crate) struct CliHookProgressReporter;
 
-impl runtime::HookProgressReporter for CliHookProgressReporter {
-    fn on_event(&mut self, event: &runtime::HookProgressEvent) {
+impl ninmu_runtime::HookProgressReporter for CliHookProgressReporter {
+    fn on_event(&mut self, event: &ninmu_runtime::HookProgressEvent) {
         match event {
-            runtime::HookProgressEvent::Started {
+            ninmu_runtime::HookProgressEvent::Started {
                 event,
                 tool_name,
                 command,
@@ -1935,7 +1935,7 @@ impl runtime::HookProgressReporter for CliHookProgressReporter {
                 "[hook {event_name}] {tool_name}: {command}",
                 event_name = event.as_str()
             ),
-            runtime::HookProgressEvent::Completed {
+            ninmu_runtime::HookProgressEvent::Completed {
                 event,
                 tool_name,
                 command,
@@ -1943,7 +1943,7 @@ impl runtime::HookProgressReporter for CliHookProgressReporter {
                 "[hook done {event_name}] {tool_name}: {command}",
                 event_name = event.as_str()
             ),
-            runtime::HookProgressEvent::Cancelled {
+            ninmu_runtime::HookProgressEvent::Cancelled {
                 event,
                 tool_name,
                 command,
@@ -1973,13 +1973,13 @@ impl CliPermissionPrompter {
     }
 }
 
-impl runtime::PermissionPrompter for CliPermissionPrompter {
+impl ninmu_runtime::PermissionPrompter for CliPermissionPrompter {
     fn decide(
         &mut self,
-        request: &runtime::PermissionRequest,
-    ) -> runtime::PermissionPromptDecision {
+        request: &ninmu_runtime::PermissionRequest,
+    ) -> ninmu_runtime::PermissionPromptDecision {
         if self.approve_all {
-            return runtime::PermissionPromptDecision::Allow;
+            return ninmu_runtime::PermissionPromptDecision::Allow;
         }
 
         let input = serde_json::from_str(&request.input)
@@ -1997,10 +1997,10 @@ impl runtime::PermissionPrompter for CliPermissionPrompter {
         let mut response = String::new();
         match io::stdin().read_line(&mut response) {
             Ok(_) => match parse_permission_response(&response) {
-                PermissionDecision::Allow => runtime::PermissionPromptDecision::Allow,
+                PermissionDecision::Allow => ninmu_runtime::PermissionPromptDecision::Allow,
                 PermissionDecision::AllowAll => {
                     self.approve_all = true;
-                    runtime::PermissionPromptDecision::Allow
+                    ninmu_runtime::PermissionPromptDecision::Allow
                 }
                 PermissionDecision::ViewInput => {
                     // Print the raw input on its own line so the user can inspect it
@@ -2009,14 +2009,14 @@ impl runtime::PermissionPrompter for CliPermissionPrompter {
                     // Re-prompt
                     self.decide(request)
                 }
-                PermissionDecision::Deny { reason: _ } => runtime::PermissionPromptDecision::Deny {
+                PermissionDecision::Deny { reason: _ } => ninmu_runtime::PermissionPromptDecision::Deny {
                     reason: format!(
                         "tool '{}' denied by user approval prompt",
                         request.tool_name
                     ),
                 },
             },
-            Err(error) => runtime::PermissionPromptDecision::Deny {
+            Err(error) => ninmu_runtime::PermissionPromptDecision::Deny {
                 reason: format!("permission approval failed: {error}"),
             },
         }
@@ -2045,7 +2045,7 @@ pub(crate) struct AnthropicRuntimeClient {
     pub(crate) progress_reporter: Option<InternalPromptProgressReporter>,
     pub(crate) reasoning_effort: Option<String>,
     pub(crate) provider_defaults:
-        std::collections::BTreeMap<String, runtime::ProviderDefaultConfig>,
+        std::collections::BTreeMap<String, ninmu_runtime::ProviderDefaultConfig>,
 }
 
 impl AnthropicRuntimeClient {
@@ -2057,14 +2057,14 @@ impl AnthropicRuntimeClient {
         allowed_tools: Option<AllowedToolSet>,
         tool_registry: GlobalToolRegistry,
         progress_reporter: Option<InternalPromptProgressReporter>,
-        provider_defaults: std::collections::BTreeMap<String, runtime::ProviderDefaultConfig>,
+        provider_defaults: std::collections::BTreeMap<String, ninmu_runtime::ProviderDefaultConfig>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
-        let resolved_model = api::resolve_model_alias(&model);
+        let resolved_model = ninmu_api::resolve_model_alias(&model);
         let client = match detect_provider_kind(&resolved_model) {
             ProviderKind::Anthropic => {
                 let auth = resolve_cli_auth_source()?;
                 let inner = AnthropicClient::from_auth(auth)
-                    .with_base_url(api::read_base_url())
+                    .with_base_url(ninmu_api::read_base_url())
                     .with_prompt_cache(PromptCache::new(session_id));
                 ApiProviderClient::Anthropic(inner)
             }
@@ -2104,7 +2104,7 @@ pub(crate) fn resolve_cli_auth_source() -> Result<AuthSource, Box<dyn std::error
     Ok(resolve_cli_auth_source_for_cwd()?)
 }
 
-pub(crate) fn resolve_cli_auth_source_for_cwd() -> Result<AuthSource, api::ApiError> {
+pub(crate) fn resolve_cli_auth_source_for_cwd() -> Result<AuthSource, ninmu_api::ApiError> {
     resolve_startup_auth_source(|| Ok(None))
 }
 
@@ -2121,7 +2121,7 @@ impl ApiClient for AnthropicRuntimeClient {
         let mut temperature_override = None;
         let mut top_p_override = None;
         let mut reasoning_effort_override = self.reasoning_effort.clone();
-        runtime::apply_provider_defaults_from_map(
+        ninmu_runtime::apply_provider_defaults_from_map(
             &mut max_tokens_override,
             &mut temperature_override,
             &mut top_p_override,
@@ -2539,7 +2539,7 @@ impl ToolExecutor for CliToolExecutor {
 
 pub(crate) fn permission_policy(
     mode: PermissionMode,
-    feature_config: &runtime::RuntimeFeatureConfig,
+    feature_config: &ninmu_runtime::RuntimeFeatureConfig,
     tool_registry: &GlobalToolRegistry,
 ) -> Result<PermissionPolicy, String> {
     Ok(tool_registry.permission_specs(None)?.into_iter().fold(
@@ -2615,6 +2615,7 @@ pub(crate) fn run_repl(
     reasoning_effort: Option<String>,
     allow_broad_cwd: bool,
     startup_banner: Option<BannerStyle>,
+    tui: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     enforce_broad_cwd_policy(allow_broad_cwd, CliOutputFormat::Text)?;
     run_stale_base_preflight(base_commit.as_deref());
@@ -2622,12 +2623,17 @@ pub(crate) fn run_repl(
     // Resolve banner style from config if not explicitly provided
     let banner = startup_banner.or_else(|| {
         let cwd = env::current_dir().ok()?;
-        let loader = runtime::ConfigLoader::default_for(&cwd);
+        let loader = ninmu_runtime::ConfigLoader::default_for(&cwd);
         let config = loader.load().ok()?;
         Some(BannerStyle::from_config(config.startup_banner()))
     });
     let mut cli = LiveCli::new(resolved_model, true, allowed_tools, permission_mode, banner)?;
     cli.set_reasoning_effort(reasoning_effort);
+
+    if tui {
+        return run_tui_repl(&mut cli);
+    }
+
     let mut editor = input::LineEditor::new(
         "> ",
         cli.repl_completion_candidates().unwrap_or_default(),
@@ -2689,6 +2695,100 @@ pub(crate) fn run_repl(
         }
     }
 
+    Ok(())
+}
+
+/// REPL variant using the full-screen crossterm TUI alternate screen.
+fn run_tui_repl(cli: &mut LiveCli) -> Result<(), Box<dyn std::error::Error>> {
+    if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
+        return run_repl_standard(cli);
+    }
+    let mut tui = crate::tui::FullScreenTui::new();
+    tui.run(|input| {
+        let trimmed = input.trim().to_string();
+        if trimmed.is_empty() {
+            return Ok(String::new());
+        }
+        if matches!(trimmed.as_str(), "/exit" | "/quit") {
+            cli.persist_session()?;
+            return Ok(String::new());
+        }
+        match SlashCommand::parse(&trimmed) {
+            Ok(Some(command)) => {
+                cli.handle_repl_command(command)?;
+                return Ok(String::new());
+            }
+            Ok(None) => {}
+            Err(error) => return Ok(format!("error: {error}")),
+        }
+        cli.record_prompt_history(&trimmed);
+        cli.run_turn(&trimmed)?;
+        cli.persist_session()?;
+        Ok(String::new())
+    })?;
+    cli.persist_session()?;
+    Ok(())
+}
+
+/// Standard rustyline-based REPL (the non-TUI path).
+fn run_repl_standard(cli: &mut LiveCli) -> Result<(), Box<dyn std::error::Error>> {
+    let mut editor = input::LineEditor::new(
+        "> ",
+        cli.repl_completion_candidates().unwrap_or_default(),
+        input::CompletionProvider {
+            model_names: vec![cli.model.clone()],
+            session_ids: match list_managed_sessions() {
+                Ok(sessions) => sessions.into_iter().map(|s| s.id).collect(),
+                Err(_) => Vec::new(),
+            },
+        },
+    );
+    println!("{}", cli.startup_banner());
+    println!("{}", format_connected_line(&cli.model));
+
+    loop {
+        editor.set_completions(cli.repl_completion_candidates().unwrap_or_default());
+        match editor.read_line()? {
+            input::ReadOutcome::Submit(input) => {
+                let trimmed = input.trim().to_string();
+                if trimmed.is_empty() {
+                    continue;
+                }
+                if matches!(trimmed.as_str(), "/exit" | "/quit") {
+                    cli.persist_session()?;
+                    break;
+                }
+                match SlashCommand::parse(&trimmed) {
+                    Ok(Some(command)) => {
+                        if cli.handle_repl_command(command)? {
+                            cli.persist_session()?;
+                        }
+                        continue;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        eprintln!("{error}");
+                        continue;
+                    }
+                }
+                let cwd = std::env::current_dir().unwrap_or_default();
+                if let Some(prompt) = try_resolve_bare_skill_prompt(&cwd, &trimmed) {
+                    editor.push_history(input);
+                    cli.record_prompt_history(&trimmed);
+                    cli.run_turn(&prompt)?;
+                    continue;
+                }
+                editor.push_history(input);
+                cli.record_prompt_history(&trimmed);
+                cli.run_turn(&trimmed)?;
+            }
+            input::ReadOutcome::Cancel => {}
+            input::ReadOutcome::Exit => {
+                cli.persist_session()?;
+                break;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -3132,7 +3232,7 @@ pub(crate) fn push_prompt_cache_record(
 }
 
 pub(crate) fn prompt_cache_record_to_runtime_event(
-    record: api::PromptCacheRecord,
+    record: ninmu_api::PromptCacheRecord,
 ) -> Option<PromptCacheEvent> {
     let cache_break = record.cache_break?;
     Some(PromptCacheEvent {
@@ -3157,7 +3257,7 @@ pub(crate) fn request_ends_with_tool_result(request: &ApiRequest) -> bool {
         .is_some_and(|message| message.role == MessageRole::Tool)
 }
 
-pub(crate) fn final_assistant_text(summary: &runtime::TurnSummary) -> String {
+pub(crate) fn final_assistant_text(summary: &ninmu_runtime::TurnSummary) -> String {
     summary
         .assistant_messages
         .last()
@@ -3175,7 +3275,7 @@ pub(crate) fn final_assistant_text(summary: &runtime::TurnSummary) -> String {
         .unwrap_or_default()
 }
 
-pub(crate) fn collect_tool_uses(summary: &runtime::TurnSummary) -> Vec<serde_json::Value> {
+pub(crate) fn collect_tool_uses(summary: &ninmu_runtime::TurnSummary) -> Vec<serde_json::Value> {
     summary
         .assistant_messages
         .iter()
@@ -3191,7 +3291,7 @@ pub(crate) fn collect_tool_uses(summary: &runtime::TurnSummary) -> Vec<serde_jso
         .collect()
 }
 
-pub(crate) fn collect_tool_results(summary: &runtime::TurnSummary) -> Vec<serde_json::Value> {
+pub(crate) fn collect_tool_results(summary: &ninmu_runtime::TurnSummary) -> Vec<serde_json::Value> {
     summary
         .tool_results
         .iter()
@@ -3214,7 +3314,7 @@ pub(crate) fn collect_tool_results(summary: &runtime::TurnSummary) -> Vec<serde_
 }
 
 pub(crate) fn collect_prompt_cache_events(
-    summary: &runtime::TurnSummary,
+    summary: &ninmu_runtime::TurnSummary,
 ) -> Vec<serde_json::Value> {
     summary
         .prompt_cache_events

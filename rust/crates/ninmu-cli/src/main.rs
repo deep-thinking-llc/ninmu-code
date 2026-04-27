@@ -23,7 +23,7 @@ use args::*;
 use format::*;
 // Selective imports from app — avoid conflicting with format::* names
 use app::*;
-use cli_commands::*;
+use cli_ninmu_commands::*;
 
 use std::collections::BTreeSet;
 use std::env;
@@ -38,14 +38,14 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use api::{
+use ninmu_api::{
     detect_provider_kind, resolve_startup_auth_source, AnthropicClient, AuthSource,
     ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest, MessageResponse,
     OutputContentBlock, PromptCache, ProviderClient as ApiProviderClient, ProviderKind,
     StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition, ToolResultContentBlock,
 };
 
-use commands::{
+use ninmu_commands::{
     classify_skills_slash_command, handle_agents_slash_command, handle_agents_slash_command_json,
     handle_mcp_slash_command, handle_mcp_slash_command_json, handle_plugins_slash_command,
     handle_skills_slash_command, handle_skills_slash_command_json, render_slash_command_help,
@@ -54,9 +54,9 @@ use commands::{
 };
 use compat_harness::{extract_manifest, UpstreamPaths};
 use init::initialize_repo;
-use plugins::{PluginHooks, PluginManager, PluginManagerConfig, PluginRegistry};
+use ninmu_plugins::{PluginHooks, PluginManager, PluginManagerConfig, PluginRegistry};
 use render::{MarkdownStreamState, Spinner, TerminalRenderer};
-use runtime::{
+use ninmu_runtime::{
     check_base_commit, format_stale_base_warning, format_usd, load_oauth_credentials,
     load_system_prompt, pricing_for_model, resolve_expected_base, resolve_sandbox_status,
     ApiClient, ApiRequest, AssistantEvent, CompactionConfig, ConfigLoader, ConfigSource,
@@ -67,7 +67,7 @@ use runtime::{
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
-use tools::{
+use ninmu_tools::{
     execute_tool, mvp_tool_specs, GlobalToolRegistry, RuntimeToolDefinition, ToolSearchOutput,
 };
 
@@ -358,16 +358,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             base_commit,
             reasoning_effort,
             allow_broad_cwd,
-            if tui {
-                Some(crate::app::BannerStyle::None)
-            } else {
-                None
-            },
+            if tui { Some(crate::app::BannerStyle::None) } else { None },
+            tui,
         )?,
         CliAction::HelpTopic(topic) => print_help_topic(topic),
         CliAction::Help { output_format } => print_help(output_format)?,
         CliAction::Rpc => {
-            sdk::run_rpc_server()?;
+            ninmu_sdk::run_rpc_server()?;
         }
     }
     Ok(())
@@ -1326,7 +1323,7 @@ fn run_resume_command(
             json: Some(serde_json::json!({ "kind": "help", "text": render_repl_help() })),
         }),
         SlashCommand::Compact => {
-            let result = runtime::compact_session(
+            let result = ninmu_runtime::compact_session(
                 session,
                 CompactionConfig {
                     max_estimated_tokens: 0,
@@ -1752,7 +1749,7 @@ fn print_sandbox_status_snapshot(
     let loader = ConfigLoader::default_for(&cwd);
     let runtime_config = loader
         .load()
-        .unwrap_or_else(|_| runtime::RuntimeConfig::empty());
+        .unwrap_or_else(|_| ninmu_runtime::RuntimeConfig::empty());
     let status = resolve_sandbox_status(runtime_config.sandbox(), &cwd);
     match output_format {
         CliOutputFormat::Text => println!("{}", format_sandbox_report(&status)),
@@ -2383,11 +2380,11 @@ mod tests {
         PromptHistoryEntry, SlashCommand, StatusUsage, DEFAULT_MODEL, LATEST_SESSION_REFERENCE,
         STUB_COMMANDS,
     };
-    use api::{ApiError, MessageResponse, OutputContentBlock, Usage};
-    use plugins::{
+    use ninmu_api::{ApiError, MessageResponse, OutputContentBlock, Usage};
+    use ninmu_plugins::{
         PluginManager, PluginManagerConfig, PluginTool, PluginToolDefinition, PluginToolPermission,
     };
-    use runtime::{
+    use ninmu_runtime::{
         load_oauth_credentials, save_oauth_credentials, AssistantEvent, ConfigLoader, ContentBlock,
         ConversationMessage, MessageRole, OAuthConfig, PermissionMode, Session, ToolExecutor,
     };
@@ -2400,7 +2397,7 @@ mod tests {
     use std::sync::{Mutex, MutexGuard, OnceLock};
     use std::thread;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
-    use tools::GlobalToolRegistry;
+    use ninmu_tools::GlobalToolRegistry;
 
     fn registry_with_plugin_tool() -> GlobalToolRegistry {
         GlobalToolRegistry::with_plugin_tools(vec![PluginTool::new(
@@ -2777,7 +2774,7 @@ mod tests {
         std::env::remove_var("ANTHROPIC_API_KEY");
         std::env::remove_var("ANTHROPIC_AUTH_TOKEN");
 
-        save_oauth_credentials(&runtime::OAuthTokenSet {
+        save_oauth_credentials(&ninmu_runtime::OAuthTokenSet {
             access_token: "expired-access-token".to_string(),
             refresh_token: Some("refresh-token".to_string()),
             expires_at: Some(0),
@@ -3613,8 +3610,8 @@ mod tests {
         let usage = super::StatusUsage {
             message_count: 0,
             turns: 0,
-            latest: runtime::TokenUsage::default(),
-            cumulative: runtime::TokenUsage::default(),
+            latest: ninmu_runtime::TokenUsage::default(),
+            cumulative: ninmu_runtime::TokenUsage::default(),
             estimated_tokens: 0,
         };
         let json =
@@ -4573,7 +4570,7 @@ mod tests {
 
     #[test]
     fn permission_policy_uses_plugin_tool_permissions() {
-        let feature_config = runtime::RuntimeFeatureConfig::default();
+        let feature_config = ninmu_runtime::RuntimeFeatureConfig::default();
         let policy = permission_policy(
             PermissionMode::ReadOnly,
             &feature_config,
@@ -4586,7 +4583,7 @@ mod tests {
 
     #[test]
     fn shared_help_uses_resume_annotation_copy() {
-        let help = commands::render_slash_command_help();
+        let help = ninmu_commands::render_slash_command_help();
         assert!(help.contains("Slash commands"));
         assert!(help.contains("works with --resume SESSION.jsonl"));
     }
@@ -4811,7 +4808,7 @@ mod tests {
 
     #[test]
     fn cost_report_uses_sectioned_layout() {
-        let report = format_cost_report(runtime::TokenUsage {
+        let report = format_cost_report(ninmu_runtime::TokenUsage {
             input_tokens: 20,
             output_tokens: 8,
             cache_creation_input_tokens: 3,
@@ -4892,13 +4889,13 @@ mod tests {
             StatusUsage {
                 message_count: 7,
                 turns: 3,
-                latest: runtime::TokenUsage {
+                latest: ninmu_runtime::TokenUsage {
                     input_tokens: 5,
                     output_tokens: 4,
                     cache_creation_input_tokens: 1,
                     cache_read_input_tokens: 0,
                 },
-                cumulative: runtime::TokenUsage {
+                cumulative: ninmu_runtime::TokenUsage {
                     input_tokens: 20,
                     output_tokens: 8,
                     cache_creation_input_tokens: 2,
@@ -4922,7 +4919,7 @@ mod tests {
                     untracked_files: 1,
                     conflicted_files: 0,
                 },
-                sandbox_status: runtime::SandboxStatus::default(),
+                sandbox_status: ninmu_runtime::SandboxStatus::default(),
                 config_load_error: None,
             },
             None, // #148
@@ -6395,13 +6392,13 @@ fn write_mcp_server_fixture(script_path: &Path) {
 #[cfg(test)]
 mod sandbox_report_tests {
     use super::{format_sandbox_report, HookAbortMonitor};
-    use runtime::HookAbortSignal;
+    use ninmu_runtime::HookAbortSignal;
     use std::sync::mpsc;
     use std::time::Duration;
 
     #[test]
     fn sandbox_report_renders_expected_fields() {
-        let report = format_sandbox_report(&runtime::SandboxStatus::default());
+        let report = format_sandbox_report(&ninmu_runtime::SandboxStatus::default());
         assert!(report.contains("Sandbox"));
         assert!(report.contains("Enabled"));
         assert!(report.contains("Filesystem mode"));
