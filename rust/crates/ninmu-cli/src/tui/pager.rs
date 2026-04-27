@@ -8,7 +8,7 @@ use crate::tui::terminal::TerminalSize;
 use crate::tui::theme::Theme;
 
 /// Pager for displaying long output with scroll controls.
-/// Enter alternate screen or simply render scrollable content inline.
+/// Uses the alternate screen buffer to preserve terminal history.
 pub struct InternalPager {
     terminal: TerminalSize,
 }
@@ -40,20 +40,25 @@ impl InternalPager {
             return Ok(false);
         }
 
-        self.render_paged(&lines, page_size)
+        use crossterm::terminal::{EnterAlternateScreen, LeaveAlternateScreen};
+        enable_raw_mode()?;
+        execute!(io::stdout(), EnterAlternateScreen)?;
+        let result = self.render_paged(&lines, page_size);
+        execute!(io::stdout(), LeaveAlternateScreen)?;
+        disable_raw_mode()?;
+        result
     }
 
     /// Render content with internal paging using raw mode keyboard input.
-    fn render_paged(&self, lines: &[&str], page_size: usize) -> io::Result<bool> {
+    fn render_paged(&self, lines: &[&str], initial_page_size: usize) -> io::Result<bool> {
         let total_lines = lines.len();
-        let max_offset = total_lines.saturating_sub(page_size);
+        let mut page_size = initial_page_size;
+        let mut max_offset = total_lines.saturating_sub(page_size);
         let mut offset = 0usize;
 
-        enable_raw_mode()?;
         let mut stdout = io::stdout();
 
         loop {
-            // Clear screen and render current page
             execute!(stdout, Clear(ClearType::All), MoveTo(1, 1))?;
 
             let end = (offset + page_size).min(total_lines);
@@ -61,7 +66,6 @@ impl InternalPager {
                 writeln!(stdout, "{line}")?;
             }
 
-            // Render status bar
             let scroll_pct = if total_lines > 0 && max_offset > 0 {
                 (offset as f64 / max_offset as f64 * 100.0) as u8
             } else if offset >= max_offset && max_offset == 0 {
@@ -82,7 +86,6 @@ impl InternalPager {
             )?;
             stdout.flush()?;
 
-            // Wait for key input
             match crossterm::event::read() {
                 Ok(crossterm::event::Event::Key(key)) => match key.code {
                     crossterm::event::KeyCode::Char('q') | crossterm::event::KeyCode::Esc => {
@@ -114,48 +117,33 @@ impl InternalPager {
                     }
                     _ => {}
                 },
-                Ok(crossterm::event::Event::Resize(cols, rows)) => {
-                    // Recalculate page size on resize
+                Ok(crossterm::event::Event::Resize(_, rows)) => {
                     let new_page_size = (rows as usize).saturating_sub(2);
                     if new_page_size > 0 {
-                        // Adjust offset if needed
-                        let new_max = total_lines.saturating_sub(new_page_size);
-                        if offset > new_max {
-                            offset = new_max;
+                        page_size = new_page_size;
+                        max_offset = total_lines.saturating_sub(page_size);
+                        if offset > max_offset {
+                            offset = max_offset;
                         }
-                        // We'll use the new page_size for rendering but need to
-                        // return to the loop which uses the original page_size
-                        // For simplicity, we just continue and the status bar adjusts
-                        // on the next iteration using the TerminalSize cache
-                        let _ = cols;
                     }
                 }
                 _ => {}
             }
         }
 
-        disable_raw_mode()?;
-        // Clear the pager output
-        write!(stdout, "\n")?;
-        execute!(stdout, Clear(ClearType::All), MoveTo(1, 1),)?;
-        stdout.flush()?;
-
         Ok(true)
     }
 
     /// Try external pager (PAGER env var or less).
     fn find_external_pager() -> Option<String> {
-        // Check $PAGER env var
         if let Ok(pager) = std::env::var("PAGER") {
             if !pager.is_empty() {
                 return Some(pager);
             }
         }
-        // Fallback: try to find less
         if which("less").is_ok() {
             return Some("less".to_string());
         }
-        // Fallback: try to find more
         if which("more").is_ok() {
             return Some("more".to_string());
         }
@@ -196,7 +184,6 @@ impl Default for InternalPager {
     }
 }
 
-/// Check if a command is available in PATH.
 fn which(cmd: &str) -> Result<std::process::Output, std::io::Error> {
     std::process::Command::new("which").arg(cmd).output()
 }
@@ -207,9 +194,7 @@ mod tests {
 
     #[test]
     fn find_external_pager_returns_some_if_available() {
-        // On most systems, less or more should be available
         let pager = InternalPager::find_external_pager();
-        // This test may fail in minimal environments, but that's ok
         if std::process::Command::new("which")
             .arg("less")
             .output()
@@ -222,34 +207,28 @@ mod tests {
     #[test]
     fn pager_short_output_skips_paging() {
         let pager = InternalPager::new();
-        // This would normally call println, we just verify it returns Ok(false) for tiny content
-        // We can't easily capture stdout here, but the logic is straightforward
         assert!(pager.terminal.height() > 0);
     }
 
     #[test]
     fn pager_status_bar_renders_scroll_position() {
-        // Test the status bar formatting logic by checking layout calculations
         let raw_lines: Vec<String> = (0..100).map(|i| format!("line {i}")).collect();
         let lines: Vec<&str> = raw_lines.iter().map(|s| s.as_str()).collect();
         let total = lines.len();
         let page_size = 20usize;
         let max_offset = total.saturating_sub(page_size);
 
-        // At top
         let offset = 0usize;
         let end = (offset + page_size).min(total);
         assert_eq!(offset, 0);
         assert_eq!(end, 20);
         assert_eq!(max_offset, 80);
 
-        // At middle
         let offset = 40usize;
         let end = (offset + page_size).min(total);
         assert_eq!(offset, 40);
         assert_eq!(end, 60);
 
-        // At bottom
         let offset = max_offset;
         let end = (offset + page_size).min(total);
         assert_eq!(offset, 80);
@@ -274,10 +253,7 @@ mod tests {
         let page_size = 20;
         let max_offset = lines.len().saturating_sub(page_size);
         assert_eq!(max_offset, 0);
-
-        // Empty output should not page
-        let total_lines = lines.len();
-        assert!(total_lines <= page_size);
+        assert!(lines.len() <= page_size);
     }
 
     #[test]
@@ -286,11 +262,7 @@ mod tests {
         let page_size = 20usize;
         let max_offset = total_lines.saturating_sub(page_size);
         let offset = 0usize;
-        let pct = if max_offset > 0 {
-            (offset as f64 / max_offset as f64 * 100.0) as u8
-        } else {
-            100
-        };
+        let pct = if max_offset > 0 { (offset as f64 / max_offset as f64 * 100.0) as u8 } else { 100 };
         assert_eq!(pct, 0);
     }
 
@@ -300,11 +272,7 @@ mod tests {
         let page_size = 20usize;
         let max_offset = total_lines.saturating_sub(page_size);
         let offset = 40usize;
-        let pct = if max_offset > 0 {
-            (offset as f64 / max_offset as f64 * 100.0) as u8
-        } else {
-            100
-        };
+        let pct = if max_offset > 0 { (offset as f64 / max_offset as f64 * 100.0) as u8 } else { 100 };
         assert_eq!(pct, 50);
     }
 
@@ -314,11 +282,7 @@ mod tests {
         let page_size = 20usize;
         let max_offset = total_lines.saturating_sub(page_size);
         let offset = max_offset;
-        let pct = if max_offset > 0 {
-            (offset as f64 / max_offset as f64 * 100.0) as u8
-        } else {
-            100
-        };
+        let pct = if max_offset > 0 { (offset as f64 / max_offset as f64 * 100.0) as u8 } else { 100 };
         assert_eq!(pct, 100);
     }
 
@@ -327,13 +291,8 @@ mod tests {
         let total_lines = 20usize;
         let page_size = 20usize;
         let max_offset = total_lines.saturating_sub(page_size);
-        // When content fits exactly in one page, max_offset=0, so pct=100
         let offset = max_offset;
-        let pct = if max_offset > 0 {
-            (offset as f64 / max_offset as f64 * 100.0) as u8
-        } else {
-            100
-        };
+        let pct = if max_offset > 0 { (offset as f64 / max_offset as f64 * 100.0) as u8 } else { 100 };
         assert_eq!(pct, 100);
     }
 }

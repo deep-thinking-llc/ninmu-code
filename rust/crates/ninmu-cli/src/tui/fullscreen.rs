@@ -175,11 +175,7 @@ impl FullScreenTui {
                     crossterm::event::KeyCode::Char(c) => {
                         buffer.push(c);
                         let col = PROMPT.len() + buffer.len() - 1;
-                        queue!(
-                            stdout,
-                            MoveTo(col as u16, prompt_row),
-                            Print(c.to_string()),
-                        )?;
+                        queue!(stdout, MoveTo(col as u16, prompt_row), Print(c.to_string()),)?;
                         stdout.flush()?;
                     }
                     crossterm::event::KeyCode::Backspace => {
@@ -259,5 +255,41 @@ mod tests {
         let mut tui = FullScreenTui::new();
         tui.scrollback.push_str("hello\nworld");
         assert_eq!(tui.scrollback.len(), 2);
+    }
+
+    #[test]
+    fn page_up_down_scrolls_correctly() {
+        let mut tui = FullScreenTui::new();
+        for i in 0..50 {
+            tui.scrollback.push(format!("line {i}"));
+        }
+        assert!(tui.scrollback.is_at_bottom());
+        // Simulate PageUp
+        tui.scrollback.scroll_up(10);
+        assert!(!tui.scrollback.is_at_bottom());
+        assert_eq!(tui.scrollback.scroll_offset(), 10);
+        // Simulate PageDown
+        tui.scrollback.scroll_down(5);
+        assert_eq!(tui.scrollback.scroll_offset(), 5);
+        // Home
+        tui.scrollback.scroll_to_top();
+        assert_eq!(tui.scrollback.scroll_offset(), 49);
+        // End
+        tui.scrollback.scroll_to_bottom();
+        assert_eq!(tui.scrollback.scroll_offset(), 0);
+    }
+
+    #[test]
+    fn scroll_indicator_shown_when_not_at_bottom() {
+        let mut tui = FullScreenTui::new();
+        for i in 0..50 {
+            tui.scrollback.push(format!("line {i}"));
+        }
+        tui.scrollback.scroll_up(5);
+        assert!(!tui.scrollback.is_at_bottom());
+        let (visible, start, total) = tui.scrollback.visible(10);
+        assert_eq!(total, 50);
+        assert_eq!(start, 35);
+        assert_eq!(visible.len(), 10);
     }
 }
