@@ -1,0 +1,375 @@
+use crate::error::ApiError;
+use crate::prompt_cache::{PromptCache, PromptCacheRecord, PromptCacheStats};
+use crate::providers::anthropic::{self, AnthropicClient, AuthSource};
+use crate::providers::openai_compat::{self, OpenAiCompatClient, OpenAiCompatConfig};
+use crate::providers::{self, ProviderKind};
+use crate::types::{MessageRequest, MessageResponse, StreamEvent};
+
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone)]
+pub enum ProviderClient {
+    Anthropic(AnthropicClient),
+    Xai(OpenAiCompatClient),
+    OpenAi(OpenAiCompatClient),
+    DeepSeek(OpenAiCompatClient),
+    Ollama(OpenAiCompatClient),
+    Qwen(OpenAiCompatClient),
+    Vllm(OpenAiCompatClient),
+    Mistral(OpenAiCompatClient),
+    Gemini(OpenAiCompatClient),
+    Cohere(OpenAiCompatClient),
+}
+
+impl ProviderClient {
+    pub fn from_model(model: &str) -> Result<Self, ApiError> {
+        Self::from_model_with_anthropic_auth(model, None)
+    }
+
+    pub fn from_model_with_anthropic_auth(
+        model: &str,
+        anthropic_auth: Option<AuthSource>,
+    ) -> Result<Self, ApiError> {
+        let resolved_model = providers::resolve_model_alias(model);
+
+        // Check custom providers from models.json first
+        if let Some(custom) = providers::models_file::find_custom_model(&resolved_model) {
+            match custom.api.as_str() {
+                "anthropic-messages" => {
+                    let client =
+                        AnthropicClient::new(custom.api_key).with_base_url(custom.base_url);
+                    return Ok(Self::Anthropic(client));
+                }
+                _ => {
+                    // Default: openai-completions wire format
+                    let compat_config = OpenAiCompatConfig::openai();
+                    let client = OpenAiCompatClient::new(custom.api_key, compat_config)
+                        .with_base_url(custom.base_url);
+                    return Ok(Self::OpenAi(client));
+                }
+            }
+        }
+
+        match providers::detect_provider_kind(&resolved_model) {
+            ProviderKind::Anthropic => Ok(Self::Anthropic(match anthropic_auth {
+                Some(auth) => AnthropicClient::from_auth(auth),
+                None => AnthropicClient::from_env()?,
+            })),
+            ProviderKind::Xai => Ok(Self::Xai(OpenAiCompatClient::from_env(
+                OpenAiCompatConfig::xai(),
+            )?)),
+            ProviderKind::OpenAi => {
+                // DashScope models (qwen-*) also return ProviderKind::OpenAi because they
+                // speak the OpenAI wire format, but they need the DashScope config which
+                // reads DASHSCOPE_API_KEY and points at dashscope.aliyuncs.com.
+                let config = match providers::metadata_for_model(&resolved_model) {
+                    Some(meta) if meta.auth_env == "DASHSCOPE_API_KEY" => {
+                        OpenAiCompatConfig::dashscope()
+                    }
+                    _ => OpenAiCompatConfig::openai(),
+                };
+                Ok(Self::OpenAi(OpenAiCompatClient::from_env(config)?))
+            }
+            ProviderKind::DeepSeek => Ok(Self::DeepSeek(OpenAiCompatClient::from_env(
+                OpenAiCompatConfig::deepseek(),
+            )?)),
+            ProviderKind::Ollama => Ok(Self::Ollama(OpenAiCompatClient::from_env(
+                OpenAiCompatConfig::ollama(),
+            )?)),
+            ProviderKind::Qwen => Ok(Self::Qwen(OpenAiCompatClient::from_env(
+                OpenAiCompatConfig::qwen(),
+            )?)),
+            ProviderKind::Vllm => Ok(Self::Vllm(OpenAiCompatClient::from_env(
+                OpenAiCompatConfig::vllm(),
+            )?)),
+            ProviderKind::Mistral => Ok(Self::Mistral(OpenAiCompatClient::from_env(
+                OpenAiCompatConfig::mistral(),
+            )?)),
+            ProviderKind::Gemini => Ok(Self::Gemini(OpenAiCompatClient::from_env(
+                OpenAiCompatConfig::gemini(),
+            )?)),
+            ProviderKind::Cohere => Ok(Self::Cohere(OpenAiCompatClient::from_env(
+                OpenAiCompatConfig::cohere(),
+            )?)),
+        }
+    }
+
+    /// Try to build a client from the primary model, falling back through
+    /// alternatives if the primary fails due to missing credentials.
+    ///
+    /// Returns the first successfully-built client along with the model name
+    /// that was used. Returns an error only when all models in the chain fail.
+    pub fn from_model_chain(
+        primary: &str,
+        fallbacks: &[String],
+    ) -> Result<(Self, String), ApiError> {
+        let mut last_error = None;
+        for model in std::iter::once(primary.to_string()).chain(fallbacks.iter().cloned()) {
+            match Self::from_model(&model) {
+                Ok(client) => return Ok((client, model)),
+                Err(e) => {
+                    last_error = Some(e);
+                }
+            }
+        }
+        Err(last_error.unwrap_or_else(|| ApiError::missing_credentials("any provider", &[])))
+    }
+
+    #[must_use]
+    pub const fn provider_kind(&self) -> ProviderKind {
+        match self {
+            Self::Anthropic(_) => ProviderKind::Anthropic,
+            Self::Xai(_) => ProviderKind::Xai,
+            Self::OpenAi(_) => ProviderKind::OpenAi,
+            Self::DeepSeek(_) => ProviderKind::DeepSeek,
+            Self::Ollama(_) => ProviderKind::Ollama,
+            Self::Qwen(_) => ProviderKind::Qwen,
+            Self::Vllm(_) => ProviderKind::Vllm,
+            Self::Mistral(_) => ProviderKind::Mistral,
+            Self::Gemini(_) => ProviderKind::Gemini,
+            Self::Cohere(_) => ProviderKind::Cohere,
+        }
+    }
+
+    #[must_use]
+    pub fn with_prompt_cache(self, prompt_cache: PromptCache) -> Self {
+        match self {
+            Self::Anthropic(client) => Self::Anthropic(client.with_prompt_cache(prompt_cache)),
+            other => other,
+        }
+    }
+
+    #[must_use]
+    pub fn prompt_cache_stats(&self) -> Option<PromptCacheStats> {
+        match self {
+            Self::Anthropic(client) => client.prompt_cache_stats(),
+            Self::Xai(_)
+            | Self::OpenAi(_)
+            | Self::DeepSeek(_)
+            | Self::Ollama(_)
+            | Self::Qwen(_)
+            | Self::Vllm(_)
+            | Self::Mistral(_)
+            | Self::Gemini(_)
+            | Self::Cohere(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub fn take_last_prompt_cache_record(&self) -> Option<PromptCacheRecord> {
+        match self {
+            Self::Anthropic(client) => client.take_last_prompt_cache_record(),
+            Self::Xai(_)
+            | Self::OpenAi(_)
+            | Self::DeepSeek(_)
+            | Self::Ollama(_)
+            | Self::Qwen(_)
+            | Self::Vllm(_)
+            | Self::Mistral(_)
+            | Self::Gemini(_)
+            | Self::Cohere(_) => None,
+        }
+    }
+
+    pub async fn send_message(
+        &self,
+        request: &MessageRequest,
+    ) -> Result<MessageResponse, ApiError> {
+        match self {
+            Self::Anthropic(client) => client.send_message(request).await,
+            Self::Xai(client)
+            | Self::OpenAi(client)
+            | Self::DeepSeek(client)
+            | Self::Ollama(client)
+            | Self::Qwen(client)
+            | Self::Vllm(client)
+            | Self::Mistral(client)
+            | Self::Gemini(client)
+            | Self::Cohere(client) => client.send_message(request).await,
+        }
+    }
+
+    pub async fn stream_message(
+        &self,
+        request: &MessageRequest,
+    ) -> Result<MessageStream, ApiError> {
+        match self {
+            Self::Anthropic(client) => client
+                .stream_message(request)
+                .await
+                .map(MessageStream::Anthropic),
+            Self::Xai(client)
+            | Self::OpenAi(client)
+            | Self::DeepSeek(client)
+            | Self::Ollama(client)
+            | Self::Qwen(client)
+            | Self::Vllm(client)
+            | Self::Mistral(client)
+            | Self::Gemini(client)
+            | Self::Cohere(client) => client
+                .stream_message(request)
+                .await
+                .map(MessageStream::OpenAiCompat),
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum MessageStream {
+    Anthropic(anthropic::MessageStream),
+    OpenAiCompat(openai_compat::MessageStream),
+}
+
+impl MessageStream {
+    #[must_use]
+    pub fn request_id(&self) -> Option<&str> {
+        match self {
+            Self::Anthropic(stream) => stream.request_id(),
+            Self::OpenAiCompat(stream) => stream.request_id(),
+        }
+    }
+
+    pub async fn next_event(&mut self) -> Result<Option<StreamEvent>, ApiError> {
+        match self {
+            Self::Anthropic(stream) => stream.next_event().await,
+            Self::OpenAiCompat(stream) => stream.next_event().await,
+        }
+    }
+}
+
+pub use anthropic::{
+    oauth_token_is_expired, resolve_saved_oauth_token, resolve_startup_auth_source, OAuthTokenSet,
+};
+#[must_use]
+pub fn read_base_url() -> String {
+    anthropic::read_base_url()
+}
+
+#[must_use]
+pub fn read_xai_base_url() -> String {
+    openai_compat::read_base_url(OpenAiCompatConfig::xai())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Mutex, OnceLock};
+
+    use super::ProviderClient;
+    use crate::error::ApiError;
+    use crate::providers::{detect_provider_kind, resolve_model_alias, ProviderKind};
+
+    /// Serializes every test in this module that mutates process-wide
+    /// environment variables so concurrent test threads cannot observe
+    /// each other's partially-applied state.
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    #[test]
+    fn resolves_existing_and_grok_aliases() {
+        assert_eq!(resolve_model_alias("opus"), "claude-opus-4-6");
+        assert_eq!(resolve_model_alias("grok"), "grok-3");
+        assert_eq!(resolve_model_alias("grok-mini"), "grok-3-mini");
+    }
+
+    #[test]
+    fn provider_detection_prefers_model_family() {
+        assert_eq!(detect_provider_kind("grok-3"), ProviderKind::Xai);
+        assert_eq!(
+            detect_provider_kind("claude-sonnet-4-6"),
+            ProviderKind::Anthropic
+        );
+    }
+
+    /// Snapshot-restore guard for a single environment variable. Mirrors
+    /// the pattern used in `providers/mod.rs` tests: captures the original
+    /// value on construction, applies the override, and restores on drop so
+    /// tests leave the process env untouched even when they panic.
+    struct EnvVarGuard {
+        key: &'static str,
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: Option<&str>) -> Self {
+            let original = std::env::var_os(key);
+            match value {
+                Some(value) => std::env::set_var(key, value),
+                None => std::env::remove_var(key),
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match self.original.take() {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+
+    #[test]
+    fn dashscope_model_uses_dashscope_config_not_openai() {
+        // Regression: qwen-plus was being routed to OpenAiCompatConfig::openai()
+        // which reads OPENAI_API_KEY and points at api.openai.com, when it should
+        // use OpenAiCompatConfig::dashscope() which reads DASHSCOPE_API_KEY and
+        // points at dashscope.aliyuncs.com.
+        let _lock = env_lock();
+        let _dashscope = EnvVarGuard::set("DASHSCOPE_API_KEY", Some("test-dashscope-key"));
+        let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+
+        let client = ProviderClient::from_model("qwen-plus");
+
+        // Must succeed (not fail with "missing OPENAI_API_KEY")
+        assert!(
+            client.is_ok(),
+            "qwen-plus with DASHSCOPE_API_KEY set should build successfully, got: {:?}",
+            client.err()
+        );
+
+        // Verify it's the OpenAi variant pointed at the DashScope base URL.
+        match client.unwrap() {
+            ProviderClient::OpenAi(openai_client) => {
+                assert!(
+                    openai_client.base_url().contains("dashscope.aliyuncs.com"),
+                    "qwen-plus should route to DashScope base URL (contains 'dashscope.aliyuncs.com'), got: {}",
+                    openai_client.base_url()
+                );
+            }
+            other => panic!("Expected ProviderClient::OpenAi for qwen-plus, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn fallback_chain_returns_first_successful_client() {
+        let _lock = env_lock();
+        let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", Some("sk-ant-test"));
+        let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", None);
+        let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+
+        // deepseek-chat fails (no key), but claude-sonnet-4-6 succeeds
+        let fallbacks = vec!["claude-sonnet-4-6".to_string()];
+        let (client, model) = ProviderClient::from_model_chain("deepseek-chat", &fallbacks)
+            .expect("should fall back to Anthropic");
+        assert_eq!(model, "claude-sonnet-4-6");
+        assert_eq!(client.provider_kind(), ProviderKind::Anthropic);
+    }
+
+    #[test]
+    fn fallback_chain_errors_when_all_fail() {
+        let _lock = env_lock();
+        let _anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", None);
+        let _deepseek = EnvVarGuard::set("DEEPSEEK_API_KEY", None);
+        let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+        let _xai = EnvVarGuard::set("XAI_API_KEY", None);
+
+        let fallbacks = vec!["deepseek-reasoner".to_string()];
+        let err = ProviderClient::from_model_chain("deepseek-chat", &fallbacks)
+            .expect_err("all models should fail");
+        assert!(matches!(err, ApiError::MissingCredentials { .. }));
+    }
+}

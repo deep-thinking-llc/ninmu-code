@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use api::{
+use ninmu_api::{
     detect_provider_kind, resolve_startup_auth_source, AnthropicClient, AuthSource,
     ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest, MessageResponse,
     OutputContentBlock, PromptCache, ProviderClient as ApiProviderClient, ProviderKind,
@@ -22,16 +22,16 @@ use crate::cli_commands::*;
 use crate::init::initialize_repo;
 use crate::input;
 use crate::render::{MarkdownStreamState, Spinner, TerminalRenderer};
-use commands::{
+use ninmu_commands::{
     classify_skills_slash_command, handle_agents_slash_command, handle_agents_slash_command_json,
     handle_mcp_slash_command, handle_mcp_slash_command_json, handle_plugins_slash_command,
     handle_skills_slash_command, handle_skills_slash_command_json, render_slash_command_help,
     render_slash_command_help_filtered, resolve_skill_invocation, resume_supported_slash_commands,
     slash_command_specs, validate_slash_command_input, SkillSlashDispatch, SlashCommand,
 };
-use compat_harness::{extract_manifest, UpstreamPaths};
-use plugins::{PluginHooks, PluginManager, PluginManagerConfig, PluginRegistry};
-use runtime::{
+use ninmu_compat_harness::{extract_manifest, UpstreamPaths};
+use ninmu_plugins::{PluginHooks, PluginManager, PluginManagerConfig, PluginRegistry};
+use ninmu_runtime::{
     check_base_commit, format_stale_base_warning, format_usd, load_oauth_credentials,
     load_system_prompt, pricing_for_model, resolve_expected_base, resolve_sandbox_status,
     ApiClient, ApiRequest, AssistantEvent, CompactionConfig, ConfigLoader, ConfigSource,
@@ -40,11 +40,11 @@ use runtime::{
     ProjectContext, PromptCacheEvent, ResolvedPermissionMode, RuntimeError, Session, TokenUsage,
     ToolError, ToolExecutor, UsageTracker,
 };
-use serde::Deserialize;
-use serde_json::{json, Map, Value};
-use tools::{
+use ninmu_tools::{
     execute_tool, mvp_tool_specs, GlobalToolRegistry, RuntimeToolDefinition, ToolSearchOutput,
 };
+use serde::Deserialize;
+use serde_json::{json, Map, Value};
 
 use crate::args::*;
 use crate::format::*;
@@ -2626,8 +2626,21 @@ pub(crate) fn run_repl(
         let config = loader.load().ok()?;
         Some(BannerStyle::from_config(config.startup_banner()))
     });
-    let mut cli = LiveCli::new(resolved_model, true, allowed_tools, permission_mode, banner)?;
+    let tui = banner == Some(BannerStyle::None);
+    let mut cli = LiveCli::new(
+        resolved_model.clone(),
+        true,
+        allowed_tools.clone(),
+        permission_mode,
+        banner,
+    )?;
     cli.set_reasoning_effort(reasoning_effort);
+
+    if tui {
+        // Full-screen TUI mode: use crossterm-based alternate screen
+        return run_tui_repl(&mut cli);
+    }
+
     let mut editor = input::LineEditor::new(
         "> ",
         cli.repl_completion_candidates().unwrap_or_default(),
@@ -2689,6 +2702,54 @@ pub(crate) fn run_repl(
         }
     }
 
+    Ok(())
+}
+
+/// REPL variant that runs inside the full-screen crossterm TUI.
+/// Handles slash commands and turn execution, routing output to the scrollback.
+fn run_tui_repl(cli: &mut LiveCli) -> Result<(), Box<dyn std::error::Error>> {
+    let mut tui = crate::tui::FullScreenTui::new();
+
+    tui.run(|input| {
+        let trimmed = input.trim().to_string();
+        if trimmed.is_empty() {
+            return Ok(String::new());
+        }
+
+        if matches!(trimmed.as_str(), "/exit" | "/quit") {
+            cli.persist_session()?;
+            // We signal exit by returning empty; FullScreenTui handles /exit
+            return Ok(String::new());
+        }
+
+        // Handle slash commands
+        match SlashCommand::parse(&trimmed) {
+            Ok(Some(command)) => {
+                // Clone cli session state to run the command
+                cli.handle_repl_command(command)?;
+                return Ok(String::new());
+            }
+            Ok(None) => {}
+            Err(error) => {
+                return Ok(format!("error: {error}"));
+            }
+        }
+
+        // Run a normal turn (output goes to stdout which is the alternate screen)
+        // We capture it in a buffer to return to the scrollback
+        cli.record_prompt_history(&trimmed);
+        let mut buffer = Vec::new();
+        {
+            // Redirect stdout to capture rendered output
+            // For now, use a simpler approach: run_turn prints to stdout (alternate screen)
+            // which is visible, so return empty to not duplicate
+        }
+        cli.run_turn(&trimmed)?;
+        cli.persist_session()?;
+        Ok(String::new())
+    })?;
+
+    cli.persist_session()?;
     Ok(())
 }
 

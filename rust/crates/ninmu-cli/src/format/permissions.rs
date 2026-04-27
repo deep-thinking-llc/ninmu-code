@@ -1,6 +1,6 @@
 use std::env;
 
-use runtime::{ConfigLoader, PermissionMode, ResolvedPermissionMode};
+use ninmu_runtime::{ConfigLoader, PermissionMode, ResolvedPermissionMode};
 
 pub(crate) fn parse_permission_mode_arg(value: &str) -> Result<PermissionMode, String> {
     normalize_permission_mode(value)

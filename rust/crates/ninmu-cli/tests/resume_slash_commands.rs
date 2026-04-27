@@ -5,8 +5,8 @@ use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use runtime::ContentBlock;
-use runtime::Session;
+use ninmu_runtime::ContentBlock;
+use ninmu_runtime::Session;
 use serde_json::Value;
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);

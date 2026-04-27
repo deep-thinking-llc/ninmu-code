@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::io::{self, Write};
 
-use commands::{render_slash_command_help_filtered, slash_command_specs};
+use ninmu_commands::{render_slash_command_help_filtered, slash_command_specs};
 
 use crate::format::cost::{LATEST_SESSION_REFERENCE, PRIMARY_SESSION_EXTENSION};
 

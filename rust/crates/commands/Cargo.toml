@@ -9,6 +9,6 @@ publish = true
 workspace = true
 
 [dependencies]
-plugins = { version = "0.1.0", path = "../plugins" }
-runtime = { version = "0.1.0", path = "../runtime" }
+plugins = { version = "0.1.0", path = "../ninmu-plugins" }
+runtime = { version = "0.1.0", path = "../ninmu-runtime" }
 serde_json.workspace = true

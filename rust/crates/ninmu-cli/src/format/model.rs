@@ -1,10 +1,10 @@
 use std::env;
 
-use api::detect_provider_kind;
-use api::ProviderKind;
-use api::ToolDefinition;
-use runtime::ConfigLoader;
-use tools::GlobalToolRegistry;
+use ninmu_api::detect_provider_kind;
+use ninmu_api::ProviderKind;
+use ninmu_api::ToolDefinition;
+use ninmu_runtime::ConfigLoader;
+use ninmu_tools::GlobalToolRegistry;
 
 use crate::AllowedToolSet;
 

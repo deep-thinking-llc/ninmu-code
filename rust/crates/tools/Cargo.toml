@@ -6,11 +6,11 @@ license.workspace = true
 publish = true
 
 [dependencies]
-api = { version = "0.1.0", path = "../api" }
-commands = { version = "0.1.0", path = "../commands" }
+api = { version = "0.1.0", path = "../ninmu-api" }
+commands = { version = "0.1.0", path = "../ninmu-commands" }
 flate2 = "1"
-plugins = { version = "0.1.0", path = "../plugins" }
-runtime = { version = "0.1.0", path = "../runtime" }
+plugins = { version = "0.1.0", path = "../ninmu-plugins" }
+runtime = { version = "0.1.0", path = "../ninmu-runtime" }
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true

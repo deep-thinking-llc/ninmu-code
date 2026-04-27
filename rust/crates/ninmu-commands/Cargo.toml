@@ -1,0 +1,14 @@
+[package]
+name = "ninmu-commands"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = true
+
+[lints]
+workspace = true
+
+[dependencies]
+plugins = { version = "0.1.0", path = "../ninmu-plugins" }
+runtime = { version = "0.1.0", path = "../ninmu-runtime" }
+serde_json.workspace = true

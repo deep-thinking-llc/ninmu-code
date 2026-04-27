@@ -38,25 +38,24 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use api::{
+use ninmu_api::{
     detect_provider_kind, resolve_startup_auth_source, AnthropicClient, AuthSource,
     ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest, MessageResponse,
     OutputContentBlock, PromptCache, ProviderClient as ApiProviderClient, ProviderKind,
     StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition, ToolResultContentBlock,
 };
 
-use commands::{
+use init::initialize_repo;
+use ninmu_commands::{
     classify_skills_slash_command, handle_agents_slash_command, handle_agents_slash_command_json,
     handle_mcp_slash_command, handle_mcp_slash_command_json, handle_plugins_slash_command,
     handle_skills_slash_command, handle_skills_slash_command_json, render_slash_command_help,
     render_slash_command_help_filtered, resolve_skill_invocation, resume_supported_slash_commands,
     slash_command_specs, validate_slash_command_input, SkillSlashDispatch, SlashCommand,
 };
-use compat_harness::{extract_manifest, UpstreamPaths};
-use init::initialize_repo;
-use plugins::{PluginHooks, PluginManager, PluginManagerConfig, PluginRegistry};
-use render::{MarkdownStreamState, Spinner, TerminalRenderer};
-use runtime::{
+use ninmu_compat_harness::{extract_manifest, UpstreamPaths};
+use ninmu_plugins::{PluginHooks, PluginManager, PluginManagerConfig, PluginRegistry};
+use ninmu_runtime::{
     check_base_commit, format_stale_base_warning, format_usd, load_oauth_credentials,
     load_system_prompt, pricing_for_model, resolve_expected_base, resolve_sandbox_status,
     ApiClient, ApiRequest, AssistantEvent, CompactionConfig, ConfigLoader, ConfigSource,
@@ -65,11 +64,12 @@ use runtime::{
     ProjectContext, PromptCacheEvent, ResolvedPermissionMode, RuntimeError, Session, TokenUsage,
     ToolError, ToolExecutor, UsageTracker,
 };
-use serde::Deserialize;
-use serde_json::{json, Map, Value};
-use tools::{
+use ninmu_tools::{
     execute_tool, mvp_tool_specs, GlobalToolRegistry, RuntimeToolDefinition, ToolSearchOutput,
 };
+use render::{MarkdownStreamState, Spinner, TerminalRenderer};
+use serde::Deserialize;
+use serde_json::{json, Map, Value};
 
 const DEFAULT_MODEL: &str = "claude-opus-4-6";
 
@@ -2383,14 +2383,15 @@ mod tests {
         PromptHistoryEntry, SlashCommand, StatusUsage, DEFAULT_MODEL, LATEST_SESSION_REFERENCE,
         STUB_COMMANDS,
     };
-    use api::{ApiError, MessageResponse, OutputContentBlock, Usage};
-    use plugins::{
+    use ninmu_api::{ApiError, MessageResponse, OutputContentBlock, Usage};
+    use ninmu_plugins::{
         PluginManager, PluginManagerConfig, PluginTool, PluginToolDefinition, PluginToolPermission,
     };
-    use runtime::{
+    use ninmu_runtime::{
         load_oauth_credentials, save_oauth_credentials, AssistantEvent, ConfigLoader, ContentBlock,
         ConversationMessage, MessageRole, OAuthConfig, PermissionMode, Session, ToolExecutor,
     };
+    use ninmu_tools::GlobalToolRegistry;
     use serde_json::json;
     use std::fs;
     use std::io::{Read, Write};
@@ -2400,7 +2401,6 @@ mod tests {
     use std::sync::{Mutex, MutexGuard, OnceLock};
     use std::thread;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
-    use tools::GlobalToolRegistry;
 
     fn registry_with_plugin_tool() -> GlobalToolRegistry {
         GlobalToolRegistry::with_plugin_tools(vec![PluginTool::new(
@@ -6395,7 +6395,7 @@ fn write_mcp_server_fixture(script_path: &Path) {
 #[cfg(test)]
 mod sandbox_report_tests {
     use super::{format_sandbox_report, HookAbortMonitor};
-    use runtime::HookAbortSignal;
+    use ninmu_runtime::HookAbortSignal;
     use std::sync::mpsc;
     use std::time::Duration;
 

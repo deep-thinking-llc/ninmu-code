@@ -3,8 +3,8 @@ use std::env;
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 
-use api::{prefix_model_for_provider, provider_kind_from_str};
-use runtime::PermissionMode;
+use ninmu_api::{prefix_model_for_provider, provider_kind_from_str};
+use ninmu_runtime::PermissionMode;
 
 use crate::format::{
     default_permission_mode, format_unknown_direct_slash_command, format_unknown_option,
@@ -13,7 +13,7 @@ use crate::format::{
     DEFAULT_MODEL,
 };
 
-use commands::{
+use ninmu_commands::{
     classify_skills_slash_command, resolve_skill_invocation, slash_command_specs,
     SkillSlashDispatch, SlashCommand,
 };

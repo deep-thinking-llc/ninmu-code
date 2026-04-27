@@ -1,5 +1,5 @@
 use crate::format::tool_fmt::truncate_for_summary;
-use commands::slash_command_specs;
+use ninmu_commands::slash_command_specs;
 
 /// Classify an error message into a short category tag for structured logging
 /// and downstream routing (#77).

@@ -1,0 +1,551 @@
+use crate::session::Session;
+
+const DEFAULT_INPUT_COST_PER_MILLION: f64 = 15.0;
+const DEFAULT_OUTPUT_COST_PER_MILLION: f64 = 75.0;
+const DEFAULT_CACHE_CREATION_COST_PER_MILLION: f64 = 18.75;
+const DEFAULT_CACHE_READ_COST_PER_MILLION: f64 = 1.5;
+
+/// Per-million-token pricing used for cost estimation.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ModelPricing {
+    pub input_cost_per_million: f64,
+    pub output_cost_per_million: f64,
+    pub cache_creation_cost_per_million: f64,
+    pub cache_read_cost_per_million: f64,
+}
+
+impl ModelPricing {
+    #[must_use]
+    pub const fn default_sonnet_tier() -> Self {
+        Self {
+            input_cost_per_million: DEFAULT_INPUT_COST_PER_MILLION,
+            output_cost_per_million: DEFAULT_OUTPUT_COST_PER_MILLION,
+            cache_creation_cost_per_million: DEFAULT_CACHE_CREATION_COST_PER_MILLION,
+            cache_read_cost_per_million: DEFAULT_CACHE_READ_COST_PER_MILLION,
+        }
+    }
+}
+
+/// Token counters accumulated for a conversation turn or session.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TokenUsage {
+    pub input_tokens: u32,
+    pub output_tokens: u32,
+    pub cache_creation_input_tokens: u32,
+    pub cache_read_input_tokens: u32,
+}
+
+/// Estimated dollar cost derived from a [`TokenUsage`] sample.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct UsageCostEstimate {
+    pub input_cost_usd: f64,
+    pub output_cost_usd: f64,
+    pub cache_creation_cost_usd: f64,
+    pub cache_read_cost_usd: f64,
+}
+
+impl UsageCostEstimate {
+    #[must_use]
+    pub fn total_cost_usd(self) -> f64 {
+        self.input_cost_usd
+            + self.output_cost_usd
+            + self.cache_creation_cost_usd
+            + self.cache_read_cost_usd
+    }
+}
+
+/// Returns pricing metadata for a known model alias or family.
+#[must_use]
+pub fn pricing_for_model(model: &str) -> Option<ModelPricing> {
+    let normalized = model.to_ascii_lowercase();
+    if normalized.contains("haiku") {
+        return Some(ModelPricing {
+            input_cost_per_million: 1.0,
+            output_cost_per_million: 5.0,
+            cache_creation_cost_per_million: 1.25,
+            cache_read_cost_per_million: 0.1,
+        });
+    }
+    if normalized.contains("opus") {
+        return Some(ModelPricing {
+            input_cost_per_million: 15.0,
+            output_cost_per_million: 75.0,
+            cache_creation_cost_per_million: 18.75,
+            cache_read_cost_per_million: 1.5,
+        });
+    }
+    if normalized.contains("sonnet") {
+        return Some(ModelPricing::default_sonnet_tier());
+    }
+    // Ollama / vLLM — local inference, always free
+    if normalized.starts_with("ollama/") || normalized.starts_with("vllm/") {
+        return Some(ModelPricing {
+            input_cost_per_million: 0.0,
+            output_cost_per_million: 0.0,
+            cache_creation_cost_per_million: 0.0,
+            cache_read_cost_per_million: 0.0,
+        });
+    }
+    // DeepSeek models
+    // Source: https://api-docs.deepseek.com/quick_start/pricing
+    if normalized.contains("deepseek-reasoner") || normalized.contains("deepseek-r1") {
+        return Some(ModelPricing {
+            input_cost_per_million: 0.55,
+            output_cost_per_million: 2.19,
+            cache_creation_cost_per_million: 0.0,
+            cache_read_cost_per_million: 0.0,
+        });
+    }
+    if normalized.contains("deepseek") {
+        return Some(ModelPricing {
+            input_cost_per_million: 0.27,
+            output_cost_per_million: 1.10,
+            cache_creation_cost_per_million: 0.0,
+            cache_read_cost_per_million: 0.0,
+        });
+    }
+    // Mistral models
+    // Source: https://mistral.ai/en/products/la-plateforme#pricing
+    if normalized.contains("mistral") {
+        return Some(ModelPricing {
+            input_cost_per_million: 2.0,
+            output_cost_per_million: 6.0,
+            cache_creation_cost_per_million: 0.0,
+            cache_read_cost_per_million: 0.0,
+        });
+    }
+    // Google Gemini models
+    // Source: https://ai.google.dev/pricing
+    if normalized.contains("gemini") {
+        return Some(ModelPricing {
+            input_cost_per_million: 1.25,
+            output_cost_per_million: 10.0,
+            cache_creation_cost_per_million: 0.0,
+            cache_read_cost_per_million: 0.0,
+        });
+    }
+    // Cohere models
+    // Source: https://cohere.com/pricing
+    if normalized.contains("command-r") {
+        return Some(ModelPricing {
+            input_cost_per_million: 2.50,
+            output_cost_per_million: 10.0,
+            cache_creation_cost_per_million: 0.0,
+            cache_read_cost_per_million: 0.0,
+        });
+    }
+    None
+}
+
+impl TokenUsage {
+    #[must_use]
+    pub fn total_tokens(self) -> u32 {
+        self.input_tokens
+            + self.output_tokens
+            + self.cache_creation_input_tokens
+            + self.cache_read_input_tokens
+    }
+
+    #[must_use]
+    pub fn estimate_cost_usd(self) -> UsageCostEstimate {
+        self.estimate_cost_usd_with_pricing(ModelPricing::default_sonnet_tier())
+    }
+
+    #[must_use]
+    pub fn estimate_cost_usd_with_pricing(self, pricing: ModelPricing) -> UsageCostEstimate {
+        UsageCostEstimate {
+            input_cost_usd: cost_for_tokens(self.input_tokens, pricing.input_cost_per_million),
+            output_cost_usd: cost_for_tokens(self.output_tokens, pricing.output_cost_per_million),
+            cache_creation_cost_usd: cost_for_tokens(
+                self.cache_creation_input_tokens,
+                pricing.cache_creation_cost_per_million,
+            ),
+            cache_read_cost_usd: cost_for_tokens(
+                self.cache_read_input_tokens,
+                pricing.cache_read_cost_per_million,
+            ),
+        }
+    }
+
+    #[must_use]
+    pub fn summary_lines(self, label: &str) -> Vec<String> {
+        self.summary_lines_for_model(label, None)
+    }
+
+    #[must_use]
+    pub fn summary_lines_for_model(self, label: &str, model: Option<&str>) -> Vec<String> {
+        let pricing = model.and_then(pricing_for_model);
+        let cost = pricing.map_or_else(
+            || self.estimate_cost_usd(),
+            |pricing| self.estimate_cost_usd_with_pricing(pricing),
+        );
+        let model_suffix =
+            model.map_or_else(String::new, |model_name| format!(" model={model_name}"));
+        let pricing_suffix = if pricing.is_some() {
+            ""
+        } else if model.is_some() {
+            " pricing=estimated-default"
+        } else {
+            ""
+        };
+        vec![
+            format!(
+                "{label}: total_tokens={} input={} output={} cache_write={} cache_read={} estimated_cost={}{}{}",
+                self.total_tokens(),
+                self.input_tokens,
+                self.output_tokens,
+                self.cache_creation_input_tokens,
+                self.cache_read_input_tokens,
+                format_usd(cost.total_cost_usd()),
+                model_suffix,
+                pricing_suffix,
+            ),
+            format!(
+                "  cost breakdown: input={} output={} cache_write={} cache_read={}",
+                format_usd(cost.input_cost_usd),
+                format_usd(cost.output_cost_usd),
+                format_usd(cost.cache_creation_cost_usd),
+                format_usd(cost.cache_read_cost_usd),
+            ),
+        ]
+    }
+}
+
+fn cost_for_tokens(tokens: u32, usd_per_million_tokens: f64) -> f64 {
+    f64::from(tokens) / 1_000_000.0 * usd_per_million_tokens
+}
+
+#[must_use]
+/// Formats a dollar-denominated value for CLI display.
+pub fn format_usd(amount: f64) -> String {
+    format!("${amount:.4}")
+}
+
+/// Per-provider token and cost tracking.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PerProviderStats {
+    pub tokens: TokenUsage,
+    pub cost: UsageCostEstimate,
+    pub turns: u32,
+}
+
+/// Aggregates token usage across a running session, optionally broken
+/// down by provider when model names are supplied.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct UsageTracker {
+    latest_turn: TokenUsage,
+    cumulative: TokenUsage,
+    turns: u32,
+    per_provider: std::collections::HashMap<String, PerProviderStats>,
+}
+
+impl UsageTracker {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn from_session(session: &Session) -> Self {
+        let mut tracker = Self::new();
+        for message in &session.messages {
+            if let Some(usage) = message.usage {
+                tracker.record(usage, None);
+            }
+        }
+        tracker
+    }
+
+    /// Record token usage for a turn. Pass `model` to accumulate per-provider
+    /// stats (uses the model name to resolve pricing).
+    pub fn record(&mut self, usage: TokenUsage, model: Option<&str>) {
+        self.latest_turn = usage;
+        self.cumulative.input_tokens += usage.input_tokens;
+        self.cumulative.output_tokens += usage.output_tokens;
+        self.cumulative.cache_creation_input_tokens += usage.cache_creation_input_tokens;
+        self.cumulative.cache_read_input_tokens += usage.cache_read_input_tokens;
+        self.turns += 1;
+
+        if let Some(model_name) = model {
+            let label = per_provider_label(model_name);
+            let pricing = pricing_for_model(model_name);
+            let cost = pricing.map_or_else(
+                || usage.estimate_cost_usd(),
+                |p| usage.estimate_cost_usd_with_pricing(p),
+            );
+            let entry = self.per_provider.entry(label).or_default();
+            entry.tokens.input_tokens += usage.input_tokens;
+            entry.tokens.output_tokens += usage.output_tokens;
+            entry.tokens.cache_creation_input_tokens += usage.cache_creation_input_tokens;
+            entry.tokens.cache_read_input_tokens += usage.cache_read_input_tokens;
+            entry.cost.input_cost_usd += cost.input_cost_usd;
+            entry.cost.output_cost_usd += cost.output_cost_usd;
+            entry.cost.cache_creation_cost_usd += cost.cache_creation_cost_usd;
+            entry.cost.cache_read_cost_usd += cost.cache_read_cost_usd;
+            entry.turns += 1;
+        }
+    }
+
+    #[must_use]
+    pub fn current_turn_usage(&self) -> TokenUsage {
+        self.latest_turn
+    }
+
+    #[must_use]
+    pub fn cumulative_usage(&self) -> TokenUsage {
+        self.cumulative
+    }
+
+    #[must_use]
+    pub fn per_provider(&self) -> &std::collections::HashMap<String, PerProviderStats> {
+        &self.per_provider
+    }
+
+    #[must_use]
+    pub fn per_provider_summary_lines(&self) -> Vec<String> {
+        if self.per_provider.is_empty() {
+            return Vec::new();
+        }
+        let mut lines: Vec<String> = Vec::new();
+        let mut providers: Vec<_> = self.per_provider.iter().collect();
+        providers.sort_by_key(|(k, _)| *k);
+        for (label, stats) in &providers {
+            lines.push(format!(
+                "  {:<16} {:>8} tokens  {}",
+                label,
+                stats.tokens.total_tokens(),
+                format_usd(stats.cost.total_cost_usd())
+            ));
+        }
+        lines
+    }
+
+    #[must_use]
+    pub fn turns(&self) -> u32 {
+        self.turns
+    }
+}
+
+/// Map a model name to a short provider label for per-provider grouping.
+fn per_provider_label(model: &str) -> String {
+    let lower = model.to_ascii_lowercase();
+    if lower.contains("claude") {
+        "Anthropic".to_string()
+    } else if lower.contains("grok") {
+        "xAI".to_string()
+    } else if lower.contains("deepseek") {
+        "DeepSeek".to_string()
+    } else if lower.starts_with("ollama/") {
+        "Ollama".to_string()
+    } else if lower.starts_with("vllm/") {
+        "vLLM".to_string()
+    } else if lower.starts_with("gpt-") || lower.starts_with("openai/") {
+        "OpenAI".to_string()
+    } else if lower.contains("qwen") {
+        "Qwen".to_string()
+    } else if lower.contains("kimi") {
+        "Kimi".to_string()
+    } else if lower.contains("mistral") {
+        "Mistral".to_string()
+    } else if lower.contains("gemini") {
+        "Gemini".to_string()
+    } else if lower.contains("command-r") {
+        "Cohere".to_string()
+    } else {
+        model.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_usd, pricing_for_model, TokenUsage, UsageTracker};
+    use crate::session::{ContentBlock, ConversationMessage, MessageRole, Session};
+
+    #[test]
+    fn tracks_true_cumulative_usage() {
+        let mut tracker = UsageTracker::new();
+        tracker.record(
+            TokenUsage {
+                input_tokens: 10,
+                output_tokens: 4,
+                cache_creation_input_tokens: 2,
+                cache_read_input_tokens: 1,
+            },
+            None,
+        );
+        tracker.record(
+            TokenUsage {
+                input_tokens: 20,
+                output_tokens: 6,
+                cache_creation_input_tokens: 3,
+                cache_read_input_tokens: 2,
+            },
+            None,
+        );
+
+        assert_eq!(tracker.turns(), 2);
+        assert_eq!(tracker.current_turn_usage().input_tokens, 20);
+        assert_eq!(tracker.current_turn_usage().output_tokens, 6);
+        assert_eq!(tracker.cumulative_usage().output_tokens, 10);
+        assert_eq!(tracker.cumulative_usage().input_tokens, 30);
+        assert_eq!(tracker.cumulative_usage().total_tokens(), 48);
+    }
+
+    #[test]
+    fn computes_cost_summary_lines() {
+        let usage = TokenUsage {
+            input_tokens: 1_000_000,
+            output_tokens: 500_000,
+            cache_creation_input_tokens: 100_000,
+            cache_read_input_tokens: 200_000,
+        };
+
+        let cost = usage.estimate_cost_usd();
+        assert_eq!(format_usd(cost.input_cost_usd), "$15.0000");
+        assert_eq!(format_usd(cost.output_cost_usd), "$37.5000");
+        let lines = usage.summary_lines_for_model("usage", Some("claude-sonnet-4-20250514"));
+        assert!(lines[0].contains("estimated_cost=$54.6750"));
+        assert!(lines[0].contains("model=claude-sonnet-4-20250514"));
+        assert!(lines[1].contains("cache_read=$0.3000"));
+    }
+
+    #[test]
+    fn supports_model_specific_pricing() {
+        let usage = TokenUsage {
+            input_tokens: 1_000_000,
+            output_tokens: 500_000,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        };
+
+        let haiku = pricing_for_model("claude-haiku-4-5-20251001").expect("haiku pricing");
+        let opus = pricing_for_model("claude-opus-4-6").expect("opus pricing");
+        let haiku_cost = usage.estimate_cost_usd_with_pricing(haiku);
+        let opus_cost = usage.estimate_cost_usd_with_pricing(opus);
+        assert_eq!(format_usd(haiku_cost.total_cost_usd()), "$3.5000");
+        assert_eq!(format_usd(opus_cost.total_cost_usd()), "$52.5000");
+    }
+
+    #[test]
+    fn deepseek_models_have_correct_pricing() {
+        let usage = TokenUsage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        };
+
+        // deepseek-chat: $0.27/M input, $1.10/M output
+        let chat_pricing = pricing_for_model("deepseek-chat").expect("deepseek-chat pricing");
+        assert_eq!(chat_pricing.input_cost_per_million, 0.27);
+        assert_eq!(chat_pricing.output_cost_per_million, 1.10);
+        let chat_cost = usage.estimate_cost_usd_with_pricing(chat_pricing);
+        assert_eq!(format_usd(chat_cost.total_cost_usd()), "$1.3700");
+
+        // deepseek-reasoner: $0.55/M input, $2.19/M output
+        let r1_pricing = pricing_for_model("deepseek-reasoner").expect("deepseek-reasoner pricing");
+        assert_eq!(r1_pricing.input_cost_per_million, 0.55);
+        assert_eq!(r1_pricing.output_cost_per_million, 2.19);
+        let r1_cost = usage.estimate_cost_usd_with_pricing(r1_pricing);
+        assert_eq!(format_usd(r1_cost.total_cost_usd()), "$2.7400");
+
+        // deepseek-r1 alias should resolve to reasoner pricing
+        let r1_alias = pricing_for_model("deepseek-r1").expect("deepseek-r1 alias pricing");
+        assert_eq!(r1_alias.output_cost_per_million, 2.19);
+    }
+
+    #[test]
+    fn local_providers_have_zero_cost_pricing() {
+        let usage = TokenUsage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        };
+
+        let ollama = pricing_for_model("ollama/llama3.1:8b").expect("ollama pricing");
+        assert_eq!(ollama.input_cost_per_million, 0.0);
+        assert_eq!(ollama.output_cost_per_million, 0.0);
+        let ollama_cost = usage.estimate_cost_usd_with_pricing(ollama);
+        assert_eq!(format_usd(ollama_cost.total_cost_usd()), "$0.0000");
+
+        let vllm = pricing_for_model("vllm/meta-llama/Llama-3.1-8B").expect("vllm pricing");
+        assert_eq!(vllm.input_cost_per_million, 0.0);
+        let vllm_cost = usage.estimate_cost_usd_with_pricing(vllm);
+        assert_eq!(format_usd(vllm_cost.total_cost_usd()), "$0.0000");
+    }
+
+    #[test]
+    fn marks_unknown_model_pricing_as_fallback() {
+        let usage = TokenUsage {
+            input_tokens: 100,
+            output_tokens: 100,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+        };
+        let lines = usage.summary_lines_for_model("usage", Some("custom-model"));
+        assert!(lines[0].contains("pricing=estimated-default"));
+    }
+
+    #[test]
+    fn reconstructs_usage_from_session_messages() {
+        let mut session = Session::new();
+        session.messages = vec![ConversationMessage {
+            role: MessageRole::Assistant,
+            blocks: vec![ContentBlock::Text {
+                text: "done".to_string(),
+            }],
+            usage: Some(TokenUsage {
+                input_tokens: 5,
+                output_tokens: 2,
+                cache_creation_input_tokens: 1,
+                cache_read_input_tokens: 0,
+            }),
+        }];
+
+        let tracker = UsageTracker::from_session(&session);
+        assert_eq!(tracker.turns(), 1);
+        assert_eq!(tracker.cumulative_usage().total_tokens(), 8);
+    }
+
+    #[test]
+    fn tracks_per_provider_usage() {
+        let mut tracker = UsageTracker::new();
+        tracker.record(
+            TokenUsage {
+                input_tokens: 100,
+                output_tokens: 50,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+            },
+            Some("deepseek-chat"),
+        );
+        tracker.record(
+            TokenUsage {
+                input_tokens: 200,
+                output_tokens: 100,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+            },
+            Some("claude-sonnet-4-6"),
+        );
+        tracker.record(
+            TokenUsage {
+                input_tokens: 50,
+                output_tokens: 25,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+            },
+            Some("deepseek-chat"),
+        );
+
+        let per = tracker.per_provider();
+        assert_eq!(per.len(), 2);
+        let ds = per.get("DeepSeek").expect("DeepSeek");
+        assert_eq!(ds.tokens.input_tokens, 150);
+        assert_eq!(ds.turns, 2);
+        let an = per.get("Anthropic").expect("Anthropic");
+        assert_eq!(an.tokens.input_tokens, 200);
+        assert_eq!(an.turns, 1);
+    }
+}

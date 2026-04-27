@@ -6,9 +6,9 @@ license.workspace = true
 publish = true
 
 [dependencies]
-commands = { version = "0.1.0", path = "../commands" }
-tools = { version = "0.1.0", path = "../tools" }
-runtime = { version = "0.1.0", path = "../runtime" }
+commands = { version = "0.1.0", path = "../ninmu-commands" }
+tools = { version = "0.1.0", path = "../ninmu-tools" }
+runtime = { version = "0.1.0", path = "../ninmu-runtime" }
 
 [lints]
 workspace = true

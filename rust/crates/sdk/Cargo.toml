@@ -6,7 +6,7 @@ license.workspace = true
 publish = true
 
 [dependencies]
-runtime = { version = "0.1.0", path = "../runtime" }
+runtime = { version = "0.1.0", path = "../ninmu-runtime" }
 tokio = { version = "1", features = ["sync", "macros"] }
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true

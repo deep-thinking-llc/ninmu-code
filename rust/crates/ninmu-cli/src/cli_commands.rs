@@ -18,14 +18,14 @@ use crate::{
     BUILD_TARGET, DEFAULT_DATE, DEPRECATED_INSTALL_COMMAND, GIT_SHA, OFFICIAL_REPO_SLUG,
     OFFICIAL_REPO_URL, VERSION,
 };
-use api::detect_provider_kind;
-use commands::{
+use ninmu_api::detect_provider_kind;
+use ninmu_commands::{
     classify_skills_slash_command, handle_agents_slash_command, handle_mcp_slash_command,
     handle_mcp_slash_command_json, handle_skills_slash_command, handle_skills_slash_command_json,
     SkillSlashDispatch, SlashCommand,
 };
-use compat_harness::{extract_manifest, UpstreamPaths};
-use runtime::{
+use ninmu_compat_harness::{extract_manifest, UpstreamPaths};
+use ninmu_runtime::{
     check_base_commit, format_stale_base_warning, format_usd, load_oauth_credentials,
     load_system_prompt, pricing_for_model, resolve_expected_base, resolve_sandbox_status,
     ApiClient, ApiRequest, AssistantEvent, CompactionConfig, ConfigLoader, ConfigSource,
@@ -34,8 +34,8 @@ use runtime::{
     ProjectContext, PromptCacheEvent, ResolvedPermissionMode, RuntimeError, Session, TokenUsage,
     ToolError, ToolExecutor, UsageTracker,
 };
+use ninmu_tools::{execute_tool, mvp_tool_specs, GlobalToolRegistry};
 use serde_json::{json, Map, Value};
-use tools::{execute_tool, mvp_tool_specs, GlobalToolRegistry};
 
 // ---------------------------------------------------------------------------
 // Constants referenced by functions below — imported from crate root (main.rs)

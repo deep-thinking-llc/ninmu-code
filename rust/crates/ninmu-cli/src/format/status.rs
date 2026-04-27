@@ -6,7 +6,7 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
-use runtime::{ConfigLoader, ProjectContext, SandboxStatus, TokenUsage};
+use ninmu_runtime::{ConfigLoader, ProjectContext, SandboxStatus, TokenUsage};
 use serde_json::{json, Value};
 
 use crate::format::model::{ModelProvenance, ModelSource};
