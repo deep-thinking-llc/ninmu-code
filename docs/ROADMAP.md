@@ -63,10 +63,8 @@ Make the SDK consumable by any agent framework with minimal effort.
 - [ ] Generic HTTP/WebSocket adapter for any framework
 - [ ] Example: spawn 3 coordinated agents that code, test, and review
 
-> **Note:** Framework adapters are Python libraries that consume the JSON-RPC
-> server built in Phase 2.1. They are not Rust code — they wrap the `ninmu --mode rpc`
-> protocol for each Python framework's tool/agent conventions. These belong in a
-> separate repository or as standalone pip-installable packages.
+> Design doc: [docs/FRAMEWORK-ADAPTERS-DESIGN.md](./FRAMEWORK-ADAPTERS-DESIGN.md)
+> (28 unit / 13 integration / 11 e2e tests)
 
 ### 2.5 Session Tree Persistence
 
@@ -116,6 +114,9 @@ Humans need to review agent work efficiently. This phase focuses on making agent
 - [ ] Keyboard-driven approval/rejection (y/n/e for edit)
 - [ ] Session tree navigator — visual branching history
 - [ ] Tool execution viewer — see what tools ran, with what inputs, and what they produced
+
+> Design doc: [docs/TUI-INTERACTIVE-REVIEW-DESIGN.md](./TUI-INTERACTIVE-REVIEW-DESIGN.md)
+> (50 unit / 10 integration / 10 e2e tests)
 
 ## Phase 4 — Agent Orchestration
 
