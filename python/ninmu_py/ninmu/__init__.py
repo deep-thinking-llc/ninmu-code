@@ -10,20 +10,9 @@ from .errors import (
     NinmuTimeoutError,
 )
 
-try:
-    from .langchain_adapter import NinmuTool as LangChainNinmuTool  # noqa: F401
-except ImportError:  # pragma: no cover
-    pass
-
-try:
-    from .autogen_adapter import NinmuAgent as AutoGenNinmuAgent  # noqa: F401
-except ImportError:  # pragma: no cover
-    pass
-
-try:
-    from .crewai_adapter import ninmu_coding_tool  # noqa: F401
-except ImportError:  # pragma: no cover
-    pass
+from .langchain_adapter import NinmuTool as LangChainNinmuTool
+from .autogen_adapter import NinmuAgent as AutoGenNinmuAgent
+from .crewai_adapter import ninmu_coding_tool
 
 __all__ = [
     "NinmuClient",
@@ -33,4 +22,7 @@ __all__ = [
     "NinmuRuntimeError",
     "NinmuTimeoutError",
     "NinmuBinaryError",
+    "LangChainNinmuTool",
+    "AutoGenNinmuAgent",
+    "ninmu_coding_tool",
 ]
