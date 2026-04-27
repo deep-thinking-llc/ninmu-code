@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = true
+description = "Built-in tool implementations for the Ninmu Code ecosystem"
+homepage = "https://ninmu.dev"
 
 [dependencies]
 ninmu-api = { version = "0.1.0", path = "../ninmu-api" }
