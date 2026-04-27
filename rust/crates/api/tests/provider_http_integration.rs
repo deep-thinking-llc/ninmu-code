@@ -14,8 +14,8 @@ use std::sync::{Mutex as StdMutex, OnceLock};
 
 use api::{
     ApiError, InputContentBlock, InputMessage, MessageRequest, OpenAiCompatClient,
-    OpenAiCompatConfig, OutputContentBlock, ProviderClient, ProviderKind, StreamEvent,
-    ToolChoice, ToolDefinition,
+    OpenAiCompatConfig, OutputContentBlock, ProviderClient, ProviderKind, StreamEvent, ToolChoice,
+    ToolDefinition,
 };
 use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -371,7 +371,10 @@ async fn openai_send_message_respects_100mb_size_limit() {
         "Should fail on mock response, not size limit"
     );
     assert!(
-        !matches!(result.unwrap_err(), ApiError::RequestBodySizeExceeded { .. }),
+        !matches!(
+            result.unwrap_err(),
+            ApiError::RequestBodySizeExceeded { .. }
+        ),
         "Should not fail on size limit"
     );
 }
@@ -443,8 +446,8 @@ async fn ollama_send_message_works_without_api_key() {
     .await;
 
     // No API key - auth_optional should work
-    let client = OpenAiCompatClient::new("", OpenAiCompatConfig::ollama())
-        .with_base_url(server.base_url());
+    let client =
+        OpenAiCompatClient::new("", OpenAiCompatConfig::ollama()).with_base_url(server.base_url());
 
     let mut request = sample_request(false);
     request.model = "llama3.1:8b".to_string();
@@ -454,9 +457,12 @@ async fn ollama_send_message_works_without_api_key() {
         .await
         .expect("request should succeed without auth");
 
-    assert_eq!(response.content[0], OutputContentBlock::Text {
-        text: "Hello from Ollama".to_string(),
-    });
+    assert_eq!(
+        response.content[0],
+        OutputContentBlock::Text {
+            text: "Hello from Ollama".to_string(),
+        }
+    );
 
     let captured = state.lock().await;
     let request = captured.first().expect("server should capture request");
@@ -531,8 +537,8 @@ async fn ollama_send_message_strips_prefix_from_model_name() {
     )
     .await;
 
-    let client = OpenAiCompatClient::new("", OpenAiCompatConfig::ollama())
-        .with_base_url(server.base_url());
+    let client =
+        OpenAiCompatClient::new("", OpenAiCompatConfig::ollama()).with_base_url(server.base_url());
 
     let mut request = sample_request(false);
     request.model = "ollama/llama3.1:8b".to_string();
@@ -610,9 +616,12 @@ async fn qwen_send_message_uses_qwen_credentials() {
         .await
         .expect("request should succeed");
 
-    assert_eq!(response.content[0], OutputContentBlock::Text {
-        text: "Hello from Qwen".to_string(),
-    });
+    assert_eq!(
+        response.content[0],
+        OutputContentBlock::Text {
+            text: "Hello from Qwen".to_string(),
+        }
+    );
 
     let captured = state.lock().await;
     let request = captured.first().expect("server should capture request");

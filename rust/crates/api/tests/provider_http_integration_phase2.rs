@@ -15,8 +15,8 @@ use std::sync::{Mutex as StdMutex, OnceLock};
 
 use api::{
     ApiError, InputContentBlock, InputMessage, MessageRequest, OpenAiCompatClient,
-    OpenAiCompatConfig, OutputContentBlock, ProviderClient, ProviderKind, StreamEvent,
-    ToolChoice, ToolDefinition,
+    OpenAiCompatConfig, OutputContentBlock, ProviderClient, ProviderKind, StreamEvent, ToolChoice,
+    ToolDefinition,
 };
 use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -462,8 +462,8 @@ async fn vllm_send_message_works_without_auth() {
     .await;
 
     // vLLM has no API key env var and auth_optional = true
-    let client = OpenAiCompatClient::new("", OpenAiCompatConfig::vllm())
-        .with_base_url(server.base_url());
+    let client =
+        OpenAiCompatClient::new("", OpenAiCompatConfig::vllm()).with_base_url(server.base_url());
 
     let mut request = sample_request(false);
     request.model = "meta-llama/Llama-3.1-8B".to_string();
@@ -501,8 +501,8 @@ async fn vllm_send_message_strips_prefix_from_model_name() {
     )
     .await;
 
-    let client = OpenAiCompatClient::new("", OpenAiCompatConfig::vllm())
-        .with_base_url(server.base_url());
+    let client =
+        OpenAiCompatClient::new("", OpenAiCompatConfig::vllm()).with_base_url(server.base_url());
 
     let mut request = sample_request(false);
     request.model = "vllm/meta-llama/Llama-3.1-8B".to_string();
@@ -715,7 +715,9 @@ async fn dashscope_send_message_excludes_is_error_for_kimi_models() {
     let body: serde_json::Value = serde_json::from_str(&request.body).expect("json body");
 
     // Find the tool result message in the messages array
-    let messages = body["messages"].as_array().expect("messages should be array");
+    let messages = body["messages"]
+        .as_array()
+        .expect("messages should be array");
     let tool_message = messages
         .iter()
         .find(|m| m["role"] == "tool")
