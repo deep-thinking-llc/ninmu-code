@@ -357,7 +357,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             base_commit,
             reasoning_effort,
             allow_broad_cwd,
-            if tui { Some(crate::app::BannerStyle::None) } else { None },
+            if tui {
+                Some(crate::app::BannerStyle::None)
+            } else {
+                None
+            },
         )?,
         CliAction::HelpTopic(topic) => print_help_topic(topic),
         CliAction::Help { output_format } => print_help(output_format)?,
