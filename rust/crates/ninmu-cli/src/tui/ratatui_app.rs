@@ -612,7 +612,7 @@ impl RatatuiApp {
     fn flush_response(&mut self) {
         if !self.response_text.is_empty() {
             for line in self.response_text.lines() {
-                self.scrollback.push(format!("{line}"));
+                self.scrollback.push(line.to_string());
             }
             if self.response_text.ends_with('\n') {
                 self.scrollback.push(String::new());
@@ -657,7 +657,7 @@ impl RatatuiApp {
         let mut parts = text.split('\n');
         let remainder = parts.next_back().unwrap_or("").to_string();
         for part in parts {
-            self.scrollback.push(format!("{part}"));
+            self.scrollback.push(part.to_string());
         }
         self.response_text = remainder;
     }
@@ -1774,7 +1774,6 @@ mod tests {
             output_tokens: 0,
             cache_creation_input_tokens: 1000,
             cache_read_input_tokens: 5000,
-            ..Default::default()
         };
         app.flush_response();
         // Total tokens (input + output) is 0, so no usage line is emitted.
@@ -1790,7 +1789,6 @@ mod tests {
             output_tokens: 50,
             cache_creation_input_tokens: 1000,
             cache_read_input_tokens: 5000,
-            ..Default::default()
         };
         app.response_text = "hello".into();
         app.flush_response();
@@ -2080,12 +2078,19 @@ mod tests {
             .rev()
             .find(|(_, s)| s.trim_end().starts_with("  \u{25B8}"))
             .map(|(i, _)| i);
-        assert_eq!(last_user_idx, Some(2), "last user prompt should be at index 2");
+        assert_eq!(
+            last_user_idx,
+            Some(2),
+            "last user prompt should be at index 2"
+        );
 
         // The first user prompt (index 0) is NOT the last, so it should
         // use static USER_COLOR, not pulse.
         let first_is_active = app.state.is_generating && Some(0) == last_user_idx;
-        assert!(!first_is_active, "first prompt should not be active/pulsing");
+        assert!(
+            !first_is_active,
+            "first prompt should not be active/pulsing"
+        );
 
         // The second user prompt (index 2) IS the last, so it should pulse.
         let second_is_active = app.state.is_generating && Some(2) == last_user_idx;

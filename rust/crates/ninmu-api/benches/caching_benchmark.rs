@@ -11,6 +11,7 @@
 //   OLLAMA_BASE_URL=http://localhost:11434/v1 cargo bench -p ninmu-api --bench caching_benchmark
 
 #![allow(
+    clippy::cast_possible_truncation,
     clippy::cognitive_complexity,
     clippy::doc_markdown,
     clippy::explicit_iter_loop,
@@ -20,13 +21,13 @@
     clippy::needless_pass_by_value,
     clippy::clone_on_copy,
     clippy::too_many_lines,
-    clippy::uninlined_format_args
+    clippy::uninlined_format_args,
+    dead_code
 )]
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use ninmu_api::{
-    inject_prompt_cache_control, InputContentBlock, InputMessage, MessageRequest,
-    OpenAiCompatConfig, ToolDefinition,
+    InputContentBlock, InputMessage, MessageRequest, ToolDefinition,
 };
 use serde_json::json;
 

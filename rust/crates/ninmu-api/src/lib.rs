@@ -30,9 +30,9 @@ pub use providers::openai_compat::{
     model_rejects_is_error_field, translate_message, OpenAiCompatClient, OpenAiCompatConfig,
 };
 pub use providers::{
-    detect_provider_kind, list_available_models, max_tokens_for_model, max_tokens_for_model_with_override,
-    metadata_for_model, ModelEntry, prefix_model_for_provider, provider_kind_from_str, resolve_model_alias,
-    ProviderKind, ProviderMetadata,
+    detect_provider_kind, list_available_models, max_tokens_for_model,
+    max_tokens_for_model_with_override, metadata_for_model, prefix_model_for_provider,
+    provider_kind_from_str, resolve_model_alias, ModelEntry, ProviderKind, ProviderMetadata,
 };
 pub use sse::{parse_frame, SseParser};
 pub use types::{

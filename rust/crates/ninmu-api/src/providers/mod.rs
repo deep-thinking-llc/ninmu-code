@@ -212,7 +212,8 @@ pub fn list_available_models() -> Vec<ModelEntry> {
         })
         .collect();
     // Deduplicate: skip entries whose canonical name is already present.
-    let mut seen: std::collections::HashSet<String> = entries.iter().map(|e| e.canonical.clone()).collect();
+    let mut seen: std::collections::HashSet<String> =
+        entries.iter().map(|e| e.canonical.clone()).collect();
     // Add custom models from models.json.
     if let Ok(cwd) = std::env::current_dir() {
         let _ = models_file::discover_and_load_models(&cwd, &config_home_dir());
@@ -237,15 +238,12 @@ fn config_home_dir() -> std::path::PathBuf {
         .ok()
         .map(std::path::PathBuf::from)
         .filter(|p| p.is_absolute())
-        .unwrap_or_else(|| {
-            dirs_or_default().join(".claw")
-        })
+        .unwrap_or_else(|| dirs_or_default().join(".claw"))
 }
 
 fn dirs_or_default() -> std::path::PathBuf {
     std::env::var("HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+        .map_or_else(|_| std::path::PathBuf::from("."), std::path::PathBuf::from)
 }
 
 #[must_use]

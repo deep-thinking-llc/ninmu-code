@@ -693,7 +693,7 @@ impl LiveCli {
             }
             SlashCommand::Effort { level } => {
                 match level.as_deref() {
-                    Some("low") | Some("medium") | Some("high") | Some("max") => {
+                    Some("low" | "medium" | "high" | "max") => {
                         self.set_reasoning_effort(level.clone());
                         println!("reasoning effort set to {}", level.as_deref().unwrap());
                     }
@@ -710,11 +710,11 @@ impl LiveCli {
             }
             SlashCommand::Think { mode } => {
                 match mode.as_deref() {
-                    Some("on") | Some("enable") => {
+                    Some("on" | "enable") => {
                         self.set_thinking_mode(Some(true));
                         println!("thinking mode enabled");
                     }
-                    Some("off") | Some("disable") => {
+                    Some("off" | "disable") => {
                         self.set_thinking_mode(Some(false));
                         println!("thinking mode disabled");
                     }

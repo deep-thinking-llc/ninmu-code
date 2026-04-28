@@ -134,7 +134,7 @@ pub(crate) const POST_TOOL_STALL_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum time to wait for the next SSE stream event before declaring the
 /// connection stalled.  Applies to all events after the first one arrives,
 /// catching mid-stream hangs that `POST_TOOL_STALL_TIMEOUT` does not cover.
-pub(crate) const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+pub(crate) const STREAM_IDLE_TIMEOUT: Duration = Duration::from_mins(2);
 pub(crate) const PRIMARY_SESSION_EXTENSION: &str = "jsonl";
 pub(crate) const LEGACY_SESSION_EXTENSION: &str = "json";
 pub(crate) const OFFICIAL_REPO_URL: &str = "https://github.com/deep-thinking-llc/ninmu-code";
