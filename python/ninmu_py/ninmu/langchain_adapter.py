@@ -6,17 +6,15 @@ from typing import Any
 
 from .client import NinmuClient
 
+try:
+    from langchain.tools import BaseTool
+    _LANGCHAIN_AVAILABLE = True
+except ImportError as _e:
+    _LANGCHAIN_AVAILABLE = False
+
 
 class NinmuTool:
-    """LangChain tool that delegates a coding subtask to a Ninmu Code agent.
-
-    Usage::
-
-        from ninmu.langchain_adapter import NinmuTool
-
-        tools = [NinmuTool()]
-        # Pass tools to your LangChain agent
-    """
+    """LangChain tool that delegates a coding subtask to a Ninmu Code agent."""
 
     name: str = "ninmu_coding_agent"
     description: str = (
@@ -24,8 +22,6 @@ class NinmuTool:
         "The agent will plan, write code, test, and return results. "
         "Provide the full task description as input."
     )
-    client: NinmuClient
-    session_id: str
 
     def __init__(
         self,
@@ -33,23 +29,27 @@ class NinmuTool:
         system_prompt: list[str] | None = None,
         binary: str = "ninmu",
     ) -> None:
-        self.model = model
-        self.system_prompt = system_prompt
-        self.binary = binary
-        self.client = NinmuClient(model=model, system_prompt=system_prompt, binary=binary)
-        self.session_id = ""
+        if not _LANGCHAIN_AVAILABLE:
+            raise ImportError(
+                "langchain is required for NinmuTool. "
+                "Install it: pip install langchain"
+            )
+        if not model or not isinstance(model, str):
+            raise ValueError("model must be a non-empty string")
+        self._client = NinmuClient(model=model, system_prompt=system_prompt, binary=binary)
+        self._session_id = ""
 
     def _run(self, prompt: str) -> str:
         """Execute the tool with the given prompt."""
-        if not self.session_id:
-            self.session_id = self.client.create_session()
-        return self.client.run_turn(self.session_id, prompt)
+        if not self._session_id:
+            self._session_id = self._client.create_session()
+        return self._client.run_turn(self._session_id, prompt)
 
     def close(self) -> None:
         """Clean up the RPC session."""
-        if self.session_id:
+        if self._session_id:
             try:
-                self.client.destroy_session(self.session_id)
+                self._client.destroy_session(self._session_id)
             except Exception:
                 pass
-        self.client.shutdown()
+        self._client.shutdown()

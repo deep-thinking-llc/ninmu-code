@@ -25,12 +25,13 @@ def ninmu_coding_tool(
             tools=[ninmu_coding_tool()],
         )
     """
-    import warnings
     try:
         from crewai import Tool as CrewAITool
-    except ImportError:
-        warnings.warn("crewai is not installed. Install with: pip install crewai")
-        return None
+    except ImportError as e:
+        raise ImportError(
+            "crewai is required for ninmu_coding_tool. "
+            "Install it: pip install crewai"
+        ) from e
 
     def _execute(prompt: str) -> str:
         client = NinmuClient(model=model, system_prompt=system_prompt, binary=binary)

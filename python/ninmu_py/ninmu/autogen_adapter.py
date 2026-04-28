@@ -6,17 +6,15 @@ from typing import Any
 
 from .client import NinmuClient
 
+try:
+    from autogen import ConversableAgent
+    _AUTOGEN_AVAILABLE = True
+except ImportError as _e:
+    _AUTOGEN_AVAILABLE = False
+
 
 class NinmuAgent:
-    """AutoGen-style agent backed by a Ninmu Code RPC session.
-
-    Usage::
-
-        from ninmu.autogen_adapter import NinmuAgent
-
-        agent = NinmuAgent(name="coder", model="claude-sonnet-4-6")
-        reply = agent.generate_reply([{"role": "user", "content": "Write a test"}])
-    """
+    """AutoGen-style agent backed by a Ninmu Code RPC session."""
 
     def __init__(
         self,
@@ -25,6 +23,11 @@ class NinmuAgent:
         system_prompt: list[str] | None = None,
         binary: str = "ninmu",
     ) -> None:
+        if not _AUTOGEN_AVAILABLE:
+            raise ImportError(
+                "pyautogen is required for NinmuAgent. "
+                "Install it: pip install pyautogen"
+            )
         self.name = name
         self._client = NinmuClient(model=model, system_prompt=system_prompt, binary=binary)
         self._session_id = self._client.create_session()
@@ -35,10 +38,7 @@ class NinmuAgent:
         sender: Any = None,
         **kwargs: Any,
     ) -> tuple[bool, str]:
-        """Generate a reply to the last message in the conversation.
-
-        Returns (True, reply_text) on success, matching AutoGen's signature.
-        """
+        """Generate a reply to the last message in the conversation."""
         if not messages:
             return True, ""
         prompt = messages[-1]["content"] if messages else ""
