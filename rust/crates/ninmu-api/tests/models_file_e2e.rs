@@ -45,7 +45,7 @@ fn e2e_load_models_json_and_find_custom_model() {
                 "api": "openai-completions",
                 "apiKey": "ollama",
                 "models": [
-                    { "id": "llama3.1:8b", "contextWindow": 128_000, "maxTokens": 32768 },
+                    { "id": "llama3.1:8b", "contextWindow": 128000, "maxTokens": 32768 },
                     { "id": "qwen2.5-coder:7b", "contextWindow": 32768, "maxTokens": 8192 }
                 ]
             }

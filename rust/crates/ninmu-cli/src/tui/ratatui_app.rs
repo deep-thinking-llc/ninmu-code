@@ -503,11 +503,19 @@ impl RatatuiApp {
     }
 
     fn update_streaming_display(&mut self) {
-        while let Some(pos) = self.response_text.find('\n') {
-            let line = self.response_text[..pos].to_string();
-            self.scrollback.push(line);
-            self.response_text = self.response_text[pos + 1..].to_string();
+        if !self.response_text.contains('\n') {
+            return;
         }
+        // Steal the whole buffer, split once on newlines, and rebuild
+        // the remainder.  This is O(n) total instead of O(n²) from
+        // repeatedly reallocating the tail string.
+        let text = std::mem::take(&mut self.response_text);
+        let mut parts = text.split('\n');
+        let remainder = parts.next_back().unwrap_or("").to_string();
+        for part in parts {
+            self.scrollback.push(part.to_string());
+        }
+        self.response_text = remainder;
     }
 
     /// Load previous conversation history into the scrollback.
@@ -948,10 +956,12 @@ fn markdown_spans(text: &str) -> Vec<Span<'static>> {
 
     while let Some(c) = chars.next() {
         if c == '`' {
-            // Flush current
+            // Flush current without cloning — move the accumulated string out.
             if !current.is_empty() {
-                spans.push(Span::styled(current.clone(), Style::default().fg(TEXT)));
-                current.clear();
+                spans.push(Span::styled(
+                    std::mem::take(&mut current),
+                    Style::default().fg(TEXT),
+                ));
             }
             // Inline code
             let code: String = chars.by_ref().take_while(|&ch| ch != '`').collect();
@@ -962,8 +972,10 @@ fn markdown_spans(text: &str) -> Vec<Span<'static>> {
         } else if c == '*' && chars.peek() == Some(&'*') {
             chars.next(); // skip second *
             if !current.is_empty() {
-                spans.push(Span::styled(current.clone(), Style::default().fg(TEXT)));
-                current.clear();
+                spans.push(Span::styled(
+                    std::mem::take(&mut current),
+                    Style::default().fg(TEXT),
+                ));
             }
             let bold: String = chars.by_ref().take_while(|&ch| ch != '*').collect();
             if chars.peek() == Some(&'*') {
@@ -975,8 +987,10 @@ fn markdown_spans(text: &str) -> Vec<Span<'static>> {
             ));
         } else if c == '*' {
             if !current.is_empty() {
-                spans.push(Span::styled(current.clone(), Style::default().fg(TEXT)));
-                current.clear();
+                spans.push(Span::styled(
+                    std::mem::take(&mut current),
+                    Style::default().fg(TEXT),
+                ));
             }
             let italic: String = chars.by_ref().take_while(|&ch| ch != '*').collect();
             spans.push(Span::styled(

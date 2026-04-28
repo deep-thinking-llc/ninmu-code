@@ -29,11 +29,17 @@ pub fn parse_unified_diff(diff: &str) -> Vec<DiffLine> {
         } else if raw_line.starts_with("Binary files") {
             lines.push(DiffLine::Binary(raw_line.to_string()));
         } else if raw_line.starts_with('+') && !raw_line.starts_with("+++") {
-            lines.push(DiffLine::Addition(raw_line.strip_prefix(" ").unwrap_or(raw_line).to_string()));
+            lines.push(DiffLine::Addition(
+                raw_line.strip_prefix(" ").unwrap_or(raw_line).to_string(),
+            ));
         } else if raw_line.starts_with('-') && !raw_line.starts_with("---") {
-            lines.push(DiffLine::Deletion(raw_line.strip_prefix(" ").unwrap_or(raw_line).to_string()));
+            lines.push(DiffLine::Deletion(
+                raw_line.strip_prefix(" ").unwrap_or(raw_line).to_string(),
+            ));
         } else if raw_line.starts_with(' ') {
-            lines.push(DiffLine::Context(raw_line.strip_prefix(" ").unwrap_or(raw_line).to_string()));
+            lines.push(DiffLine::Context(
+                raw_line.strip_prefix(" ").unwrap_or(raw_line).to_string(),
+            ));
         } else {
             // Any other lines (no space prefix) — pass as context
             lines.push(DiffLine::Context(raw_line.to_string()));

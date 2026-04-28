@@ -542,10 +542,12 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
         }),
         // Google Gemini models
         // Source: https://ai.google.dev/gemini-api/docs/models
-        "gemini-2.5-pro" | "gemini-2.5-flash" | "gemini-2.5-flash-preview-05-20" => Some(ModelTokenLimit {
-            max_output_tokens: 65_536,
-            context_window_tokens: 1_048_576,
-        }),
+        "gemini-2.5-pro" | "gemini-2.5-flash" | "gemini-2.5-flash-preview-05-20" => {
+            Some(ModelTokenLimit {
+                max_output_tokens: 65_536,
+                context_window_tokens: 1_048_576,
+            })
+        }
         "gemini-2.0-flash" => Some(ModelTokenLimit {
             max_output_tokens: 8_192,
             context_window_tokens: 1_048_576,

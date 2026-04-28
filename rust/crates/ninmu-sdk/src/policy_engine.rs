@@ -136,7 +136,6 @@ impl Default for PolicyEngine {
 }
 
 impl PolicyEngine {
-
     fn register_defaults(&mut self) {
         // Read-only tools auto-approve
         self.add_policy(Policy {

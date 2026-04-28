@@ -33,7 +33,25 @@ impl Scrollback {
     /// Append a line to the buffer. Evicts oldest lines if over capacity.
     pub fn push(&mut self, line: String) {
         if self.lines.len() >= self.max_lines {
-            self.lines.remove(0);
+            // Batch-evict the oldest 25 % of lines to amortise the O(n)
+            // shift cost.  Removing one element at a time from the front
+            // of a Vec is O(n) per push; draining a chunk once every
+            // N pushes is O(n) amortised over those N pushes.
+            let evict = (self.max_lines / 4).max(1);
+            self.lines.drain(..evict);
+            // Adjust scroll offset so the view doesn't jump.
+            self.scroll_offset = self.scroll_offset.saturating_sub(evict);
+            // Adjust collapsible entry indices.
+            for entry in &mut self.collapsible_entries {
+                if entry.0 >= evict {
+                    entry.0 -= evict;
+                } else {
+                    entry.0 = 0;
+                }
+            }
+            // Remove entries whose content was fully evicted.
+            self.collapsible_entries
+                .retain(|(start, full, _, _)| start.saturating_add(full.len()) > 0);
         }
         self.lines.push(line);
     }
@@ -122,24 +140,13 @@ impl Scrollback {
             collapsed.len()
         };
 
-        // Replace lines in the buffer
-        if now_expanded {
-            // Expand: replace collapsed lines with full lines
-            let to_replace: Vec<String> = full.clone();
-            // Remove old lines at this position
-            let _ = self.lines.drain(start..start + old_count);
-            // Insert new lines
-            for (i, l) in to_replace.into_iter().enumerate() {
-                self.lines.insert(start + i, l);
-            }
+        // Replace lines in the buffer — use Vec::splice for O(n) batch replace
+        let replacement: Vec<String> = if now_expanded {
+            full.clone()
         } else {
-            // Collapse: replace full lines with collapsed + hint
-            let to_replace: Vec<String> = collapsed.clone();
-            let _ = self.lines.drain(start..start + old_count);
-            for (i, l) in to_replace.into_iter().enumerate() {
-                self.lines.insert(start + i, l);
-            }
-        }
+            collapsed.clone()
+        };
+        let _ = self.lines.splice(start..start + old_count, replacement);
 
         // Update start indices for all subsequent entries
         let height_diff = new_count as isize - old_count as isize;
