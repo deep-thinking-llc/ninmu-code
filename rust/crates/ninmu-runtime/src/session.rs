@@ -775,10 +775,7 @@ impl ContentBlock {
                     "type".to_string(),
                     JsonValue::String("thinking".to_string()),
                 );
-                object.insert(
-                    "thinking".to_string(),
-                    JsonValue::String(thinking.clone()),
-                );
+                object.insert("thinking".to_string(), JsonValue::String(thinking.clone()));
             }
         }
         JsonValue::Object(object)

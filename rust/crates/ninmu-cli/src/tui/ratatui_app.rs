@@ -100,6 +100,10 @@ pub struct RatatuiApp {
     cached_tokens_str: String,
     /// Cached elapsed-second display (updated when the second changes).
     cached_elapsed_str: String,
+    /// Current reasoning effort level (None = default).
+    reasoning_effort: Option<String>,
+    /// Whether thinking mode is enabled (None = auto).
+    thinking_mode: Option<bool>,
 }
 
 /// A permission prompt waiting for the user to respond in the TUI.
@@ -138,10 +142,39 @@ impl RatatuiApp {
             cached_input: String::new(),
             cached_tokens_str: String::new(),
             cached_elapsed_str: String::new(),
+            reasoning_effort: None,
+            thinking_mode: None,
         };
-        app.cached_header =
-            Self::build_header_line(&app.model, &app.permission_mode, app.git_branch.as_deref());
+        app.cached_header = Self::build_header_line(
+            &app.model,
+            &app.permission_mode,
+            app.git_branch.as_deref(),
+            None,
+            None,
+        );
         app
+    }
+
+    /// Set reasoning effort and rebuild header.
+    pub fn set_reasoning_effort(&mut self, effort: Option<String>) {
+        self.reasoning_effort = effort;
+        self.rebuild_header();
+    }
+
+    /// Set thinking mode and rebuild header.
+    pub fn set_thinking_mode(&mut self, mode: Option<bool>) {
+        self.thinking_mode = mode;
+        self.rebuild_header();
+    }
+
+    fn rebuild_header(&mut self) {
+        self.cached_header = Self::build_header_line(
+            &self.model,
+            &self.permission_mode,
+            self.git_branch.as_deref(),
+            self.reasoning_effort.as_deref(),
+            self.thinking_mode,
+        );
     }
 
     /// Run the ratatui event loop. Blocks until the user exits.
@@ -306,6 +339,7 @@ impl RatatuiApp {
                             KeyCode::Enter if !self.input_buf.is_empty() => {
                                 let input: String = self.input_buf.drain(..).collect();
                                 self.cursor = 0;
+                                self.refresh_input_cache();
                                 // Save to history, deduplicate consecutive.
                                 if self.input_history.last().is_none_or(|last| last != &input) {
                                     self.input_history.push(input.clone());
@@ -530,6 +564,16 @@ impl RatatuiApp {
                 self.scrollback.clear();
                 self.load_conversation_history(&messages);
             }
+            TuiEvent::ReasoningUpdate { effort, thinking } => {
+                self.reasoning_effort = effort;
+                self.thinking_mode = thinking;
+                self.rebuild_header();
+            }
+            TuiEvent::ModelUpdate { model } => {
+                self.model = model;
+                self.model_pricing = ninmu_runtime::pricing_for_model(&self.model);
+                self.rebuild_header();
+            }
         }
     }
 
@@ -659,6 +703,8 @@ impl RatatuiApp {
         model: &str,
         permission_mode: &str,
         git_branch: Option<&str>,
+        reasoning_effort: Option<&str>,
+        thinking_mode: Option<bool>,
     ) -> Line<'static> {
         let git = git_branch.unwrap_or("?");
         let perm_short = match permission_mode {
@@ -667,7 +713,7 @@ impl RatatuiApp {
             _ => "read",
         };
 
-        Line::from(vec![
+        let mut spans = vec![
             Span::styled(
                 "  ninmu ",
                 Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
@@ -685,7 +731,32 @@ impl RatatuiApp {
             Span::raw("  "),
             Span::styled("branch ", Style::default().fg(MUTED)),
             Span::styled(git.to_string(), Style::default().fg(TEXT_SEC)),
-        ])
+        ];
+
+        // Show reasoning effort/thinking state if set.
+        let effort_label = reasoning_effort.unwrap_or("default");
+        let thinking_label = match thinking_mode {
+            Some(true) => "on",
+            Some(false) => "off",
+            None => "auto",
+        };
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled("think ", Style::default().fg(MUTED)));
+        spans.push(Span::styled(
+            thinking_label.to_string(),
+            Style::default().fg(if thinking_mode == Some(false) {
+                MUTED
+            } else {
+                ACCENT
+            }),
+        ));
+        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            effort_label.to_string(),
+            Style::default().fg(TEXT_SEC),
+        ));
+
+        Line::from(spans)
     }
 
     fn draw_header(&self, frame: &mut ratatui::Frame, area: Rect) {
@@ -1596,6 +1667,9 @@ mod tests {
         // Cost should be higher than just 100+50 tokens — cache tokens add to it.
         // With sonnet pricing: 100 in + 50 out + 1000 cache_create + 5000 cache_read
         // = $0.0015 + $0.00375 + $0.01875 + $0.0075 ≈ $0.0315
-        assert!(usage_line.contains("0.03"), "expected cache-aware cost: {usage_line}");
+        assert!(
+            usage_line.contains("0.03"),
+            "expected cache-aware cost: {usage_line}"
+        );
     }
 }

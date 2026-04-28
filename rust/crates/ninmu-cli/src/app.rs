@@ -176,6 +176,12 @@ impl LiveCli {
         }
     }
 
+    pub(crate) fn set_thinking_mode(&mut self, mode: Option<bool>) {
+        if let Some(rt) = self.runtime.runtime.as_mut() {
+            rt.api_client_mut().set_thinking_mode(mode);
+        }
+    }
+
     pub(crate) fn startup_banner(&self) -> String {
         match self.banner_style {
             BannerStyle::Full => self.full_banner(),
@@ -668,6 +674,23 @@ impl LiveCli {
                 println!("{}", format_cost_report(usage));
                 false
             }
+            SlashCommand::Effort { level } => {
+                match level.as_deref() {
+                    Some("low") | Some("medium") | Some("high") | Some("max") => {
+                        self.set_reasoning_effort(level.clone());
+                        println!("reasoning effort set to {}", level.as_deref().unwrap());
+                    }
+                    Some("off") | None => {
+                        self.set_reasoning_effort(None);
+                        println!("reasoning effort reset to default");
+                    }
+                    Some(other) => {
+                        println!("unknown effort level: {other}");
+                        println!("valid levels: low, medium, high, max, off");
+                    }
+                }
+                false
+            }
             SlashCommand::Login
             | SlashCommand::Logout
             | SlashCommand::Vim
@@ -699,7 +722,6 @@ impl LiveCli {
             | SlashCommand::Hooks { .. }
             | SlashCommand::Context { .. }
             | SlashCommand::Color { .. }
-            | SlashCommand::Effort { .. }
             | SlashCommand::Branch { .. }
             | SlashCommand::Rewind { .. }
             | SlashCommand::Ide { .. }
@@ -2209,6 +2231,7 @@ pub(crate) struct AnthropicRuntimeClient {
     pub(crate) tool_registry: GlobalToolRegistry,
     pub(crate) progress_reporter: Option<InternalPromptProgressReporter>,
     pub(crate) reasoning_effort: Option<String>,
+    pub(crate) thinking_mode: Option<bool>,
     pub(crate) provider_defaults:
         std::collections::BTreeMap<String, ninmu_runtime::ProviderDefaultConfig>,
     pub(crate) event_bridge: Option<crate::tui::TuiEventBridge>,
@@ -2261,6 +2284,7 @@ impl AnthropicRuntimeClient {
             tool_registry,
             progress_reporter,
             reasoning_effort: None,
+            thinking_mode: None,
             provider_defaults,
             event_bridge: None,
         })
@@ -2268,6 +2292,10 @@ impl AnthropicRuntimeClient {
 
     pub(crate) fn set_reasoning_effort(&mut self, effort: Option<String>) {
         self.reasoning_effort = effort;
+    }
+
+    pub(crate) fn set_thinking_mode(&mut self, mode: Option<bool>) {
+        self.thinking_mode = mode;
     }
 }
 
@@ -2314,6 +2342,7 @@ impl ApiClient for AnthropicRuntimeClient {
             temperature: temperature_override,
             top_p: top_p_override,
             reasoning_effort: reasoning_effort_override,
+            thinking_mode: self.thinking_mode,
             ..Default::default()
         };
 
@@ -2928,6 +2957,12 @@ fn run_tui_repl(cli: &mut LiveCli) -> Result<(), Box<dyn std::error::Error>> {
         git_branch,
     );
 
+    // Sync initial reasoning effort / thinking mode into the TUI header.
+    if let Some(rt) = cli.runtime.runtime.as_ref() {
+        app.set_reasoning_effort(rt.api_client().reasoning_effort.clone());
+        app.set_thinking_mode(rt.api_client().thinking_mode);
+    }
+
     // Load existing session messages into the scrollback so the user
     // can see conversation context before typing their first prompt.
     if !cli.runtime.session().messages.is_empty() {
@@ -2952,6 +2987,8 @@ fn run_tui_repl(cli: &mut LiveCli) -> Result<(), Box<dyn std::error::Error>> {
         match SlashCommand::parse(&trimmed) {
             Ok(Some(command)) => {
                 let is_resume = matches!(command, SlashCommand::Resume { .. });
+                let is_effort = matches!(command, SlashCommand::Effort { .. });
+                let is_model = matches!(command, SlashCommand::Model { .. });
                 // Capture stdout+stderr so slash command output goes to
                 // scrollback instead of being written directly to the
                 // alternate screen.
@@ -2988,6 +3025,24 @@ fn run_tui_repl(cli: &mut LiveCli) -> Result<(), Box<dyn std::error::Error>> {
                 // history so the user sees fresh context.
                 if is_resume {
                     bridge.load_history(cli.runtime.session().messages.clone());
+                }
+                // For /effort, sync reasoning state back to the TUI header.
+                if is_effort {
+                    let effort = cli
+                        .runtime
+                        .runtime
+                        .as_ref()
+                        .and_then(|rt| rt.api_client().reasoning_effort.clone());
+                    let thinking = cli
+                        .runtime
+                        .runtime
+                        .as_ref()
+                        .and_then(|rt| rt.api_client().thinking_mode);
+                    bridge.reasoning_update(effort, thinking);
+                }
+                // For /model, sync model name back to the TUI header.
+                if is_model {
+                    bridge.model_update(cli.model.clone());
                 }
                 return Ok((
                     rx,

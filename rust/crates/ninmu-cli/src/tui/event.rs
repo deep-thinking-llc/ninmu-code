@@ -10,7 +10,10 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
-use ninmu_runtime::{ContentBlock, ConversationMessage, MessageRole, PermissionPromptDecision, PermissionRequest, TokenUsage};
+use ninmu_runtime::{
+    ContentBlock, ConversationMessage, MessageRole, PermissionPromptDecision, PermissionRequest,
+    TokenUsage,
+};
 
 /// Events that can be emitted during a TUI turn and consumed by the
 /// ratatui render loop on the main thread.
@@ -59,6 +62,15 @@ pub enum TuiEvent {
 
     /// Clear the scrollback and load conversation history (used by /resume).
     LoadHistory { messages: Vec<ConversationMessage> },
+
+    /// Reasoning effort or thinking mode was changed (used by /effort).
+    ReasoningUpdate {
+        effort: Option<String>,
+        thinking: Option<bool>,
+    },
+
+    /// Model was changed (used by /model).
+    ModelUpdate { model: String },
 }
 
 /// Bridge that lets the streaming / tool layer push events to the TUI.
@@ -158,6 +170,16 @@ impl TuiEventBridge {
     /// display the provided messages.
     pub fn load_history(&self, messages: Vec<ConversationMessage>) {
         self.push(TuiEvent::LoadHistory { messages });
+    }
+
+    /// Push a reasoning-update event.  The TUI will update its header.
+    pub fn reasoning_update(&self, effort: Option<String>, thinking: Option<bool>) {
+        self.push(TuiEvent::ReasoningUpdate { effort, thinking });
+    }
+
+    /// Push a model-update event.  The TUI will update its header.
+    pub fn model_update(&self, model: String) {
+        self.push(TuiEvent::ModelUpdate { model });
     }
 }
 

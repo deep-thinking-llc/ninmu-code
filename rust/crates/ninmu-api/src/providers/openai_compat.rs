@@ -1060,6 +1060,19 @@ pub fn is_reasoning_model(model: &str) -> bool {
     // for Gemini if desired.
 }
 
+/// Returns `true` for models that support the `thinking` toggle.
+/// This includes `DeepSeek-R1` (`deepseek-reasoner`) and Qwen3 thinking variants.
+#[must_use]
+pub fn is_deepseek_reasoning_model(model: &str) -> bool {
+    let lowered = model.to_ascii_lowercase();
+    let canonical = lowered.rsplit('/').next().unwrap_or(lowered.as_str());
+    canonical.starts_with("deepseek-reasoner")
+        || canonical.starts_with("deepseek-r1")
+        || canonical.contains("thinking")
+        || canonical.starts_with("qwq")
+        || canonical.starts_with("qwen-qwq")
+}
+
 /// Strip routing prefix (e.g., "openai/gpt-4" → "gpt-4") for the wire.
 /// The prefix is used only to select transport; the backend expects the
 /// bare model id.
@@ -1192,6 +1205,20 @@ pub fn build_chat_completion_request(
     if let Some(effort) = &request.reasoning_effort {
         payload["reasoning_effort"] = json!(effort);
     }
+    // DeepSeek/Qwen thinking mode toggle.
+    // Auto-enable for DeepSeek reasoning models unless explicitly disabled.
+    let effective_thinking = request.thinking_mode.or_else(|| {
+        if is_deepseek_reasoning_model(&request.model) {
+            Some(true)
+        } else {
+            None
+        }
+    });
+    if let Some(enabled) = effective_thinking {
+        payload["thinking"] = json!({
+            "type": if enabled { "enabled" } else { "disabled" }
+        });
+    }
 
     payload
 }
@@ -1223,9 +1250,7 @@ pub fn translate_message(message: &InputMessage, model: &str) -> Vec<Value> {
             for block in &message.content {
                 match block {
                     InputContentBlock::Text { text: value } => text.push_str(value),
-                    InputContentBlock::Thinking {
-                        thinking: value,
-                    } => thinking.push_str(value),
+                    InputContentBlock::Thinking { thinking: value } => thinking.push_str(value),
                     InputContentBlock::ToolUse { id, name, input } => tool_calls.push(json!({
                         "id": id,
                         "type": "function",
@@ -1944,6 +1969,7 @@ mod tests {
             presence_penalty: Some(0.3),
             stop: Some(vec!["\n".to_string()]),
             reasoning_effort: None,
+            thinking_mode: None,
         };
         let payload = build_chat_completion_request(&request, OpenAiCompatConfig::openai());
         assert_eq!(payload["temperature"], 0.7);
