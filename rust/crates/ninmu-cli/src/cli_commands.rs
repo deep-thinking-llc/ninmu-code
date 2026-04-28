@@ -568,6 +568,7 @@ pub(crate) fn render_export_text(session: &Session) -> String {
                         "[tool_result id={tool_use_id} name={tool_name} error={is_error}] {output}"
                     ));
                 }
+                ContentBlock::Thinking { .. } => {}
             }
         }
         lines.push(String::new());
@@ -1533,6 +1534,7 @@ pub(crate) fn render_session_markdown(
                     }
                     lines.push(String::new());
                 }
+                ContentBlock::Thinking { .. } => {}
             }
         }
         if let Some(usage) = message.usage {

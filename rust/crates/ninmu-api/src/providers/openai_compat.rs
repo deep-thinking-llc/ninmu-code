@@ -1218,10 +1218,14 @@ pub fn translate_message(message: &InputMessage, model: &str) -> Vec<Value> {
     match message.role.as_str() {
         "assistant" => {
             let mut text = String::new();
+            let mut thinking = String::new();
             let mut tool_calls = Vec::new();
             for block in &message.content {
                 match block {
                     InputContentBlock::Text { text: value } => text.push_str(value),
+                    InputContentBlock::Thinking {
+                        thinking: value,
+                    } => thinking.push_str(value),
                     InputContentBlock::ToolUse { id, name, input } => tool_calls.push(json!({
                         "id": id,
                         "type": "function",
@@ -1233,13 +1237,18 @@ pub fn translate_message(message: &InputMessage, model: &str) -> Vec<Value> {
                     InputContentBlock::ToolResult { .. } => {}
                 }
             }
-            if text.is_empty() && tool_calls.is_empty() {
+            if text.is_empty() && tool_calls.is_empty() && thinking.is_empty() {
                 Vec::new()
             } else {
                 let mut msg = serde_json::json!({
                     "role": "assistant",
                     "content": (!text.is_empty()).then_some(text),
                 });
+                // Include reasoning_content for providers that require it
+                // (DeepSeek, Qwen thinking variants).
+                if !thinking.is_empty() {
+                    msg["reasoning_content"] = json!(thinking);
+                }
                 // Only include tool_calls when non-empty: some providers reject
                 // assistant messages with an explicit empty tool_calls array.
                 if !tool_calls.is_empty() {
@@ -1273,7 +1282,7 @@ pub fn translate_message(message: &InputMessage, model: &str) -> Vec<Value> {
                     }
                     Some(msg)
                 }
-                InputContentBlock::ToolUse { .. } => None,
+                InputContentBlock::ToolUse { .. } | InputContentBlock::Thinking { .. } => None,
             })
             .collect(),
     }

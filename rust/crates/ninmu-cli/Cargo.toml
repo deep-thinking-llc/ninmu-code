@@ -20,6 +20,7 @@ ninmu-api = { version = "0.1.0", path = "../ninmu-api" }
 ninmu-commands = { version = "0.1.0", path = "../ninmu-commands" }
 ninmu-compat-harness = { version = "0.1.0", path = "../ninmu-compat-harness" }
 crossterm = "0.28"
+gag = "1.0"
 pulldown-cmark = "0.13"
 ratatui = "0.29"
 reqwest = { version = "0.12", features = ["blocking"] }

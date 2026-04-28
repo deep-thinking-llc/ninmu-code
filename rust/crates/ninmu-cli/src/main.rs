@@ -2235,6 +2235,7 @@ fn render_session_markdown(session: &Session, session_id: &str, session_path: &P
                     }
                     lines.push(String::new());
                 }
+                ContentBlock::Thinking { .. } => {}
             }
         }
         if let Some(usage) = message.usage {

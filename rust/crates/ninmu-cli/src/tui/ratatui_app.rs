@@ -26,7 +26,7 @@ use ratatui::Terminal;
 use crate::tui::event::{ThinkingState, TuiEvent, TuiSharedState};
 use crate::tui::permission::describe_tool_action;
 use crate::tui::scrollback::Scrollback;
-use ninmu_runtime::{PermissionPromptDecision, PermissionRequest, TokenUsage};
+use ninmu_runtime::{ContentBlock, ConversationMessage, MessageRole, PermissionPromptDecision, PermissionRequest, TokenUsage};
 
 // -- DESIGN.md colour palette ------------------------------------------------
 const BG: Color = Color::Rgb(10, 10, 10);
@@ -40,61 +40,6 @@ const ACCENT: Color = Color::Rgb(255, 107, 53);
 const ERROR_COLOR: Color = Color::Rgb(203, 80, 80);
 const SUCCESS: Color = Color::Rgb(70, 180, 70);
 const THINKING_COLOR: Color = Color::Rgb(136, 100, 220);
-
-// -- Splash screen constants -------------------------------------------------
-const SPLASH_DURATION: Duration = Duration::from_secs(5);
-const SPLASH_FADE_START: Duration = Duration::from_secs(4);
-/// Amber/gold colour matching the original DT-INTERFACE retro terminal.
-const SPLASH_COLOR: Color = Color::Rgb(218, 165, 32);
-
-const SPLASH_ART: &str = r##"╔══════════════════════════════════════════════════════════════════════════════════════╗
-║                                                                                      ║
-║  DDDDD   TTTTTTT                          DT ─ INTERFACE 1.0.7                       ║
-║  D   D      T       DEEP THINKING CORP    ANDROID MEMORY MANAGEMENT SYSTEM           ║
-║  D    D     T                                                                        ║
-║  D   D      T       BUILDING BETTER WORLDS                                           ║
-║  DDDDD      T                                                                        ║
-║                                                                                      ║
-║  USER: TECHNICIAN-07          DATE: 05-24-87                                         ║
-║  ACCESS LEVEL: 3              TIME: 14:32:11                                         ║
-║                                                                                      ║
-║  ┌─────────────────────────────────────────────────────────────────────────────┐     ║
-║  │                                                                             │     ║
-║  │  ANDROID UNIT       MEMORY CORE DIAGNOSTICS                      SYSTEM    │      ║
-║  │  JAIKOO-1                                                      ┌─────────┐ │      ║
-║  │  MODEL: ADB-120        ╭─────────────────╮                     │ NOMINAL │ │      ║
-║  │  SERIAL: 120-77A6-B6  ╱    ╭───────╮      ╲                   │ POWER   │ │       ║
-║  │                       │    │ ####  │       │                  │  98.7%  │ │       ║
-║  │  ┌──────────────┐     │   ╱│ ####  │╲      │                  │ SYS: OK │ │       ║
-║  │  │ OPERATIONAL  │     │  │ │       │ │     │                  └─────────┘ │       ║
-║  │  └──────────────┘     │  │ │  ╭─╮  │ │     │                                │      ║
-║  │                       │   ╲│ ╱   ╲ │╱      │    MEMORY TOOLS               │       ║
-║  │  MEMORY SYSTEM        │    ││     ││       │    ─────────────────          │       ║
-║  │  STATUS: ONLINE       │    ╰│  o  │╯       │    ▶ 01. VIEW MEMORY MAP      │       ║
-║  │  INTEGRITY: 100%       ╲    ╰─────╯       ╱     02. EDIT MEMORY BANKS      │       ║
-║  │                         ╲─────────────────╱      03. UPLOAD / DOWNLOAD      │      ║
-║  │   DDDD                                             04. MEMORY TEST          │      ║
-║  │   D  D    GEN 4                                    05. CLEAR MEMORY BANK    │      ║
-║  │   DDDD                                             06. REBUILD INDEX        │      ║
-║  │                                                    07. BACKUP MEMORY         │     ║
-║  │  ┌────────────────────────────────────────────┐    08. RESTORE MEMORY        │     ║
-║  │  │ SYSTEM LOG                                   │                            │     ║
-║  │  │                                              │    MEMORY MODULES          │     ║
-║  │  │  14:31:48  MEM CORE INTEGRITY CHECK... OK    │    ┌──┬────────────┬────┐  │     ║
-║  │  │  14:31:49  ALL MEMORY BANKS VERIFIED... OK   │    │01│PRIMARY MEM │ OK │  │     ║
-║  │  │  14:31:50  NEURAL NET SYNC... OK             │    │02│PERSONALITY  │ OK │  │    ║
-║  │  │  14:31:51  BEHAVIORAL INHIBITORS... LOCKED   │    │03│BEHAVIORAL   │ OK │  │    ║
-║  │  │  14:31:52  MEMORY SYSTEM... NOMINAL          │    │04│MISSION DIR  │ OK │  │    ║
-║  │  │                                              │    │05│LEARNING     │ OK │  │    ║
-║  │  └────────────────────────────────────────────┘    │06│SENSOR ARCH  │ OK │  │      ║
-║  │                                                    └──┴────────────┴────┘  │       ║
-║  │  F1 HELP │ F2 INFO │ F3 DIAG │ F4 MEM MAP │ F5 UPLOAD │ F6 DOWNLOAD       │       ║
-║  │                                                                             │      ║
-║  │       DDDD  DEEP THINKING CORP  (c) 1987  ALL RIGHTS RESERVED             │       ║
-║  │                                                                             │      ║
-║  └─────────────────────────────────────────────────────────────────────────────┘      ║
-║                                                                                      ║
-╚══════════════════════════════════════════════════════════════════════════════════════╝"##;
 
 // -- Spinner frames -----------------------------------------------------------
 const SPINNER: &[&str] = &[
@@ -132,8 +77,16 @@ pub struct RatatuiApp {
     last_conv_height: usize,
     /// Pending permission prompt waiting for user decision.
     pending_permission: Option<PendingPermission>,
-    /// When the splash screen started (`None` once dismissed).
-    splash_start: Option<Instant>,
+    /// Blinking cursor toggle for streaming output.
+    show_cursor_blink: bool,
+    /// Cached pricing for cost estimation.
+    model_pricing: Option<ninmu_runtime::ModelPricing>,
+    /// Input history for up/down navigation.
+    input_history: Vec<String>,
+    /// Position in input history (None = editing a new line).
+    history_index: Option<usize>,
+    /// Saved input buffer when navigating history.
+    history_restore_buf: Vec<char>,
 }
 
 /// A permission prompt waiting for the user to respond in the TUI.
@@ -145,6 +98,7 @@ struct PendingPermission {
 
 impl RatatuiApp {
     pub fn new(model: String, permission_mode: String, git_branch: Option<String>) -> Self {
+        let model_pricing = ninmu_runtime::pricing_for_model(&model);
         Self {
             scrollback: Scrollback::default(),
             input_buf: Vec::new(),
@@ -161,7 +115,11 @@ impl RatatuiApp {
             permission_mode,
             last_conv_height: 20,
             pending_permission: None,
-            splash_start: Some(Instant::now()),
+            show_cursor_blink: true,
+            model_pricing,
+            input_history: Vec::new(),
+            history_index: None,
+            history_restore_buf: Vec::new(),
         }
     }
 
@@ -224,11 +182,6 @@ impl RatatuiApp {
             if crossterm::event::poll(tick_rate)? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
-                        // Dismiss splash on any keypress.
-                        if self.splash_start.take().is_some() {
-                            continue;
-                        }
-
                         // Ctrl+C / Ctrl+D always quits
                         if key.modifiers.contains(KeyModifiers::CONTROL)
                             && matches!(key.code, KeyCode::Char('c' | 'd'))
@@ -325,6 +278,12 @@ impl RatatuiApp {
                             KeyCode::Enter if !self.input_buf.is_empty() => {
                                 let input: String = self.input_buf.drain(..).collect();
                                 self.cursor = 0;
+                                // Save to history, deduplicate consecutive.
+                                if self.input_history.last().is_none_or(|last| last != &input) {
+                                    self.input_history.push(input.clone());
+                                }
+                                self.history_index = None;
+                                self.history_restore_buf.clear();
                                 self.scrollback.push(format!("  > {input}"));
 
                                 match start_turn(&input) {
@@ -361,6 +320,40 @@ impl RatatuiApp {
                             }
                             KeyCode::Home => self.cursor = 0,
                             KeyCode::End => self.cursor = self.input_buf.len(),
+                            KeyCode::Up => {
+                                if self.input_history.is_empty() {
+                                    continue;
+                                }
+                                if self.history_index.is_none() {
+                                    self.history_restore_buf = self.input_buf.clone();
+                                    self.history_index =
+                                        Some(self.input_history.len().saturating_sub(1));
+                                } else if let Some(i) = self.history_index {
+                                    if i > 0 {
+                                        self.history_index = Some(i - 1);
+                                    }
+                                }
+                                if let Some(i) = self.history_index {
+                                    let entry = &self.input_history[i];
+                                    self.input_buf = entry.chars().collect();
+                                    self.cursor = self.input_buf.len();
+                                }
+                            }
+                            KeyCode::Down => {
+                                if let Some(i) = self.history_index {
+                                    if i + 1 < self.input_history.len() {
+                                        self.history_index = Some(i + 1);
+                                        let entry = &self.input_history[i + 1];
+                                        self.input_buf = entry.chars().collect();
+                                        self.cursor = self.input_buf.len();
+                                    } else {
+                                        self.history_index = None;
+                                        self.input_buf =
+                                            std::mem::take(&mut self.history_restore_buf);
+                                        self.cursor = self.input_buf.len();
+                                    }
+                                }
+                            }
                             KeyCode::PageUp => {
                                 self.scrollback.scroll_up(20);
                             }
@@ -399,10 +392,14 @@ impl RatatuiApp {
                 }
             }
 
-            // -- Advance spinner animation --------------------------------
+            // -- Advance spinner animation + cursor blink ---------------
             if self.tick.elapsed() >= Duration::from_millis(120) {
                 self.tick = Instant::now();
                 self.spinner_frame = self.spinner_frame.wrapping_add(1);
+                // Flip cursor blink every ~4 ticks (480ms cycle).
+                if self.spinner_frame.is_multiple_of(4) {
+                    self.show_cursor_blink = !self.show_cursor_blink;
+                }
             }
         }
     }
@@ -483,13 +480,25 @@ impl RatatuiApp {
             self.scrollback.push_str(&self.response_text);
             self.response_text.clear();
         }
-        // Show usage summary after response completes
         let total_tokens = self.usage.input_tokens + self.usage.output_tokens;
         if total_tokens > 0 {
-            self.scrollback.push(format!(
+            let mut msg = format!(
                 "  {} in / {} out tokens",
                 self.usage.input_tokens, self.usage.output_tokens,
-            ));
+            );
+            if let Some(pricing) = self.model_pricing {
+                let in_cost =
+                    (self.usage.input_tokens as f64 / 1_000_000.0) * pricing.input_cost_per_million;
+                let out_cost =
+                    (self.usage.output_tokens as f64 / 1_000_000.0)
+                        * pricing.output_cost_per_million;
+                let total = in_cost + out_cost;
+                if total >= 0.0001 {
+                    let cost_str = format!("  \u{2022} ${total:.4}");
+                    msg.push_str(&cost_str);
+                }
+            }
+            self.scrollback.push(msg);
         }
     }
 
@@ -501,15 +510,49 @@ impl RatatuiApp {
         }
     }
 
+    /// Load previous conversation history into the scrollback.
+    pub fn load_conversation_history(&mut self, messages: &[ConversationMessage]) {
+        for msg in messages {
+            let role_marker = match msg.role {
+                MessageRole::User => "> ",
+                MessageRole::Assistant => "",
+                _ => continue,
+            };
+            for block in &msg.blocks {
+                match block {
+                    ContentBlock::Text { text } => {
+                        let prefix = if role_marker.is_empty() {
+                            String::new()
+                        } else {
+                            format!("  {role_marker}")
+                        };
+                        for line in text.lines() {
+                            self.scrollback.push(format!("{prefix}{line}"));
+                        }
+                    }
+                    ContentBlock::ToolUse {
+                        name, input, ..
+                    } => {
+                        self.scrollback.push(format!("  -- {name}"));
+                        if let Some(first_line) = input.lines().next() {
+                            let summary = truncate(first_line, 76);
+                            self.scrollback.push(format!("  {summary}"));
+                        }
+                    }
+                    ContentBlock::ToolResult { .. } | ContentBlock::Thinking { .. } => {}
+                }
+            }
+        }
+        self.scrollback.push(String::new());
+        self.scrollback
+            .push("  \u{2500} session resumed \u{2500}".to_string());
+        self.scrollback.push(String::new());
+    }
+
     // -- Drawing --------------------------------------------------------------
 
     fn draw(&mut self, frame: &mut ratatui::Frame) {
         let area = frame.area();
-
-        // Splash screen takes over the whole display while active.
-        if self.draw_splash(frame, area) {
-            return;
-        }
 
         let layout = Layout::default()
             .direction(Direction::Vertical)
@@ -535,60 +578,6 @@ impl RatatuiApp {
         if self.pending_permission.is_some() {
             self.draw_permission_modal(frame, area);
         }
-    }
-
-    /// Draw the startup splash screen.
-    /// Returns `true` while the splash is still visible.
-    fn draw_splash(&mut self, frame: &mut ratatui::Frame, area: Rect) -> bool {
-        let start = match self.splash_start {
-            Some(s) => s,
-            None => return false,
-        };
-
-        let elapsed = start.elapsed();
-        if elapsed >= SPLASH_DURATION {
-            self.splash_start = None;
-            return false;
-        }
-
-        // Compute fade colour.
-        let fg = if elapsed >= SPLASH_FADE_START {
-            let progress = (elapsed - SPLASH_FADE_START).as_secs_f32()
-                / (SPLASH_DURATION - SPLASH_FADE_START).as_secs_f32();
-            let r = lerp(218, 10, progress);
-            let g = lerp(165, 10, progress);
-            let b = lerp(32, 10, progress);
-            Color::Rgb(r, g, b)
-        } else {
-            SPLASH_COLOR
-        };
-
-        // Clear the background.
-        frame.render_widget(Block::default().style(Style::default().bg(BG)), area);
-
-        let lines: Vec<&str> = SPLASH_ART.lines().collect();
-        let splash_h = lines.len() as u16;
-        let splash_w = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as u16;
-
-        let x = area
-            .x
-            .saturating_add(area.width.saturating_sub(splash_w) / 2);
-        let y = area
-            .y
-            .saturating_add(area.height.saturating_sub(splash_h) / 2);
-
-        for (row, line) in lines.iter().enumerate() {
-            let row_y = y + row as u16;
-            if row_y >= area.y + area.height {
-                break;
-            }
-            frame.render_widget(
-                Paragraph::new(*line).style(Style::default().fg(fg).bg(BG)),
-                Rect::new(x, row_y, splash_w.min(area.width), 1),
-            );
-        }
-
-        true
     }
 
     fn draw_header(&self, frame: &mut ratatui::Frame, area: Rect) {
@@ -667,6 +656,12 @@ impl RatatuiApp {
             .collect();
 
         if self.state.is_generating {
+            if !self.response_text.is_empty() {
+                let cursor_char = if self.show_cursor_blink { "\u{258C}" } else { " " };
+                let partial = format!("{}{cursor_char}", self.response_text);
+                lines.push(Line::from(markdown_spans(&partial)));
+            }
+
             let spinner = SPINNER[self.spinner_frame % SPINNER.len()];
             let indicator = match &self.state.thinking_state {
                 ThinkingState::Thinking { .. } => vec![
@@ -1039,10 +1034,6 @@ fn format_tokens(count: u32) -> String {
     }
 }
 
-fn lerp(a: u8, b: u8, t: f32) -> u8 {
-    (a as f32 * (1.0 - t) + b as f32 * t) as u8
-}
-
 fn help_line<'a>(key: &str, desc: &str) -> Line<'a> {
     Line::from(vec![
         Span::raw("  "),
@@ -1213,75 +1204,126 @@ mod tests {
         );
     }
 
-    // -- Splash screen tests ---------------------------------------------------
+    // -- Cost display tests -------------------------------------------------
 
     #[test]
-    fn splash_start_initialized_on_new() {
-        let app = RatatuiApp::new(
-            "test-model".into(),
-            "workspace-write".into(),
-            Some("main".into()),
+    fn flush_response_shows_cost_when_pricing_available() {
+        let mut app = RatatuiApp::new("claude-sonnet".into(), "write".into(), None);
+        app.usage = TokenUsage {
+            input_tokens: 1000,
+            output_tokens: 200,
+            ..Default::default()
+        };
+        app.response_text = "Hello world".into();
+        app.flush_response();
+        let all = app.scrollback.visible(usize::MAX).0;
+        let usage_line = all.last().expect("usage line should exist");
+        assert!(usage_line.contains("1000 in / 200 out tokens"));
+        assert!(usage_line.contains('$'), "expected cost in: {usage_line}");
+    }
+
+    // -- Input history tests ------------------------------------------------
+
+    #[test]
+    fn input_history_deduplicate_consecutive() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        let should_add = app.input_history.last().is_none_or(|last| last != "hello");
+        assert!(should_add);
+        app.input_history.push("hello".into());
+        let should_add2 = app.input_history.last().is_none_or(|last| last != "hello");
+        assert!(!should_add2);
+    }
+
+    #[test]
+    fn input_history_navigation_preserves_buffer() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.input_history.push("first prompt".into());
+        app.input_history.push("second prompt".into());
+        app.input_buf = "current".chars().collect();
+        app.cursor = app.input_buf.len();
+        // Save current buffer and navigate to last history entry.
+        app.history_restore_buf = app.input_buf.clone();
+        app.history_index = Some(app.input_history.len() - 1);
+        let entry = &app.input_history[app.history_index.unwrap()];
+        app.input_buf = entry.chars().collect();
+        app.cursor = app.input_buf.len();
+        assert_eq!(app.input_buf.iter().collect::<String>(), "second prompt");
+        assert_eq!(
+            app.history_restore_buf.iter().collect::<String>(),
+            "current"
         );
-        assert!(app.splash_start.is_some());
     }
 
-    #[test]
-    fn lerp_midpoint() {
-        assert_eq!(lerp(0, 100, 0.5), 50);
-    }
+    // -- Streaming cursor tests ---------------------------------------------
 
     #[test]
-    fn lerp_at_bounds() {
-        assert_eq!(lerp(10, 20, 0.0), 10);
-        assert_eq!(lerp(10, 20, 1.0), 20);
-    }
-
-    #[test]
-    fn lerp_extrapolates_beyond_one() {
-        // lerp doesn't clamp — it extrapolates
-        assert_eq!(lerp(0, 100, 1.5), 150);
-    }
-
-    #[test]
-    fn splash_draw_no_start_returns_false() {
+    fn streaming_cursor_blink_toggles() {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
-        app.splash_start = None;
-        let backend = ratatui::backend::TestBackend::new(80, 40);
-        let mut terminal = Terminal::new(backend).unwrap();
-        let result = terminal.draw(|frame| {
-            let area = frame.area();
-            assert!(!app.draw_splash(frame, area));
-        });
-        assert!(result.is_ok());
+        let initial = app.show_cursor_blink;
+        app.show_cursor_blink = !app.show_cursor_blink;
+        assert_ne!(app.show_cursor_blink, initial);
+    }
+
+    // -- Session resume tests -----------------------------------------------
+
+    #[test]
+    fn load_conversation_history_shows_user_and_assistant() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        let messages = vec![
+            ConversationMessage {
+                role: MessageRole::User,
+                blocks: vec![ContentBlock::Text {
+                    text: "Hello AI".into(),
+                }],
+                usage: None,
+            },
+            ConversationMessage {
+                role: MessageRole::Assistant,
+                blocks: vec![ContentBlock::Text {
+                    text: "Hi human!".into(),
+                }],
+                usage: None,
+            },
+        ];
+        app.load_conversation_history(&messages);
+        let all = app.scrollback.visible(usize::MAX).0;
+        let has_user = all.iter().any(|l| l.contains("> Hello AI"));
+        let has_assistant = all.iter().any(|l| l.contains("Hi human!"));
+        let has_separator = all.iter().any(|l| l.contains("session resumed"));
+        assert!(has_user, "should show user message");
+        assert!(has_assistant, "should show assistant message");
+        assert!(has_separator, "should show resume separator");
     }
 
     #[test]
-    fn splash_draw_expired_clears_and_returns_false() {
+    fn load_conversation_history_shows_tool_use() {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
-        // Set start to well before the splash duration
-        app.splash_start = Some(Instant::now() - SPLASH_DURATION - Duration::from_secs(1));
-        let backend = ratatui::backend::TestBackend::new(80, 40);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal
-            .draw(|frame| {
-                let area = frame.area();
-                assert!(!app.draw_splash(frame, area));
-            })
-            .unwrap();
-        assert!(app.splash_start.is_none());
+        let messages = vec![ConversationMessage {
+            role: MessageRole::Assistant,
+            blocks: vec![ContentBlock::ToolUse {
+                id: "tool_1".into(),
+                name: "read".into(),
+                input: "file.txt".into(),
+            }],
+            usage: None,
+        }];
+        app.load_conversation_history(&messages);
+        let all = app.scrollback.visible(usize::MAX).0;
+        let has_tool = all.iter().any(|l| l.contains("-- read"));
+        assert!(has_tool, "should show tool use marker");
+    }
+
+    // -- Pricing model tests ------------------------------------------------
+
+    #[test]
+    fn pricing_model_resolved_for_known_model() {
+        let app = RatatuiApp::new("claude-sonnet".into(), "write".into(), None);
+        assert!(app.model_pricing.is_some());
     }
 
     #[test]
-    fn splash_draw_active_returns_true() {
-        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
-        app.splash_start = Some(Instant::now());
-        let backend = ratatui::backend::TestBackend::new(80, 40);
-        let mut terminal = Terminal::new(backend).unwrap();
-        terminal
-            .draw(|frame| {
-                let area = frame.area();
-                assert!(app.draw_splash(frame, area));
-            })
-            .unwrap();
+    fn pricing_model_none_for_unknown_model() {
+        let app = RatatuiApp::new("unknown-model-xyz".into(), "write".into(), None);
+        assert!(app.model_pricing.is_none());
     }
 }

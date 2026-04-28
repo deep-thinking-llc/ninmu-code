@@ -2433,6 +2433,7 @@ impl AnthropicRuntimeClient {
                         }
                     }
                     ContentBlockDelta::ThinkingDelta { thinking } => {
+                        events.push(AssistantEvent::ThinkingDelta(thinking.clone()));
                         if thinking_start.is_none() {
                             thinking_start = Some(std::time::Instant::now());
                             if let Some(ref bridge) = self.event_bridge {
@@ -2773,6 +2774,9 @@ pub(crate) fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMes
                         }],
                         is_error: *is_error,
                     },
+                    ContentBlock::Thinking { thinking } => InputContentBlock::Thinking {
+                        thinking: thinking.clone(),
+                    },
                 })
                 .collect::<Vec<_>>();
             (!content.is_empty()).then(|| InputMessage {
@@ -2906,6 +2910,12 @@ fn run_tui_repl(cli: &mut LiveCli) -> Result<(), Box<dyn std::error::Error>> {
         git_branch,
     );
 
+    // Load existing session messages into the scrollback so the user
+    // can see conversation context before typing their first prompt.
+    if !cli.runtime.session().messages.is_empty() {
+        app.load_conversation_history(&cli.runtime.session().messages);
+    }
+
     // Run the ratatui event loop. The `start_turn` closure is called on each
     // user submission and returns a `(Receiver, JoinHandle)` tuple that
     // satisfies the `TurnHandle` trait.
@@ -2923,11 +2933,77 @@ fn run_tui_repl(cli: &mut LiveCli) -> Result<(), Box<dyn std::error::Error>> {
         }
         match SlashCommand::parse(&trimmed) {
             Ok(Some(command)) => {
-                cli.handle_repl_command(command)?;
-                // Return a completed pair so the app immediately sees it
-                // as finished without any streaming.
+                let is_resume = matches!(command, SlashCommand::Resume { .. });
+                // Capture stdout+stderr so slash command output goes to
+                // scrollback instead of being written directly to the
+                // alternate screen.
+                let pid = std::process::id();
+                let temp_out = std::env::temp_dir().join(format!("ninmu_tui_{pid}_stdout"));
+                let temp_err = std::env::temp_dir().join(format!("ninmu_tui_{pid}_stderr"));
+                let captured = (|| -> Result<(String, String), Box<dyn std::error::Error>> {
+                    let out_file = std::fs::File::create(&temp_out)?;
+                    let err_file = std::fs::File::create(&temp_err)?;
+                    let redir_out = gag::Redirect::stdout(out_file)?;
+                    let redir_err = gag::Redirect::stderr(err_file)?;
+                    let result = cli.handle_repl_command(command);
+                    drop(redir_err);
+                    drop(redir_out);
+                    result?;
+                    let stdout = std::fs::read_to_string(&temp_out).unwrap_or_default();
+                    let stderr = std::fs::read_to_string(&temp_err).unwrap_or_default();
+                    Ok((stdout, stderr))
+                })();
+                let _ = std::fs::remove_file(&temp_out);
+                let _ = std::fs::remove_file(&temp_err);
+                let (captured_stdout, captured_stderr) = captured?;
+                // Push captured output through the bridge as text events
+                // so it appears in the scrollback.
                 let (bridge, rx) = crate::tui::TuiEventBridge::new();
+                for line in captured_stdout.lines() {
+                    bridge.text(format!("{line}\n"));
+                }
+                for line in captured_stderr.lines() {
+                    bridge.error(line.to_string());
+                }
                 bridge.turn_complete();
+                // For /resume, also push the new session's messages so the
+                // user can see the conversation context immediately.
+                if is_resume && !cli.runtime.session().messages.is_empty() {
+                    for msg in &cli.runtime.session().messages {
+                        match msg.role {
+                            MessageRole::User => {
+                                for block in &msg.blocks {
+                                    if let ContentBlock::Text { text } = block {
+                                        for line in text.lines() {
+                                            bridge.text(format!("  > {line}\n"));
+                                        }
+                                    }
+                                }
+                            }
+                            MessageRole::Assistant => {
+                                for block in &msg.blocks {
+                                    match block {
+                                        ContentBlock::Text { text } => {
+                                            for line in text.lines() {
+                                                bridge.text(format!("{line}\n"));
+                                            }
+                                        }
+                                        ContentBlock::ToolUse { name, input, .. } => {
+                                            bridge.text(format!("  -- {name}\n"));
+                                            if let Some(first_line) = input.lines().next() {
+                                                bridge.text(format!("  {first_line}\n"));
+                                            }
+                                        }
+                                        ContentBlock::ToolResult { .. } => {}
+                                        ContentBlock::Thinking { .. } => {}
+                                    }
+                                }
+                            }
+                            MessageRole::System | MessageRole::Tool => {}
+                        }
+                    }
+                    bridge.text("\n  \u{2500} session resumed \u{2500}\n\n".to_string());
+                }
                 return Ok((
                     rx,
                     std::thread::spawn(|| {

@@ -41,6 +41,9 @@ pub enum ContentBlock {
         output: String,
         is_error: bool,
     },
+    Thinking {
+        thinking: String,
+    },
 }
 
 /// One conversation message with optional token-usage metadata.
@@ -767,6 +770,16 @@ impl ContentBlock {
                 object.insert("output".to_string(), JsonValue::String(output.clone()));
                 object.insert("is_error".to_string(), JsonValue::Bool(*is_error));
             }
+            Self::Thinking { thinking } => {
+                object.insert(
+                    "type".to_string(),
+                    JsonValue::String("thinking".to_string()),
+                );
+                object.insert(
+                    "thinking".to_string(),
+                    JsonValue::String(thinking.clone()),
+                );
+            }
         }
         JsonValue::Object(object)
     }
@@ -796,6 +809,9 @@ impl ContentBlock {
                     .get("is_error")
                     .and_then(JsonValue::as_bool)
                     .ok_or_else(|| SessionError::Format("missing is_error".to_string()))?,
+            }),
+            "thinking" => Ok(Self::Thinking {
+                thinking: required_string(object, "thinking")?,
             }),
             other => Err(SessionError::Format(format!(
                 "unsupported block type: {other}"
