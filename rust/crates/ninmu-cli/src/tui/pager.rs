@@ -155,11 +155,7 @@ impl InternalPager {
         let mut child = std::process::Command::new(&pager_cmd)
             .stdin(std::process::Stdio::piped())
             .spawn()
-            .map_err(|e| {
-                io::Error::other(
-                    format!("failed to start {pager_cmd}: {e}"),
-                )
-            })?;
+            .map_err(|e| io::Error::other(format!("failed to start {pager_cmd}: {e}")))?;
 
         if let Some(mut stdin) = child.stdin.take() {
             stdin.write_all(content.as_bytes())?;

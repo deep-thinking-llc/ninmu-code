@@ -292,15 +292,12 @@ impl<R: BufRead, W: Write> RpcServer<R, W> {
             .get_mut(session_id)
             .ok_or_else(|| format!("session not found: {session_id}"))?;
 
-        managed
-            .tree
-            .fork_at(node_id, new_branch_id)
-            .map(|()| {
-                serde_json::json!({
-                    "sessionId": session_id,
-                    "activeId": new_branch_id,
-                })
+        managed.tree.fork_at(node_id, new_branch_id).map(|()| {
+            serde_json::json!({
+                "sessionId": session_id,
+                "activeId": new_branch_id,
             })
+        })
     }
 
     fn handle_tree_navigate(&mut self, params: &Value) -> Result<Value, String> {
@@ -318,15 +315,12 @@ impl<R: BufRead, W: Write> RpcServer<R, W> {
             .get_mut(session_id)
             .ok_or_else(|| format!("session not found: {session_id}"))?;
 
-        managed
-            .tree
-            .navigate_to(node_id)
-            .map(|()| {
-                serde_json::json!({
-                    "sessionId": session_id,
-                    "activeId": node_id,
-                })
+        managed.tree.navigate_to(node_id).map(|()| {
+            serde_json::json!({
+                "sessionId": session_id,
+                "activeId": node_id,
             })
+        })
     }
 
     fn handle_tree_path(&mut self, params: &Value) -> Result<Value, String> {

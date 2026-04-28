@@ -13,7 +13,14 @@ fn telemetry_events_round_trip_through_memory_sink() {
     let tracer = SessionTracer::new("integration-session", sink.clone());
 
     tracer.record_http_request_started(1, "POST", "/v1/messages", serde_json::Map::default());
-    tracer.record_http_request_succeeded(1, "POST", "/v1/messages", 200, None, serde_json::Map::default());
+    tracer.record_http_request_succeeded(
+        1,
+        "POST",
+        "/v1/messages",
+        200,
+        None,
+        serde_json::Map::default(),
+    );
     tracer.record_analytics(
         AnalyticsEvent::new("cli", "turn_completed").with_property("ok", serde_json::json!(true)),
     );

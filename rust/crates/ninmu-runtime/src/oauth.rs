@@ -394,8 +394,7 @@ pub fn parse_oauth_callback_query(query: &str) -> Result<OAuthCallbackParams, St
 
 fn generate_random_token(bytes: usize) -> io::Result<String> {
     let mut buffer = vec![0_u8; bytes];
-    getrandom::getrandom(&mut buffer)
-        .map_err(|e| io::Error::other(e.to_string()))?;
+    getrandom::getrandom(&mut buffer).map_err(|e| io::Error::other(e.to_string()))?;
     Ok(base64url_encode(&buffer))
 }
 
@@ -643,8 +642,9 @@ mod tests {
         assert_eq!(params.state.as_deref(), Some("state-1"));
         assert_eq!(params.error_description.as_deref(), Some("needs login"));
 
-        let params = parse_oauth_callback_request_target_unvalidated("/callback?code=abc&state=xyz")
-            .expect("parse callback target");
+        let params =
+            parse_oauth_callback_request_target_unvalidated("/callback?code=abc&state=xyz")
+                .expect("parse callback target");
         assert_eq!(params.code.as_deref(), Some("abc"));
         assert_eq!(params.state.as_deref(), Some("xyz"));
         assert!(parse_oauth_callback_request_target_unvalidated("/wrong?code=abc").is_err());
@@ -659,8 +659,9 @@ mod tests {
             redirect_uri: "http://localhost:4545/callback".to_string(),
             created_at: Instant::now(),
         });
-        let params = parse_oauth_callback_request_target("/callback?code=abc&state=state-123", &store)
-            .expect("should validate state");
+        let params =
+            parse_oauth_callback_request_target("/callback?code=abc&state=state-123", &store)
+                .expect("should validate state");
         assert_eq!(params.code.as_deref(), Some("abc"));
     }
 
@@ -673,7 +674,8 @@ mod tests {
             redirect_uri: "http://localhost:4545/callback".to_string(),
             created_at: Instant::now(),
         });
-        let result = parse_oauth_callback_request_target("/callback?code=abc&state=state-fake", &store);
+        let result =
+            parse_oauth_callback_request_target("/callback?code=abc&state=state-fake", &store);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
     }
@@ -696,7 +698,8 @@ mod tests {
             created_at: Instant::now(),
         });
         std::thread::sleep(Duration::from_millis(5));
-        let result = parse_oauth_callback_request_target("/callback?code=abc&state=old-state", &store);
+        let result =
+            parse_oauth_callback_request_target("/callback?code=abc&state=old-state", &store);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("expired"));
     }
@@ -712,7 +715,8 @@ mod tests {
         });
         parse_oauth_callback_request_target("/callback?code=abc&state=replay-state", &store)
             .expect("first use succeeds");
-        let result = parse_oauth_callback_request_target("/callback?code=abc&state=replay-state", &store);
+        let result =
+            parse_oauth_callback_request_target("/callback?code=abc&state=replay-state", &store);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("not found"));
     }

@@ -403,7 +403,7 @@ impl NotificationDispatcher {
 
     /// Dispatch a notification to all matching sinks.
     /// Returns a vector of (`sink_name`, result) for diagnostics.
-    #[must_use] 
+    #[must_use]
     pub fn dispatch(&self, notification: &Notification) -> Vec<(&str, Result<(), String>)> {
         self.sinks
             .iter()

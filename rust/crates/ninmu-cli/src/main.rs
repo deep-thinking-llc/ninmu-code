@@ -19,11 +19,32 @@ mod tui;
 // Re-exports from extracted format modules so existing code still compiles.
 // After Phase 0 is complete, this import brings all extracted items into scope
 // as if they were still defined in main.rs.
-use args::{CliAction, enforce_broad_cwd_policy, CliOutputFormat, parse_resume_args, parse_dump_manifests_args, parse_system_prompt_args, parse_export_args};
-use format::{classify_error_kind, split_error_hint, print_help_topic, validate_model_syntax, resolve_model_alias_with_config, parse_permission_mode_arg, default_permission_mode, looks_like_subcommand_typo, suggest_similar_subcommand, LocalHelpTopic, levenshtein_distance, load_session_reference, render_repl_help, format_compact_report, write_session_clear_backup, new_cli_session, status_context, format_status_report, StatusUsage, status_json_value, format_sandbox_report, sandbox_json_value, format_cost_report, parse_history_count, collect_session_prompt_history, render_prompt_history_report, list_managed_sessions, sessions_dir, format_session_modified_age, ModelProvenance, ModelSource, print_help_to};
+use args::{
+    enforce_broad_cwd_policy, parse_dump_manifests_args, parse_export_args, parse_resume_args,
+    parse_system_prompt_args, CliAction, CliOutputFormat,
+};
+use format::{
+    classify_error_kind, collect_session_prompt_history, default_permission_mode,
+    format_compact_report, format_cost_report, format_sandbox_report, format_session_modified_age,
+    format_status_report, levenshtein_distance, list_managed_sessions, load_session_reference,
+    looks_like_subcommand_typo, new_cli_session, parse_history_count, parse_permission_mode_arg,
+    print_help_to, print_help_topic, render_prompt_history_report, render_repl_help,
+    resolve_model_alias_with_config, sandbox_json_value, sessions_dir, split_error_hint,
+    status_context, status_json_value, suggest_similar_subcommand, validate_model_syntax,
+    write_session_clear_backup, LocalHelpTopic, ModelProvenance, ModelSource, StatusUsage,
+};
 // Selective imports from app — avoid conflicting with format::* names
-use app::{RuntimeMcpState, build_runtime_plugin_state_with_loader, LiveCli, run_stale_base_preflight, run_repl};
-use cli_commands::{print_version, dump_manifests, print_bootstrap_plan, print_system_prompt, run_doctor, run_worker_state, run_init, render_config_report, render_config_json, render_diff_report, render_diff_json_for, render_memory_report, render_memory_json, render_diff_report_for, resolve_export_path, render_export_text, render_doctor_report, summarize_tool_payload_for_markdown};
+use app::{
+    build_runtime_plugin_state_with_loader, run_repl, run_stale_base_preflight, LiveCli,
+    RuntimeMcpState,
+};
+use cli_commands::{
+    dump_manifests, print_bootstrap_plan, print_system_prompt, print_version, render_config_json,
+    render_config_report, render_diff_json_for, render_diff_report, render_diff_report_for,
+    render_doctor_report, render_export_text, render_memory_json, render_memory_report,
+    resolve_export_path, run_doctor, run_init, run_worker_state,
+    summarize_tool_payload_for_markdown,
+};
 
 use std::collections::BTreeSet;
 use std::env;

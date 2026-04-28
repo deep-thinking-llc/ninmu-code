@@ -73,7 +73,7 @@ impl SecretScrubber {
     }
 
     /// Scrub secrets from a single string.
-    #[must_use] 
+    #[must_use]
     pub fn scrub(&self, input: &str) -> (String, Vec<SecretMatch>) {
         let mut output = input.to_string();
         let mut matches = Vec::new();
@@ -583,8 +583,8 @@ mod tests {
             ("LONG_SECRET".to_string(), "1234567890".to_string()),
         ];
         let scrubbed = SecretScrubber::scrub_env(&env);
-        assert_eq!(scrubbed[0].1, "[REDACTED]");   // 5 chars -> fully redacted
-        assert_eq!(scrubbed[1].1, "[REDACTED]");   // 8 chars -> fully redacted (threshold)
+        assert_eq!(scrubbed[0].1, "[REDACTED]"); // 5 chars -> fully redacted
+        assert_eq!(scrubbed[1].1, "[REDACTED]"); // 8 chars -> fully redacted (threshold)
         assert!(scrubbed[2].1.starts_with("1234")); // 10 chars -> prefix visible
     }
 }

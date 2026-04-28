@@ -73,7 +73,7 @@ impl ConflictDetector {
     }
 
     /// Record a write and return the new version info.
-    #[must_use] 
+    #[must_use]
     pub fn record_write(&self, agent_id: &str, path: &str, content: &str) -> u64 {
         let mut versions = self.versions.lock().expect("versions lock");
         let entry = versions.entry(path.to_string()).or_insert(FileVersion {
@@ -129,11 +129,7 @@ pub struct MergeEngine;
 
 impl MergeEngine {
     /// Perform a line-based three-way merge.
-    pub fn auto_merge(
-        base: &str,
-        ours: &str,
-        theirs: &str,
-    ) -> Result<String, MergeConflict> {
+    pub fn auto_merge(base: &str, ours: &str, theirs: &str) -> Result<String, MergeConflict> {
         let base_lines: Vec<&str> = base.lines().collect();
         let our_lines: Vec<&str> = ours.lines().collect();
         let their_lines: Vec<&str> = theirs.lines().collect();
@@ -192,9 +188,7 @@ impl MergeEngine {
         if !overlap.is_empty() {
             return Err(MergeConflict {
                 path: String::new(),
-                description: format!(
-                    "conflict at lines {overlap:?}: our edit vs their edit"
-                ),
+                description: format!("conflict at lines {overlap:?}: our edit vs their edit"),
             });
         }
 
@@ -318,6 +312,9 @@ mod tests {
         let ours = "a\nb\nc";
         let theirs = "a\nb\nc\nd\ne\nf";
         let result = MergeEngine::auto_merge(base, ours, theirs);
-        assert!(result.is_err(), "opposite-direction changes should conflict");
+        assert!(
+            result.is_err(),
+            "opposite-direction changes should conflict"
+        );
     }
 }

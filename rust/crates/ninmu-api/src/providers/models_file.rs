@@ -241,9 +241,11 @@ pub fn discover_and_load_models(cwd: &Path, config_home: &Path) -> Result<(), St
 }
 
 /// Return all resolved custom models from the global registry.
-#[must_use] 
+#[must_use]
 pub fn all_custom_models() -> Vec<ResolvedCustomModel> {
-    let Ok(guard) = custom_models().read() else { return Vec::new() };
+    let Ok(guard) = custom_models().read() else {
+        return Vec::new();
+    };
     let Some(file) = guard.as_ref() else {
         return Vec::new();
     };
@@ -282,7 +284,7 @@ pub fn all_custom_models() -> Vec<ResolvedCustomModel> {
 /// same name across providers, use the `provider/` prefix form (e.g.
 /// `"ollama/llama3.1:8b"`). Provider-prefixed lookups take priority and are
 /// checked before bare ID lookups.
-#[must_use] 
+#[must_use]
 pub fn find_custom_model(model: &str) -> Option<ResolvedCustomModel> {
     let guard = custom_models().read().ok()?;
     let file = guard.as_ref()?;
@@ -309,7 +311,7 @@ pub fn find_custom_model(model: &str) -> Option<ResolvedCustomModel> {
 /// Return a `ProviderMetadata` for a custom model, if one matches.
 /// This lets the existing `metadata_for_model()` and `detect_provider_kind()`
 /// functions seamlessly route through custom providers.
-#[must_use] 
+#[must_use]
 pub fn custom_metadata_for_model(model: &str) -> Option<ProviderMetadata> {
     let resolved = find_custom_model(model)?;
     let (provider_kind, auth_env) = match resolved.api.as_str() {
@@ -332,13 +334,13 @@ pub fn custom_metadata_for_model(model: &str) -> Option<ProviderMetadata> {
 }
 
 /// Get the max tokens override for a custom model, if registered.
-#[must_use] 
+#[must_use]
 pub fn custom_max_tokens(model: &str) -> Option<u32> {
     find_custom_model(model).map(|m| m.max_tokens)
 }
 
 /// Get the context window size for a custom model, if registered.
-#[must_use] 
+#[must_use]
 pub fn custom_context_window(model: &str) -> Option<u32> {
     find_custom_model(model).map(|m| m.context_window)
 }

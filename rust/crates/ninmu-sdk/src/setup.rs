@@ -27,7 +27,7 @@ pub struct DetectedProvider {
 
 impl DetectedProvider {
     /// Check if a provider API key is set.
-    #[must_use] 
+    #[must_use]
     pub fn check(name: &'static str, env_var: &'static str, key_url: &'static str) -> Self {
         let present = std::env::var(env_var).ok().is_some_and(|v| !v.is_empty());
         Self {
@@ -192,7 +192,8 @@ impl SetupReport {
         let tool_count = tools.iter().filter(|t| t.installed).count();
 
         Self {
-            cwd: std::env::current_dir().map_or_else(|_| "<unknown>".to_string(), |p| p.display().to_string()),
+            cwd: std::env::current_dir()
+                .map_or_else(|_| "<unknown>".to_string(), |p| p.display().to_string()),
             providers,
             tools,
             has_provider,

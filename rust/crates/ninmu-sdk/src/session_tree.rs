@@ -136,7 +136,9 @@ impl SessionTree {
         let label = node.label.clone();
 
         // Fork at root: create a new root sibling
-        if let Some(pid) = &parent_id { self.add_child(new_branch_id, pid, &role, label)? } else {
+        if let Some(pid) = &parent_id {
+            self.add_child(new_branch_id, pid, &role, label)?
+        } else {
             // Forking the root creates a second root-like node.
             // We preserve the original root_id so the tree remains
             // reachable. The new node gets its own entry.

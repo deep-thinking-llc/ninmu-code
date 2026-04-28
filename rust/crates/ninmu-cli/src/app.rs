@@ -18,7 +18,12 @@ use ninmu_api::{
     StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition, ToolResultContentBlock,
 };
 
-use crate::cli_commands::{run_init, render_doctor_report, render_config_report, render_memory_report, run_mcp_serve, render_diff_report, resolve_export_path, render_export_text, format_bughunter_report, format_ultraplan_report, render_teleport_report, validate_no_args, render_last_tool_debug_report, git_output, format_pr_report, format_issue_report};
+use crate::cli_commands::{
+    format_bughunter_report, format_issue_report, format_pr_report, format_ultraplan_report,
+    git_output, render_config_report, render_diff_report, render_doctor_report, render_export_text,
+    render_last_tool_debug_report, render_memory_report, render_teleport_report,
+    resolve_export_path, run_init, run_mcp_serve, validate_no_args,
+};
 use crate::init::initialize_repo;
 use crate::input;
 use crate::render::{MarkdownStreamState, Spinner, TerminalRenderer};
@@ -46,8 +51,23 @@ use ninmu_tools::{
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 
-use crate::args::{CliOutputFormat, enforce_broad_cwd_policy, try_resolve_bare_skill_prompt};
-use crate::format::{SessionHandle, PromptHistoryEntry, new_cli_session, create_managed_session_handle, status_context, slash_command_completion_candidates_with_sessions, list_managed_sessions, format_auto_compaction_notice, render_repl_help, format_cost_report, format_unknown_slash_command, format_status_report, StatusUsage, parse_history_count, collect_session_prompt_history, render_prompt_history_report, format_sandbox_report, format_model_report, resolve_model_alias_with_config, format_model_switch_report, format_permissions_report, normalize_permission_mode, permission_mode_from_label, format_permissions_switch_report, render_resume_usage, load_session_reference, format_resume_report, render_session_list, resolve_session_reference, confirm_session_deletion, delete_managed_session, format_compact_report, parse_git_workspace_summary, parse_git_status_branch, format_commit_skipped_report, format_commit_preflight_report, resolve_git_branch_for, max_tokens_for_model, filter_tool_specs, format_user_visible_api_error, format_tool_call_start, format_tool_result, resolve_repl_model, format_connected_line, truncate_for_summary, first_visible_line, extract_tool_path, summarize_tool_payload};
+use crate::args::{enforce_broad_cwd_policy, try_resolve_bare_skill_prompt, CliOutputFormat};
+use crate::format::{
+    collect_session_prompt_history, confirm_session_deletion, create_managed_session_handle,
+    delete_managed_session, extract_tool_path, filter_tool_specs, first_visible_line,
+    format_auto_compaction_notice, format_commit_preflight_report, format_commit_skipped_report,
+    format_compact_report, format_connected_line, format_cost_report, format_model_report,
+    format_model_switch_report, format_permissions_report, format_permissions_switch_report,
+    format_resume_report, format_sandbox_report, format_status_report, format_tool_call_start,
+    format_tool_result, format_unknown_slash_command, format_user_visible_api_error,
+    list_managed_sessions, load_session_reference, max_tokens_for_model, new_cli_session,
+    normalize_permission_mode, parse_git_status_branch, parse_git_workspace_summary,
+    parse_history_count, permission_mode_from_label, render_prompt_history_report,
+    render_repl_help, render_resume_usage, render_session_list, resolve_git_branch_for,
+    resolve_model_alias_with_config, resolve_repl_model, resolve_session_reference,
+    slash_command_completion_candidates_with_sessions, status_context, summarize_tool_payload,
+    truncate_for_summary, PromptHistoryEntry, SessionHandle, StatusUsage,
+};
 use crate::tui::permission::{
     format_enhanced_permission_prompt, parse_permission_response, PermissionDecision,
 };
@@ -347,7 +367,10 @@ impl LiveCli {
 
     /// Run a turn without printing to stdout. Returns the assistant's
     /// final text response. Used by the TUI which manages its own screen.
-    pub(crate) fn run_turn_text(&mut self, input: &str) -> Result<String, Box<dyn std::error::Error>> {
+    pub(crate) fn run_turn_text(
+        &mut self,
+        input: &str,
+    ) -> Result<String, Box<dyn std::error::Error>> {
         let expansion = crate::file_ref::expand_file_refs(input);
         let input = expansion.expanded;
         let (mut runtime, hook_abort_monitor) = self.prepare_turn_runtime(false)?;
@@ -363,6 +386,77 @@ impl LiveCli {
             return Ok(format!("{notice}\n{text}"));
         }
         Ok(text)
+    }
+
+    /// Run a turn in TUI mode. Returns a receiver for streaming events
+    /// that the ratatui loop consumes on the main thread.
+    pub(crate) fn run_turn_tui_channels(
+        &mut self,
+        input: &str,
+    ) -> Result<
+        (
+            std::sync::mpsc::Receiver<crate::tui::TuiEvent>,
+            std::thread::JoinHandle<Result<String, Box<dyn std::error::Error + Send>>>,
+        ),
+        Box<dyn std::error::Error>,
+    > {
+        let expansion = crate::file_ref::expand_file_refs(input);
+        let input = expansion.expanded;
+
+        let (bridge, rx) = crate::tui::TuiEventBridge::new();
+        let bridge2 = bridge.clone();
+
+        // Snapshot everything needed to build a runtime on the worker thread.
+        let model = self.model.clone();
+        let allowed_tools = self.allowed_tools.clone();
+        let permission_mode = self.permission_mode;
+        let system_prompt = self.system_prompt.clone();
+        let session = self.runtime.session().clone();
+        let session_id = self.session.id.clone();
+
+        let handle = std::thread::spawn(move || {
+            let hook_abort_signal = ninmu_runtime::HookAbortSignal::new();
+            let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal.clone());
+
+            let mut runtime = build_runtime(
+                session,
+                &session_id,
+                model.clone(),
+                system_prompt.clone(),
+                true,
+                false,
+                allowed_tools.clone(),
+                permission_mode,
+                None,
+            )
+            .map_err(|e| {
+                let msg = e.to_string();
+                Box::new(std::io::Error::other(msg)) as Box<dyn std::error::Error + Send>
+            })?
+            .with_hook_abort_signal(hook_abort_signal);
+
+            // Inject bridge into the API client and tool executor.
+            if let Some(r) = runtime.runtime.as_mut() {
+                r.api_client_mut().event_bridge = Some(bridge2.clone());
+                r.tool_executor_mut().event_bridge = Some(bridge2.clone());
+            }
+
+            let mut permission_prompter = TuiPermissionPrompter::new(bridge2.clone());
+            let result = runtime.run_turn(input, Some(&mut permission_prompter));
+            hook_abort_monitor.stop();
+            let summary = match result {
+                Ok(s) => s,
+                Err(e) => {
+                    bridge2.error(e.to_string());
+                    bridge2.turn_complete();
+                    return Err(Box::new(e) as Box<dyn std::error::Error + Send>);
+                }
+            };
+            bridge2.turn_complete();
+            Ok(final_assistant_text(&summary))
+        });
+
+        Ok((rx, handle))
     }
 
     fn run_prompt_compact(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -2048,6 +2142,39 @@ impl ninmu_runtime::PermissionPrompter for CliPermissionPrompter {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// TuiPermissionPrompter  —  bridge permission prompts into the ratatui event loop
+// ═══════════════════════════════════════════════════════════════════════════
+
+pub(crate) struct TuiPermissionPrompter {
+    bridge: crate::tui::TuiEventBridge,
+}
+
+impl TuiPermissionPrompter {
+    pub(crate) fn new(bridge: crate::tui::TuiEventBridge) -> Self {
+        Self { bridge }
+    }
+}
+
+impl ninmu_runtime::PermissionPrompter for TuiPermissionPrompter {
+    fn decide(
+        &mut self,
+        request: &ninmu_runtime::PermissionRequest,
+    ) -> ninmu_runtime::PermissionPromptDecision {
+        let rx = self.bridge.permission_prompt(request.clone());
+        // Block until the TUI sends a decision through the channel.
+        match rx.recv() {
+            Ok(decision) => decision,
+            Err(_) => {
+                // Channel dropped — TUI exited. Deny as a safe default.
+                ninmu_runtime::PermissionPromptDecision::Deny {
+                    reason: "permission channel closed".to_string(),
+                }
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // AnthropicRuntimeClient
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -2070,6 +2197,7 @@ pub(crate) struct AnthropicRuntimeClient {
     pub(crate) reasoning_effort: Option<String>,
     pub(crate) provider_defaults:
         std::collections::BTreeMap<String, ninmu_runtime::ProviderDefaultConfig>,
+    pub(crate) event_bridge: Option<crate::tui::TuiEventBridge>,
 }
 
 impl AnthropicRuntimeClient {
@@ -2116,6 +2244,7 @@ impl AnthropicRuntimeClient {
             progress_reporter,
             reasoning_effort: None,
             provider_defaults,
+            event_bridge: None,
         })
     }
 
@@ -2232,6 +2361,8 @@ impl AnthropicRuntimeClient {
         let turn_start = std::time::Instant::now();
         let terminal_size = TerminalSize::new();
         let mut tool_timeline = ToolCallTimeline::new();
+        let mut thinking_start: Option<std::time::Instant> = None;
+        let mut thinking_chars: usize = 0;
 
         loop {
             let next = if apply_stall_timeout && !received_any_event {
@@ -2290,6 +2421,9 @@ impl AnthropicRuntimeClient {
                                     .and_then(|()| out.flush())
                                     .map_err(|error| RuntimeError::new(error.to_string()))?;
                             }
+                            if let Some(ref bridge) = self.event_bridge {
+                                bridge.text(&text);
+                            }
                             events.push(AssistantEvent::TextDelta(text));
                         }
                     }
@@ -2298,7 +2432,14 @@ impl AnthropicRuntimeClient {
                             input.push_str(&partial_json);
                         }
                     }
-                    ContentBlockDelta::ThinkingDelta { .. } => {
+                    ContentBlockDelta::ThinkingDelta { thinking } => {
+                        if thinking_start.is_none() {
+                            thinking_start = Some(std::time::Instant::now());
+                            if let Some(ref bridge) = self.event_bridge {
+                                bridge.thinking_start();
+                            }
+                        }
+                        thinking_chars += thinking.len();
                         if !block_has_thinking_summary {
                             if let Some(progress_reporter) = &self.progress_reporter {
                                 progress_reporter.mark_reasoning_phase();
@@ -2311,6 +2452,13 @@ impl AnthropicRuntimeClient {
                 },
                 ApiStreamEvent::ContentBlockStop(_) => {
                     block_has_thinking_summary = false;
+                    if let Some(thinking_start_time) = thinking_start.take() {
+                        if let Some(ref bridge) = self.event_bridge {
+                            bridge
+                                .thinking_stop(thinking_start_time.elapsed(), Some(thinking_chars));
+                        }
+                        thinking_chars = 0;
+                    }
                     if let Some(rendered) = markdown_stream.flush(&renderer) {
                         write!(out, "{rendered}")
                             .and_then(|()| out.flush())
@@ -2321,6 +2469,9 @@ impl AnthropicRuntimeClient {
                             progress_reporter.mark_tool_phase(&name, &input);
                         }
                         tool_timeline.start_tool(&name);
+                        if let Some(ref bridge) = self.event_bridge {
+                            bridge.tool_use(&name, &input);
+                        }
                         writeln!(out, "\n{}", format_tool_call_start(&name, &input))
                             .and_then(|()| out.flush())
                             .map_err(|error| RuntimeError::new(error.to_string()))?;
@@ -2331,13 +2482,21 @@ impl AnthropicRuntimeClient {
                     let usage = delta.usage.token_usage();
                     cumulative_input_tokens += u64::from(usage.input_tokens);
                     cumulative_output_tokens += u64::from(usage.output_tokens);
-                    events.push(AssistantEvent::Usage(usage));
+                    events.push(AssistantEvent::Usage(usage.clone()));
+
+                    // Emit usage update to TUI bridge
+                    if let Some(ref bridge) = self.event_bridge {
+                        bridge.usage(usage);
+                    }
 
                     // Update status bar
-                    let cost_str = pricing_for_model(&self.model).map_or_else(|| "$—".to_string(), |p| {
+                    let cost_str = pricing_for_model(&self.model).map_or_else(
+                        || "$—".to_string(),
+                        |p| {
                             let estimate = usage.estimate_cost_usd_with_pricing(p);
                             format!("${:.4}", estimate.total_cost_usd())
-                        });
+                        },
+                    );
                     let status_state = StatusBarState {
                         model: self.model.clone(),
                         permission_mode: "active".to_string(),
@@ -2415,6 +2574,7 @@ pub(crate) struct CliToolExecutor {
     tool_registry: GlobalToolRegistry,
     mcp_state: Option<Arc<Mutex<RuntimeMcpState>>>,
     tool_timeline: Option<SharedToolCallTimeline>,
+    event_bridge: Option<crate::tui::TuiEventBridge>,
 }
 
 impl CliToolExecutor {
@@ -2432,6 +2592,7 @@ impl CliToolExecutor {
             tool_registry,
             mcp_state,
             tool_timeline,
+            event_bridge: None,
         }
     }
 
@@ -2529,6 +2690,9 @@ impl ToolExecutor for CliToolExecutor {
                     let lines = output.lines().count();
                     timeline.with(|t| t.complete_tool(false, lines > 100, lines));
                 }
+                if let Some(ref bridge) = self.event_bridge {
+                    bridge.tool_result(tool_name, &output, false);
+                }
                 if self.emit_output {
                     let highlight =
                         |code: &str, lang: &str| self.renderer.highlight_code(code, lang);
@@ -2542,6 +2706,9 @@ impl ToolExecutor for CliToolExecutor {
             Err(error) => {
                 if let Some(ref timeline) = self.tool_timeline {
                     timeline.with(|t| t.complete_tool(true, false, 0));
+                }
+                if let Some(ref bridge) = self.event_bridge {
+                    bridge.tool_result(tool_name, &error.to_string(), true);
                 }
                 if self.emit_output {
                     let highlight =
@@ -2723,33 +2890,58 @@ pub(crate) fn run_repl(
     Ok(())
 }
 
-/// REPL variant using the full-screen crossterm TUI alternate screen.
+/// REPL variant using the full-screen ratatui TUI with streaming event feedback.
 fn run_tui_repl(cli: &mut LiveCli) -> Result<(), Box<dyn std::error::Error>> {
     if !std::io::stdout().is_terminal() || !std::io::stdin().is_terminal() {
         return run_repl_standard(cli);
     }
-    let mut tui = crate::tui::FullScreenTui::new();
-    tui.run(|input| {
+
+    let git_branch = status_context(None)
+        .ok()
+        .and_then(|ctx| ctx.git_branch.clone());
+
+    let mut app = crate::tui::ratatui_app::RatatuiApp::new(
+        cli.model.clone(),
+        cli.permission_mode.as_str().to_string(),
+        git_branch,
+    );
+
+    // Run the ratatui event loop. The `start_turn` closure is called on each
+    // user submission and returns a `(Receiver, JoinHandle)` tuple that
+    // satisfies the `TurnHandle` trait.
+    app.run(|input| -> Result<_, Box<dyn std::error::Error>> {
         let trimmed = input.trim().to_string();
         if trimmed.is_empty() {
-            return Ok(String::new());
+            return Err("empty input".into());
         }
         if matches!(trimmed.as_str(), "/exit" | "/quit") {
             cli.persist_session()?;
-            return Ok(String::new());
+            // Signal that we should exit by returning an error that the
+            // caller interprets as "exit".  The ratatui app will close
+            // the alternate screen.
+            return Err("exit".into());
         }
         match SlashCommand::parse(&trimmed) {
             Ok(Some(command)) => {
                 cli.handle_repl_command(command)?;
-                return Ok(String::new());
+                // Return a completed pair so the app immediately sees it
+                // as finished without any streaming.
+                let (bridge, rx) = crate::tui::TuiEventBridge::new();
+                bridge.turn_complete();
+                return Ok((
+                    rx,
+                    std::thread::spawn(|| {
+                        Ok(String::new()) as Result<String, Box<dyn std::error::Error + Send>>
+                    }),
+                ));
             }
             Ok(None) => {}
-            Err(error) => return Ok(format!("error: {error}")),
+            Err(error) => return Err(error.to_string().into()),
         }
         cli.record_prompt_history(&trimmed);
-        let text = cli.run_turn_text(&trimmed)?;
-        Ok(text)
+        cli.run_turn_tui_channels(&trimmed)
     })?;
+
     cli.persist_session()?;
     Ok(())
 }

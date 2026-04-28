@@ -1,0 +1,2 @@
+0000000000000000000000000000000000000000 a389f8dff1d591d2eafc2f48747313cd556412ee YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777145117 +0100	branch: Created from HEAD
+a389f8dff1d591d2eafc2f48747313cd556412ee 31ea706a309887b3c394810a138756269c11d1a2 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777145151 +0100	commit: feat: add runtime models.json config, SDK crate, and extension/session-tree/agent-context primitives

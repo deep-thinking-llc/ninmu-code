@@ -87,11 +87,11 @@ pub use session::{AgentSession, AgentSessionBuilder, BoxedApiClient, DummyApiCli
 pub use session_manager::{SessionManager, SessionManagerConfig};
 pub use session_tree::{SessionTree, SessionTreeNode};
 pub use session_tree_log::{SessionTreeLog, TreeEntry};
-pub use shared_staging::{SharedStaging, StagingLock, StagingLockGuard};
 pub use setup::{
     check_tool, detect_providers, detect_tools, template_library, DetectedProvider, DetectedTool,
     SessionTemplate, SetupReport,
 };
+pub use shared_staging::{SharedStaging, StagingLock, StagingLockGuard};
 pub use tool_registry::{
     create_builtin_tools, define_tool, FnToolHandler, SchemaValidationError, SchemaValidator,
     SdkToolExecutor, ToolDefinition, ToolDefinitionBuilder, ToolHandler, ToolRegistry,

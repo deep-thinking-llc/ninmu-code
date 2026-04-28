@@ -742,8 +742,9 @@ mod tests {
 
     use super::{
         anthropic_missing_credentials, anthropic_missing_credentials_hint, detect_provider_kind,
-        load_dotenv_file, max_tokens_for_model, max_tokens_for_model_with_override, model_token_limit, parse_dotenv, prefix_model_for_provider,
-        preflight_message_request, provider_kind_from_str, resolve_model_alias, ProviderKind,
+        load_dotenv_file, max_tokens_for_model, max_tokens_for_model_with_override,
+        model_token_limit, parse_dotenv, prefix_model_for_provider, preflight_message_request,
+        provider_kind_from_str, resolve_model_alias, ProviderKind,
     };
 
     /// Serializes every test in this module that mutates process-wide

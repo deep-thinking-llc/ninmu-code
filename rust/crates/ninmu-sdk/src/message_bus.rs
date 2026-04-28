@@ -66,11 +66,7 @@ impl MessageBus {
     /// Publish a message to all subscribers of a topic.
     ///
     /// The `token` MUST belong to the same agent as `message.from_agent`.
-    pub fn publish(&self,
-        token: &PublisherToken,
-        topic: &str,
-        mut message: AgentMessage,
-    ) {
+    pub fn publish(&self, token: &PublisherToken, topic: &str, mut message: AgentMessage) {
         if message.from_agent != token.agent_id {
             return; // silently drop impersonation attempts
         }
@@ -114,12 +110,10 @@ impl MessageBus {
     #[must_use]
     pub fn subscribe(&self, topic: &str) -> tokio::sync::broadcast::Receiver<AgentMessage> {
         let mut channels = self.channels.lock().expect("channels lock");
-        let tx = channels
-            .entry(topic.to_string())
-            .or_insert_with(|| {
-                let (tx, _rx) = tokio::sync::broadcast::channel(256);
-                tx
-            });
+        let tx = channels.entry(topic.to_string()).or_insert_with(|| {
+            let (tx, _rx) = tokio::sync::broadcast::channel(256);
+            tx
+        });
         tx.subscribe()
     }
 
@@ -143,7 +137,11 @@ impl MessageBus {
     #[must_use]
     pub fn history(&self, topic: &str) -> Vec<AgentMessage> {
         let history = self.history.lock().expect("history lock");
-        history.iter().filter(|m| m.channel == topic).cloned().collect()
+        history
+            .iter()
+            .filter(|m| m.channel == topic)
+            .cloned()
+            .collect()
     }
 
     /// Return the recent message history across all topics.
@@ -166,11 +164,15 @@ mod tests {
     use super::*;
 
     fn alice_token() -> PublisherToken {
-        PublisherToken { agent_id: "alice".to_string() }
+        PublisherToken {
+            agent_id: "alice".to_string(),
+        }
     }
 
     fn bob_token() -> PublisherToken {
-        PublisherToken { agent_id: "bob".to_string() }
+        PublisherToken {
+            agent_id: "bob".to_string(),
+        }
     }
 
     fn test_message(from: &str, topic: &str) -> AgentMessage {
@@ -216,12 +218,11 @@ mod tests {
         bus.publish(&token, "topic.a", test_message("alice", "topic.a"));
         let msg_a = rx_a.recv().await.expect("topic.a should receive");
         assert_eq!(msg_a.from_agent, "alice");
-        let result = tokio::time::timeout(
-            std::time::Duration::from_millis(50),
-            rx_b.recv(),
-        )
-        .await;
-        assert!(result.is_err(), "topic.b should not receive topic.a messages");
+        let result = tokio::time::timeout(std::time::Duration::from_millis(50), rx_b.recv()).await;
+        assert!(
+            result.is_err(),
+            "topic.b should not receive topic.a messages"
+        );
     }
 
     #[tokio::test]
@@ -274,7 +275,7 @@ mod tests {
     #[test]
     fn wrong_agent_id_rejected() {
         let bus = MessageBus::new(100);
-        let token = alice_token();   // alice token
+        let token = alice_token(); // alice token
         let mut msg = test_message("bob", "test"); // but message says from bob
         msg.payload = serde_json::json!("payload");
         bus.publish(&token, "test", msg);

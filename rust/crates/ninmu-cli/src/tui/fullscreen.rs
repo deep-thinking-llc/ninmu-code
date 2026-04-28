@@ -6,7 +6,6 @@
 //! rendered output text that gets appended to the scrollback.
 
 use std::io::{self, Write};
-use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 
@@ -20,6 +19,7 @@ use crossterm::{
 
 use crate::tui::scrollback::Scrollback;
 use crate::tui::theme::Theme;
+use crate::tui::turn_output::TurnOutput;
 
 const INPUT_HEIGHT: u16 = 3;
 const PROMPT: &str = "> ";
@@ -28,6 +28,8 @@ const SPINNER_INTERVAL: Duration = Duration::from_millis(80);
 
 const HELP_OVERLAY: &str = "\
 ── Keyboard Shortcuts ─────────────────────
+  Enter                Submit input
+  Ctrl+J / Ctrl+Enter  Insert newline
   PageUp / PageDown    Scroll conversation
   Home / End           Top / bottom
   Tab                  Expand/collapse tool output
@@ -53,10 +55,10 @@ impl FullScreenTui {
     }
 
     /// Run the full-screen TUI. `execute_turn` receives user input and
-    /// returns the rendered output text to append to scrollback.
+    /// returns a [`TurnOutput`] with rendered text and optional usage stats.
     pub fn run<F>(&mut self, mut execute_turn: F) -> io::Result<()>
     where
-        F: FnMut(&str) -> Result<String, Box<dyn std::error::Error>>,
+        F: FnMut(&str) -> Result<TurnOutput, Box<dyn std::error::Error>>,
     {
         self.running = true;
         enable_raw_mode()?;
@@ -116,7 +118,9 @@ impl FullScreenTui {
                                     io::stdout(),
                                     crossterm::cursor::SavePosition,
                                     crossterm::cursor::MoveTo(0, conv_height as u16 + INPUT_HEIGHT),
-                                    crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine),
+                                    crossterm::terminal::Clear(
+                                        crossterm::terminal::ClearType::CurrentLine
+                                    ),
                                     crossterm::style::Print(format!("  {spinner} thinking...")),
                                     crossterm::cursor::RestorePosition,
                                 );
@@ -143,8 +147,24 @@ impl FullScreenTui {
 
                     match result {
                         Ok(output) => {
-                            if !output.is_empty() {
-                                self.scrollback.push_str(&output);
+                            if !output.text.is_empty() {
+                                for line in output.text.lines() {
+                                    self.scrollback.push(super::markdown::render_markdown_line(line));
+                                }
+                            }
+                            if let Some(usage) = output.usage {
+                                let cost = if usage.cost_usd > 0.0 {
+                                    format!("  cost ${:.4}", usage.cost_usd)
+                                } else {
+                                    String::new()
+                                };
+                                self.scrollback.push(format!(
+                                    "{muted}  {} in / {} out tokens{cost}{reset}",
+                                    usage.input_tokens,
+                                    usage.output_tokens,
+                                    muted = Theme::MUTED,
+                                    reset = Theme::RESET,
+                                ));
                             }
                         }
                         Err(error) => {
@@ -231,9 +251,16 @@ impl FullScreenTui {
             match crossterm::event::read() {
                 Ok(crossterm::event::Event::Key(key)) => match key.code {
                     crossterm::event::KeyCode::Enter
-                        if !buffer.is_empty() => {
-                            return Ok(Some(buffer.iter().collect()));
-                        }
+                        if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) =>
+                    {
+                        // Ctrl+Enter: insert newline
+                        buffer.insert(cursor, '\n');
+                        cursor += 1;
+                        Self::render_input_line(stdout, prompt_row, &buffer, cursor)?;
+                    }
+                    crossterm::event::KeyCode::Enter if !buffer.is_empty() => {
+                        return Ok(Some(buffer.iter().collect()));
+                    }
                     crossterm::event::KeyCode::Char(c)
                         if key.modifiers == crossterm::event::KeyModifiers::CONTROL
                             && (c == 'd' || c == 'c') =>
@@ -252,27 +279,23 @@ impl FullScreenTui {
                         cursor += 1;
                         Self::render_input_line(stdout, prompt_row, &buffer, cursor)?;
                     }
-                    crossterm::event::KeyCode::Backspace
-                        if cursor > 0 => {
-                            cursor -= 1;
-                            buffer.remove(cursor);
-                            Self::render_input_line(stdout, prompt_row, &buffer, cursor)?;
-                        }
-                    crossterm::event::KeyCode::Delete
-                        if cursor < buffer.len() => {
-                            buffer.remove(cursor);
-                            Self::render_input_line(stdout, prompt_row, &buffer, cursor)?;
-                        }
-                    crossterm::event::KeyCode::Left
-                        if cursor > 0 => {
-                            cursor -= 1;
-                            Self::render_input_line(stdout, prompt_row, &buffer, cursor)?;
-                        }
-                    crossterm::event::KeyCode::Right
-                        if cursor < buffer.len() => {
-                            cursor += 1;
-                            Self::render_input_line(stdout, prompt_row, &buffer, cursor)?;
-                        }
+                    crossterm::event::KeyCode::Backspace if cursor > 0 => {
+                        cursor -= 1;
+                        buffer.remove(cursor);
+                        Self::render_input_line(stdout, prompt_row, &buffer, cursor)?;
+                    }
+                    crossterm::event::KeyCode::Delete if cursor < buffer.len() => {
+                        buffer.remove(cursor);
+                        Self::render_input_line(stdout, prompt_row, &buffer, cursor)?;
+                    }
+                    crossterm::event::KeyCode::Left if cursor > 0 => {
+                        cursor -= 1;
+                        Self::render_input_line(stdout, prompt_row, &buffer, cursor)?;
+                    }
+                    crossterm::event::KeyCode::Right if cursor < buffer.len() => {
+                        cursor += 1;
+                        Self::render_input_line(stdout, prompt_row, &buffer, cursor)?;
+                    }
                     crossterm::event::KeyCode::Home => {
                         cursor = 0;
                         Self::render_input_line(stdout, prompt_row, &buffer, cursor)?;

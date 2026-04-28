@@ -34,8 +34,7 @@ impl ProviderClient {
         // Check custom providers from models.json first
         if let Some(custom) = providers::models_file::find_custom_model(&resolved_model) {
             if custom.api.as_str() == "anthropic-messages" {
-                let client =
-                    AnthropicClient::new(custom.api_key).with_base_url(custom.base_url);
+                let client = AnthropicClient::new(custom.api_key).with_base_url(custom.base_url);
                 return Ok(Self::Anthropic(client));
             } else {
                 // Default: openai-completions wire format

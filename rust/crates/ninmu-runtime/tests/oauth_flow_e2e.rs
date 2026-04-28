@@ -10,8 +10,8 @@ use ninmu_runtime::{
     clear_oauth_credentials, credentials_path, generate_pkce_pair, generate_state,
     load_oauth_credentials, loopback_redirect_uri, parse_oauth_callback_query,
     parse_oauth_callback_request_target_unvalidated, save_oauth_credentials,
-    OAuthAuthorizationRequest, OAuthCallbackParams, OAuthRefreshRequest,
-    OAuthTokenExchangeRequest, OAuthTokenSet, PkceChallengeMethod,
+    OAuthAuthorizationRequest, OAuthCallbackParams, OAuthRefreshRequest, OAuthTokenExchangeRequest,
+    OAuthTokenSet, PkceChallengeMethod,
 };
 use serde_json::json;
 
@@ -120,7 +120,8 @@ fn callback_parsing_success_and_error() {
         Some("User denied access".to_string())
     );
 
-    let from_target = parse_oauth_callback_request_target_unvalidated("/callback?code=def&state=ghi").unwrap();
+    let from_target =
+        parse_oauth_callback_request_target_unvalidated("/callback?code=def&state=ghi").unwrap();
     assert_eq!(from_target.code, Some("def".to_string()));
     assert_eq!(from_target.state, Some("ghi".to_string()));
 }

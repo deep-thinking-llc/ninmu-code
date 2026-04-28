@@ -34,7 +34,7 @@ impl Drop for StagingLockGuard<'_> {
 impl StagingLockGuard<'_> {
     /// Take ownership of the inner `StagingLock`, preventing auto-unlock on drop.
     /// Call this only if you intend to manage the lock lifecycle manually.
-    #[must_use] 
+    #[must_use]
     pub fn into_inner(mut self) -> StagingLock {
         self.lock.take().expect("lock present")
     }
@@ -113,15 +113,15 @@ impl SharedStaging {
     fn sweep_expired(&self) {
         let mut state = self.state.lock().expect("state lock");
         let now = Instant::now();
-        state.file_locks.retain(|_, (_, _, at, tmo)| now.duration_since(*at) <= *tmo);
+        state
+            .file_locks
+            .retain(|_, (_, _, at, tmo)| now.duration_since(*at) <= *tmo);
     }
 
     fn atomic_write(path: &Path, content: &[u8]) -> Result<(), String> {
         let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, content)
-            .map_err(|e| format!("write tmp failed: {e}"))?;
-        std::fs::rename(&tmp, path)
-            .map_err(|e| format!("rename failed: {e}"))?;
+        std::fs::write(&tmp, content).map_err(|e| format!("write tmp failed: {e}"))?;
+        std::fs::rename(&tmp, path).map_err(|e| format!("rename failed: {e}"))?;
         Ok(())
     }
 
@@ -145,12 +145,10 @@ impl SharedStaging {
         }
         let path = self.resolve_path(task_id, rel_path);
         Self::ensure_dir(&path)?;
-        Self::atomic_write(&path, content.as_bytes())
-            .map_err(|e| format!("write failed: {e}"))
+        Self::atomic_write(&path, content.as_bytes()).map_err(|e| format!("write failed: {e}"))
     }
 
-    pub fn read(&self, task_id: &str, rel_path: &str
-    ) -> Result<String, String> {
+    pub fn read(&self, task_id: &str, rel_path: &str) -> Result<String, String> {
         Self::validate_task_id(task_id)?;
         Self::validate_path(rel_path)?;
         let path = self.resolve_path(task_id, rel_path);
@@ -211,7 +209,12 @@ impl SharedStaging {
         let acquired_at = Instant::now();
         state.file_locks.insert(
             lock_key,
-            (agent_id.to_string(), version, acquired_at, self.default_lock_timeout),
+            (
+                agent_id.to_string(),
+                version,
+                acquired_at,
+                self.default_lock_timeout,
+            ),
         );
         Ok(StagingLock {
             task_id: task_id.to_string(),

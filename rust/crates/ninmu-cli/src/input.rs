@@ -30,7 +30,6 @@ pub struct CompletionProvider {
     pub session_ids: Vec<String>,
 }
 
-
 struct SlashCommandHelper {
     completions: Vec<String>,
     current_line: RefCell<String>,

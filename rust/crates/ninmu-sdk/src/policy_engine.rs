@@ -13,8 +13,13 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PolicyDecision {
     Allow,
-    RequestApproval { reason: String, risk_level: RiskLevel },
-    Deny { reason: String },
+    RequestApproval {
+        reason: String,
+        risk_level: RiskLevel,
+    },
+    Deny {
+        reason: String,
+    },
     Defer,
 }
 
@@ -40,8 +45,7 @@ pub struct Policy {
 }
 
 /// The domain of a policy.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum PolicyKind {
     #[default]
     Execution,
@@ -50,7 +54,6 @@ pub enum PolicyKind {
     Deployment,
     Notification,
 }
-
 
 /// A condition expression evaluated against an action context.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,7 +120,9 @@ impl PolicyEngine {
     #[must_use]
     pub fn new() -> Self {
         let mut engine = Self {
-            registry: PolicyRegistry { policies: Vec::new() },
+            registry: PolicyRegistry {
+                policies: Vec::new(),
+            },
         };
         engine.register_defaults();
         engine
@@ -223,9 +228,7 @@ impl PolicyEngine {
 
     fn matches_condition(condition: &PolicyCondition, action: &PolicyAction) -> bool {
         match condition {
-            PolicyCondition::ToolName(name) => {
-                action.tool_name.as_deref() == Some(name.as_str())
-            }
+            PolicyCondition::ToolName(name) => action.tool_name.as_deref() == Some(name.as_str()),
             PolicyCondition::FilePattern(_pattern) => {
                 // Simple check: does any file path contain the pattern?
                 // TODO: proper glob matching
@@ -243,20 +246,16 @@ impl PolicyEngine {
                 action.branch_name.as_deref() == Some(pattern.as_str())
             }
             PolicyCondition::TestResult { min_pass_pct } => {
-                action
-                    .test_pass_pct
-                    .is_some_and(|pct| pct < *min_pass_pct)
+                action.test_pass_pct.is_some_and(|pct| pct < *min_pass_pct)
             }
             PolicyCondition::DeploymentEnv(_env) => false,
-            PolicyCondition::All(conditions) => {
-                conditions.iter().all(|c| Self::matches_condition(c, action))
-            }
-            PolicyCondition::Any(conditions) => {
-                conditions.iter().any(|c| Self::matches_condition(c, action))
-            }
-            PolicyCondition::Not(condition) => {
-                !Self::matches_condition(condition, action)
-            }
+            PolicyCondition::All(conditions) => conditions
+                .iter()
+                .all(|c| Self::matches_condition(c, action)),
+            PolicyCondition::Any(conditions) => conditions
+                .iter()
+                .any(|c| Self::matches_condition(c, action)),
+            PolicyCondition::Not(condition) => !Self::matches_condition(condition, action),
         }
     }
 
@@ -302,10 +301,7 @@ mod tests {
     #[test]
     fn read_only_auto_allows() {
         let engine = PolicyEngine::new();
-        assert_eq!(
-            engine.evaluate(&read_only_action()),
-            PolicyDecision::Allow
-        );
+        assert_eq!(engine.evaluate(&read_only_action()), PolicyDecision::Allow);
     }
 
     #[test]
@@ -323,7 +319,10 @@ mod tests {
             branch_name: Some("main".into()),
             ..Default::default()
         };
-        assert!(matches!(engine.evaluate(&action), PolicyDecision::Deny { .. }));
+        assert!(matches!(
+            engine.evaluate(&action),
+            PolicyDecision::Deny { .. }
+        ));
     }
 
     #[test]
@@ -398,10 +397,7 @@ mod tests {
             priority: 200,
             enabled: false,
         });
-        assert_eq!(
-            engine.evaluate(&read_only_action()),
-            PolicyDecision::Allow
-        );
+        assert_eq!(engine.evaluate(&read_only_action()), PolicyDecision::Allow);
     }
 
     #[test]

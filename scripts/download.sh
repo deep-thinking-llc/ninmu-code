@@ -80,7 +80,7 @@ if [ "${SKIP_VERIFY}" != "1" ]; then
     CHECKSUM_URL="https://github.com/${REPO}/releases/download/${TAG}/checksums.txt"
     curl -sfL "${CHECKSUM_URL}" -o "${TMPDIR}/checksums.txt" 2>/dev/null || true
     if [ -f "${TMPDIR}/checksums.txt" ]; then
-        if ! (cd "${TMPDIR}" && grep "${ARTIFACT}" checksums.txt | sha256sum -c - >/dev/null 2&1); then
+        if ! (cd "${TMPDIR}" && grep "${ARTIFACT}" checksums.txt | sha256sum -c - >/dev/null 2>&1); then
             die "checksum verification failed for ${ARTIFACT}"
         fi
         ok "checksum verified"

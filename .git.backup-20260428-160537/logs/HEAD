@@ -1,0 +1,183 @@
+0000000000000000000000000000000000000000 a389f8dff1d591d2eafc2f48747313cd556412ee Jonathan Conway <jonathanconway@Jonathans-MBP-3.(none)> 1777129056 +0100	clone: from github.com:deep-thinking-llc/claw-code.git
+a389f8dff1d591d2eafc2f48747313cd556412ee a389f8dff1d591d2eafc2f48747313cd556412ee git stash <git@stash> 1777135727 +0100	reset: moving to HEAD
+a389f8dff1d591d2eafc2f48747313cd556412ee a389f8dff1d591d2eafc2f48747313cd556412ee YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777143104 +0100	reset: moving to HEAD
+a389f8dff1d591d2eafc2f48747313cd556412ee a389f8dff1d591d2eafc2f48747313cd556412ee YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777145117 +0100	checkout: moving from main to feat/sdk-and-models-config
+a389f8dff1d591d2eafc2f48747313cd556412ee 31ea706a309887b3c394810a138756269c11d1a2 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777145151 +0100	commit: feat: add runtime models.json config, SDK crate, and extension/session-tree/agent-context primitives
+31ea706a309887b3c394810a138756269c11d1a2 a389f8dff1d591d2eafc2f48747313cd556412ee YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777145295 +0100	checkout: moving from feat/sdk-and-models-config to main
+a389f8dff1d591d2eafc2f48747313cd556412ee a389cba57812b0fe0ba5666cf824982ddaeb8722 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777145296 +0100	pull origin main: Fast-forward
+a389cba57812b0fe0ba5666cf824982ddaeb8722 d1c07df6ac8028dd343e321eb98319e558c42795 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777146314 +0100	commit: docs: add pi-mono parity design and implementation plan
+d1c07df6ac8028dd343e321eb98319e558c42795 004c7563efd87482fbc0391a808fe209e55ab815 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777153018 +0100	commit: docs: rewrite docs for agent-first autonomous coding harness
+004c7563efd87482fbc0391a808fe209e55ab815 5e3b029c8ebce7ee75906274470711af3803ff05 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777155037 +0100	commit: feat: add JSON-RPC server for agent integration (Phase 2.1)
+5e3b029c8ebce7ee75906274470711af3803ff05 1fb6d39ad671e3d69352fbbcf9a86bf90a57bc6b YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777158890 +0100	commit: fix: address review findings in RPC module
+1fb6d39ad671e3d69352fbbcf9a86bf90a57bc6b 4db85a79cd9b96bdc9bc5e156c64d61bf92cc55f YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777159147 +0100	commit: feat: wire --mode rpc CLI flag into the claw binary
+4db85a79cd9b96bdc9bc5e156c64d61bf92cc55f 32d4d160beb65d5d0da4b9debc13ac0a411fb458 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777159826 +0100	commit: feat: harden SDK with AgentSessionBuilder, BoxedApiClient, and pluggable API client
+32d4d160beb65d5d0da4b9debc13ac0a411fb458 0e15eeee643fb9399f7f50e5767a151fdb6187ca YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777160578 +0100	commit: feat: complete Phase 2.2 SDK hardening with steer, set_model, compact, abort, dispose
+0e15eeee643fb9399f7f50e5767a151fdb6187ca de8eff5665bc97fe8fec643cc433869bee9f1c11 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777161213 +0100	commit: fix: address 6 review findings in SDK session module
+de8eff5665bc97fe8fec643cc433869bee9f1c11 50fe6ca4e573254d61ae123f3227212104c5eaf7 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777162904 +0100	commit: feat: implement Phase 2.3 tool registration with schema validation and custom handlers
+50fe6ca4e573254d61ae123f3227212104c5eaf7 2e09193a42c5dd477b9c28b56fa31acddd65c4b8 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777163904 +0100	commit: fix: address review findings and fill 20 test gaps in tool registration
+2e09193a42c5dd477b9c28b56fa31acddd65c4b8 68867fbf71f19b111a7ac27ddfb7be7d028ad8d3 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777165096 +0100	commit: feat: implement Phase 2.5 session tree persistence with JSONL format
+68867fbf71f19b111a7ac27ddfb7be7d028ad8d3 1df22717dcab1033895421e6bd5076d2ec7fc669 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777165310 +0100	commit: Add MIT license
+1df22717dcab1033895421e6bd5076d2ec7fc669 5dbce3e74fc27a407217db759db9533188b5fbb1 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777165648 +0100	commit: fix: address review findings and add 16 tests to session tree persistence
+5dbce3e74fc27a407217db759db9533188b5fbb1 5dbce3e74fc27a407217db759db9533188b5fbb1 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777166714 +0100	reset: moving to HEAD
+5dbce3e74fc27a407217db759db9533188b5fbb1 4a0d7423472b20e66f6c1061e2d36a94ac033d43 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777166808 +0100	commit: feat: implement Phase 3.1 review workflow with risk classification and approval gates
+4a0d7423472b20e66f6c1061e2d36a94ac033d43 4a0d7423472b20e66f6c1061e2d36a94ac033d43 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777166826 +0100	reset: moving to HEAD
+4a0d7423472b20e66f6c1061e2d36a94ac033d43 bdbf0b37284ece2275d61a0c8794b206a347395a YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777166827 +0100	pull --rebase origin main (start): checkout bdbf0b37284ece2275d61a0c8794b206a347395a
+bdbf0b37284ece2275d61a0c8794b206a347395a b238ab0574213dab1a6fc61a373754f56a16e797 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777166827 +0100	pull --rebase origin main (pick): feat: implement Phase 3.1 review workflow with risk classification and approval gates
+b238ab0574213dab1a6fc61a373754f56a16e797 b238ab0574213dab1a6fc61a373754f56a16e797 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777166827 +0100	pull --rebase origin main (finish): returning to refs/heads/main
+b238ab0574213dab1a6fc61a373754f56a16e797 e26401d4020be7cd64106b55d7d698d9384ff2b6 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777167420 +0100	commit: test: add 26 tests covering review workflow edge cases and testing gaps
+e26401d4020be7cd64106b55d7d698d9384ff2b6 e26401d4020be7cd64106b55d7d698d9384ff2b6 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777167553 +0100	reset: moving to HEAD
+e26401d4020be7cd64106b55d7d698d9384ff2b6 e26401d4020be7cd64106b55d7d698d9384ff2b6 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777167912 +0100	reset: moving to HEAD
+e26401d4020be7cd64106b55d7d698d9384ff2b6 ca3fba0ccc559dcf4f2c1fad7e7a82b83112b882 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777167988 +0100	commit: feat: add DeepSeek, Ollama, Qwen (non-DashScope), and vLLM providers
+ca3fba0ccc559dcf4f2c1fad7e7a82b83112b882 1849dea3d7230b4ac700b6863c02a3c40345fd79 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777202825 +0100	commit: test: add integration + e2e tests for new providers
+1849dea3d7230b4ac700b6863c02a3c40345fd79 7e64b10a96b32031b3f7f86363901271d6d8d54a YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777202904 +0100	commit: feat: add onboarding setup module, fix clippy issues
+7e64b10a96b32031b3f7f86363901271d6d8d54a b0648d870b27631ebda6bf56408fa1ca35c75860 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777203303 +0100	commit: feat: add notification dispatcher subsystem (Phase 3.2)
+b0648d870b27631ebda6bf56408fa1ca35c75860 7ecc720824a9e311238ab68e92980885ddab8c00 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777203348 +0100	commit: feat: add DeepSeek pricing, token limits, README docs, and models.json validation
+7ecc720824a9e311238ab68e92980885ddab8c00 7ecc720824a9e311238ab68e92980885ddab8c00 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777204324 +0100	reset: moving to HEAD
+7ecc720824a9e311238ab68e92980885ddab8c00 4bccdb26aa9bd5bf90f03bd4cfedd005568c939f YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777204806 +0100	commit: fix: add Qwen base URL fallback and review-driven fixes
+4bccdb26aa9bd5bf90f03bd4cfedd005568c939f 0500cfe20071901d2973a8739c8712b2cb2588f7 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777211377 +0100	commit: fix: address review findings in notification.rs and setup.rs
+0500cfe20071901d2973a8739c8712b2cb2588f7 994c4af6cb640e90739c182878db089cfd509c96 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777216348 +0100	commit: feat: add AgentOrchestrator for multi-agent coordination (Phase 4.1)
+994c4af6cb640e90739c182878db089cfd509c96 67945aed20efc0e86636d94b6504c985af4550df YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777218334 +0100	commit: fix: address orchestrator review bugs + add 9 new tests
+67945aed20efc0e86636d94b6504c985af4550df 3031f32edd504f19843e9d98ce6cbda8ce0f715f YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777219961 +0100	commit: chore: fix doc_markdown clippy warnings in provider comments
+3031f32edd504f19843e9d98ce6cbda8ce0f715f 3031f32edd504f19843e9d98ce6cbda8ce0f715f YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777219971 +0100	reset: moving to HEAD
+3031f32edd504f19843e9d98ce6cbda8ce0f715f 6b34b35e1cbd8e31a20045eb97cfb1d72b9b981e YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777219972 +0100	pull --rebase (start): checkout 6b34b35e1cbd8e31a20045eb97cfb1d72b9b981e
+6b34b35e1cbd8e31a20045eb97cfb1d72b9b981e 362e0a85387d6b1ab28ca35173df61d2b50bfb0f YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777219972 +0100	pull --rebase (pick): fix: address review findings in notification.rs and setup.rs
+362e0a85387d6b1ab28ca35173df61d2b50bfb0f 3f4648b57a8ebbc21d809306c4af06371408d637 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777219972 +0100	pull --rebase (pick): feat: add AgentOrchestrator for multi-agent coordination (Phase 4.1)
+3f4648b57a8ebbc21d809306c4af06371408d637 32998d30170033bd8dfb37981478d5cb83d6610e YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777219972 +0100	pull --rebase (pick): fix: address orchestrator review bugs + add 9 new tests
+32998d30170033bd8dfb37981478d5cb83d6610e f4ed91e9b4d0dd6c1443629e8680fd36d054e6d7 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777219972 +0100	pull --rebase (pick): chore: fix doc_markdown clippy warnings in provider comments
+f4ed91e9b4d0dd6c1443629e8680fd36d054e6d7 f4ed91e9b4d0dd6c1443629e8680fd36d054e6d7 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777219972 +0100	pull --rebase (finish): returning to refs/heads/main
+f4ed91e9b4d0dd6c1443629e8680fd36d054e6d7 03410a665a2fc2f13e813813a65b5079c87af041 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777220117 +0100	commit: feat: add Docker + Fly.io deployment configs (Phase 3.3)
+03410a665a2fc2f13e813813a65b5079c87af041 96edefb29cf1b9614e1610ef78fc4dd9348023e6 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777222260 +0100	commit: feat: add security primitives — secret scrubbing + audit logging (Phase 5.x)
+96edefb29cf1b9614e1610ef78fc4dd9348023e6 8b549e6d5479138c0c94ea3f2ef9bd4554c20ed9 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777222619 +0100	commit: feat: add Qwen API key fallback, Ollama/vLLM pricing, CLI doctor providers, model auto-discovery, and init .env.example
+8b549e6d5479138c0c94ea3f2ef9bd4554c20ed9 3c1aabb1ae764e8da6e01dd3c7a1cfab3d621f0e YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777223433 +0100	commit: fix: address security review findings
+3c1aabb1ae764e8da6e01dd3c7a1cfab3d621f0e ddab129e148c77b6fa02aa482915831581688f93 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777223460 +0100	commit: feat: add Ollama Cloud support with optional API key auth
+ddab129e148c77b6fa02aa482915831581688f93 d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777223544 +0100	commit: docs+ci: update SDK docs, add deploy/ to CI, fix security review bugs
+d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777223705 +0100	reset: moving to HEAD
+d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777224541 +0100	checkout: moving from main to fix/code-review-dead-code-warnings-cleanup
+d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d 1ef51cc99d2cfdfa1640e5c80d9cbd7d53e51546 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777224588 +0100	commit: fix: dead code, dead tests, redundancy, and warnings cleanup
+1ef51cc99d2cfdfa1640e5c80d9cbd7d53e51546 1ef51cc99d2cfdfa1640e5c80d9cbd7d53e51546 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777224954 +0100	reset: moving to HEAD
+1ef51cc99d2cfdfa1640e5c80d9cbd7d53e51546 d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777224954 +0100	checkout: moving from fix/code-review-dead-code-warnings-cleanup to main
+d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777224981 +0100	checkout: moving from main to feat/multi-provider-support
+d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777225033 +0100	checkout: moving from feat/multi-provider-support to main
+d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d e26401d4020be7cd64106b55d7d698d9384ff2b6 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777225038 +0100	checkout: moving from main to feat/multi-provider-support
+e26401d4020be7cd64106b55d7d698d9384ff2b6 ddab129e148c77b6fa02aa482915831581688f93 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777225038 +0100	merge ddab129: Fast-forward
+ddab129e148c77b6fa02aa482915831581688f93 d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777225074 +0100	checkout: moving from feat/multi-provider-support to main
+d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d e26401d4020be7cd64106b55d7d698d9384ff2b6 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777225076 +0100	checkout: moving from main to feat/multi-provider-support
+e26401d4020be7cd64106b55d7d698d9384ff2b6 d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777225099 +0100	checkout: moving from feat/multi-provider-support to main
+d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d ddab129e148c77b6fa02aa482915831581688f93 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777225099 +0100	reset: moving to ddab129
+ddab129e148c77b6fa02aa482915831581688f93 ddab129e148c77b6fa02aa482915831581688f93 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777225099 +0100	checkout: moving from main to feat/multi-provider-support
+ddab129e148c77b6fa02aa482915831581688f93 e26401d4020be7cd64106b55d7d698d9384ff2b6 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777225100 +0100	reset: moving to e26401d
+e26401d4020be7cd64106b55d7d698d9384ff2b6 51d02b6b4518eccff107a6d59def064f084a5acb YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777225100 +0100	commit: feat: Multi-provider support — DeepSeek, Ollama, Qwen (external), vLLM, + Ollama Cloud
+51d02b6b4518eccff107a6d59def064f084a5acb ddab129e148c77b6fa02aa482915831581688f93 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777225109 +0100	checkout: moving from feat/multi-provider-support to main
+ddab129e148c77b6fa02aa482915831581688f93 d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777225109 +0100	reset: moving to origin/main
+d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777225135 +0100	checkout: moving from main to main
+d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777226886 +0100	checkout: moving from main to rebrand/ninmu-code
+d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d baeb859da602f1c670a0fb995b745c1f026287a7 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777226934 +0100	commit: feat: rebrand from Claw Code to Ninmu Code
+baeb859da602f1c670a0fb995b745c1f026287a7 57a231362af6153df28eeb590a065fd5a81c9b88 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777227117 +0100	commit: docs+test: add missing doc comments, 8 new tests covering provider gaps
+57a231362af6153df28eeb590a065fd5a81c9b88 57a231362af6153df28eeb590a065fd5a81c9b88 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777227239 +0100	checkout: moving from rebrand/ninmu-code to docs/update-outdated-docs
+57a231362af6153df28eeb590a065fd5a81c9b88 56800eab45d5d8dca8be55418b4c30957f054e2c YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777227239 +0100	commit: docs: update README, ROADMAP, and rust/README for implemented phases
+56800eab45d5d8dca8be55418b4c30957f054e2c 57a231362af6153df28eeb590a065fd5a81c9b88 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777227603 +0100	checkout: moving from docs/update-outdated-docs to rebrand/ninmu-code
+57a231362af6153df28eeb590a065fd5a81c9b88 57a231362af6153df28eeb590a065fd5a81c9b88 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777227683 +0100	reset: moving to HEAD
+57a231362af6153df28eeb590a065fd5a81c9b88 d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777227683 +0100	checkout: moving from rebrand/ninmu-code to main
+d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777227694 +0100	reset: moving to HEAD
+d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777227694 +0100	checkout: moving from main to main
+d784b8aabafdaecfe8b0151ed5eb8a14641b7d7d df8dc619d3d52da93ecce2d8022f4a07ddf9f79c YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777227696 +0100	pull origin main --ff-only: Fast-forward
+df8dc619d3d52da93ecce2d8022f4a07ddf9f79c 57a231362af6153df28eeb590a065fd5a81c9b88 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777227729 +0100	checkout: moving from main to rebrand/ninmu-code
+57a231362af6153df28eeb590a065fd5a81c9b88 cb947edd9f068f829a96334cd5a73f30f9d6888d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777227765 +0100	commit (merge): merge: resolve conflicts with main (remove dead Provider trait, keep doc comments, use rebrand Cargo.lock)
+cb947edd9f068f829a96334cd5a73f30f9d6888d 374e78a0dc607e8622a27faecbb4464b1de17f2b YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777227976 +0100	commit: chore: remove upstream participant from FUNDING.yml, clean up stale asset checks
+374e78a0dc607e8622a27faecbb4464b1de17f2b bde9bb0d66bdbf64ab79762ded4b6f2446ad5be2 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777228128 +0100	commit: chore: remove unused FUNDING.yml
+bde9bb0d66bdbf64ab79762ded4b6f2446ad5be2 e3f07977683c1d0f0c0b024e4e138c949a690d1b YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777228209 +0100	commit: docs: update README provider table, roadmap checkboxes
+e3f07977683c1d0f0c0b024e4e138c949a690d1b 16e4fdc8ba9c5f47c921e9c473aebbb0d5d58e40 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777228431 +0100	commit: fix: rebrand ASCII art banner from CLAW Code to Ninmu
+16e4fdc8ba9c5f47c921e9c473aebbb0d5d58e40 2ff5b2309d207334bbaff64e52dda6c30fc19ce3 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777228844 +0100	commit: ignore DESIGN.md
+2ff5b2309d207334bbaff64e52dda6c30fc19ce3 388eff9efc7007569c816ab594ba6a85b3012496 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777229709 +0100	commit: feat: add provider-specific defaults in settings.json (plan item 1)
+388eff9efc7007569c816ab594ba6a85b3012496 a4b1938e2aa7b053f8ee29467bc93efa00cb8c67 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777229722 +0100	commit: docs: add provider implementation plan with second-pass review
+a4b1938e2aa7b053f8ee29467bc93efa00cb8c67 a4b1938e2aa7b053f8ee29467bc93efa00cb8c67 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777234309 +0100	reset: moving to HEAD
+a4b1938e2aa7b053f8ee29467bc93efa00cb8c67 ff83fda33cd7e639a061dd0747cddd8314badd4b YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777234574 +0100	commit: feat: add provider fallback chains and per-provider usage metrics (plan items 2+4)
+ff83fda33cd7e639a061dd0747cddd8314badd4b ff83fda33cd7e639a061dd0747cddd8314badd4b YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777234991 +0100	reset: moving to HEAD
+ff83fda33cd7e639a061dd0747cddd8314badd4b b4d9b94370ba53bb5f684b306d369ff93cd1af38 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777235233 +0100	commit: fix: second-pass review — per_provider_label, provider_defaults_for_model, README config docs
+b4d9b94370ba53bb5f684b306d369ff93cd1af38 95ed0c93e4e5a426edcde2779e3ef11c693b3210 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777235394 +0100	commit: feat: redesign TUI with Japanese Industrial Design System
+95ed0c93e4e5a426edcde2779e3ef11c693b3210 b258cd719a374854e1d0ef487f76e19af6586580 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777238420 +0100	commit: feat: add provider_kind_from_str and prefix_model_for_provider (plan item 3)
+b258cd719a374854e1d0ef487f76e19af6586580 473d8309ffc97261eec595cebc85e8f47c4b61c2 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777238633 +0100	commit: chore: add naming convention for WIP design/implementation docs
+473d8309ffc97261eec595cebc85e8f47c4b61c2 6e9bea21523b02d098e6fcc334e4b5a37bdfe5c5 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777238788 +0100	commit: feat: add ninmu-py Python adapter package + design docs
+6e9bea21523b02d098e6fcc334e4b5a37bdfe5c5 2327a43aadea2402ca44ec6bad20aec6810620f4 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777238918 +0100	commit: fix: remove remaining emoji (lobster, sparkles, cross, compass, play)
+2327a43aadea2402ca44ec6bad20aec6810620f4 cf24c4e1f3c70942c6411627de0ef9f983d9ad4c YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777239016 +0100	commit: test: add E2E fallback chain tests (plan item 6)
+cf24c4e1f3c70942c6411627de0ef9f983d9ad4c cf24c4e1f3c70942c6411627de0ef9f983d9ad4c YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777239734 +0100	reset: moving to HEAD
+cf24c4e1f3c70942c6411627de0ef9f983d9ad4c cf24c4e1f3c70942c6411627de0ef9f983d9ad4c YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777239764 +0100	reset: moving to HEAD
+cf24c4e1f3c70942c6411627de0ef9f983d9ad4c b7d567e5237775075c95287ce2495d2106a6c0a3 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777240093 +0100	commit: feat: add @-file referencing with tab-autocomplete
+b7d567e5237775075c95287ce2495d2106a6c0a3 df8dc619d3d52da93ecce2d8022f4a07ddf9f79c YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777242599 +0100	checkout: moving from rebrand/ninmu-code to main
+df8dc619d3d52da93ecce2d8022f4a07ddf9f79c ebf53fbc4fcbc2202bcc6b57a6b06296ccf8bca5 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777242600 +0100	pull: Fast-forward
+ebf53fbc4fcbc2202bcc6b57a6b06296ccf8bca5 4d397089d2f598c3fa93a7d2856776740f4b3cc0 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777242600 +0100	merge rebrand/ninmu-code: Merge made by the 'ort' strategy.
+4d397089d2f598c3fa93a7d2856776740f4b3cc0 0ae8b374a9cc65b758f15fb0adf55b9c0af2f241 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777242916 +0100	commit: fix: add Mistral/Gemini/Cohere to all ProviderKind matches
+0ae8b374a9cc65b758f15fb0adf55b9c0af2f241 f900d1ed0ab940e0b497e5e27ca6ffc5c0ee52ac YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777243068 +0100	commit: feat: add Mistral, Gemini, Cohere providers (plan item 3)
+f900d1ed0ab940e0b497e5e27ca6ffc5c0ee52ac 36a807f87862751da371c636d37a620be5235b5f YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777243390 +0100	commit: feat: add Mistral/Gemini/Cohere pricing, doctor, init, and provider_defaults wiring (plan items 2-4 follow-up)
+36a807f87862751da371c636d37a620be5235b5f f240236df8f627c3afbbc8133b13444a8a441253 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777243821 +0100	commit: feat: wire --provider flag to ninmu-cli args (plan item 1)
+f240236df8f627c3afbbc8133b13444a8a441253 f5df14096e133b780da3dc5a90ca0b512b4dad81 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777244073 +0100	commit: fix: resolve clippy cast_possible_truncation warning in temperature parsing
+f5df14096e133b780da3dc5a90ca0b512b4dad81 a2caf2bfd27e52ca98fa44cbe4789112e03cdc51 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777244287 +0100	commit: docs: add handoff document for multi-provider implementation
+a2caf2bfd27e52ca98fa44cbe4789112e03cdc51 a2caf2bfd27e52ca98fa44cbe4789112e03cdc51 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777244898 +0100	reset: moving to HEAD
+a2caf2bfd27e52ca98fa44cbe4789112e03cdc51 a2caf2bfd27e52ca98fa44cbe4789112e03cdc51 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777245157 +0100	reset: moving to HEAD
+a2caf2bfd27e52ca98fa44cbe4789112e03cdc51 82fbc7db9c73484721e34b82401a14a279794344 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777245262 +0100	commit: Wire provider defaults, per-provider cost tracking, model token limits, reasoning model updates
+82fbc7db9c73484721e34b82401a14a279794344 54fa71028d1d6e27de30a622dbd06780e554456a YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777247633 +0100	commit: feat: fix @-file tab completion cycling and add hint preview
+54fa71028d1d6e27de30a622dbd06780e554456a 31da9df20daa0f5c2006407c96770e7139496677 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777247909 +0100	commit (amend): feat: fix @-file tab completion cycling and add hint preview
+31da9df20daa0f5c2006407c96770e7139496677 31da9df20daa0f5c2006407c96770e7139496677 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777291480 +0100	checkout: moving from main to packaging/homebrew-npm-installer
+31da9df20daa0f5c2006407c96770e7139496677 e81d317120789d3aaa655ca3a47f7a8576c1ee68 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777291480 +0100	commit: feat: add Homebrew formula, npm package, binary installer scripts, and expanded CI release matrix
+e81d317120789d3aaa655ca3a47f7a8576c1ee68 31da9df20daa0f5c2006407c96770e7139496677 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777291495 +0100	checkout: moving from packaging/homebrew-npm-installer to main
+31da9df20daa0f5c2006407c96770e7139496677 31da9df20daa0f5c2006407c96770e7139496677 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777292660 +0100	reset: moving to HEAD
+31da9df20daa0f5c2006407c96770e7139496677 89421bfd747f53799e238c4221205e842a59bfb1 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777293402 +0100	commit: Refine Gemini reasoning model classification and add model token limits
+89421bfd747f53799e238c4221205e842a59bfb1 89421bfd747f53799e238c4221205e842a59bfb1 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777293417 +0100	reset: moving to HEAD
+89421bfd747f53799e238c4221205e842a59bfb1 7e470bfb1704be0a2e79433cc5a654797fbcc177 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777293424 +0100	pull --rebase (start): checkout 7e470bfb1704be0a2e79433cc5a654797fbcc177
+7e470bfb1704be0a2e79433cc5a654797fbcc177 f2d4ecac6fb1a584727c91d0f2709a335a951143 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777293424 +0100	pull --rebase (pick): Refine Gemini reasoning model classification and add model token limits
+f2d4ecac6fb1a584727c91d0f2709a335a951143 f2d4ecac6fb1a584727c91d0f2709a335a951143 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777293424 +0100	pull --rebase (finish): returning to refs/heads/main
+f2d4ecac6fb1a584727c91d0f2709a335a951143 775fb3d91c93d77dd9f421f7c9abe932ba22e913 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777293759 +0100	commit: feat: update Dockerfile for Ninmu, prepare crates.io metadata
+775fb3d91c93d77dd9f421f7c9abe932ba22e913 e6a8a928d98c0e2541e46c0fd3f3556594c82394 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777294966 +0100	commit: fmt: reformat --tui dispatch ternary in main.rs
+e6a8a928d98c0e2541e46c0fd3f3556594c82394 ba91f7f607dd44eb645ddc3fee1baf4dd391757a YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777296190 +0100	commit: style: rustfmt formatting for model limit tests and Gemini comment
+ba91f7f607dd44eb645ddc3fee1baf4dd391757a ba91f7f607dd44eb645ddc3fee1baf4dd391757a YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777298013 +0100	reset: moving to HEAD
+ba91f7f607dd44eb645ddc3fee1baf4dd391757a e453ab130dc0fe42b117d3b7fdd6aa01a7dc1ba6 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777298629 +0100	commit: feat: prepare all crates for crates.io publishing
+e453ab130dc0fe42b117d3b7fdd6aa01a7dc1ba6 fd30ad9c9df652cb46b9de5782e283df1a3d83df YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777298875 +0100	commit: fix: wire --tui into main.rs parse_args so it's actually parsed at runtime
+fd30ad9c9df652cb46b9de5782e283df1a3d83df a8224bf3ee623b2bf4c2a6f43ec0c22a1fc69cdd YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777302317 +0100	commit: test: add 24 provider HTTP integration tests and fix detection bugs
+a8224bf3ee623b2bf4c2a6f43ec0c22a1fc69cdd fd30ad9c9df652cb46b9de5782e283df1a3d83df YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777302334 +0100	reset: moving to HEAD~1
+fd30ad9c9df652cb46b9de5782e283df1a3d83df fd30ad9c9df652cb46b9de5782e283df1a3d83df YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777302334 +0100	checkout: moving from main to test/provider-http-integration-tests
+fd30ad9c9df652cb46b9de5782e283df1a3d83df 93dd9c96b57d5105d4ab01891941df0cc6eb955d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777302334 +0100	cherry-pick: test: add 24 provider HTTP integration tests and fix detection bugs
+93dd9c96b57d5105d4ab01891941df0cc6eb955d fd30ad9c9df652cb46b9de5782e283df1a3d83df YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777302352 +0100	checkout: moving from test/provider-http-integration-tests to main
+fd30ad9c9df652cb46b9de5782e283df1a3d83df fd30ad9c9df652cb46b9de5782e283df1a3d83df YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777302518 +0100	reset: moving to HEAD
+fd30ad9c9df652cb46b9de5782e283df1a3d83df 93dd9c96b57d5105d4ab01891941df0cc6eb955d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777302518 +0100	checkout: moving from main to test/provider-http-integration-tests
+93dd9c96b57d5105d4ab01891941df0cc6eb955d 4bcf0a382fa3bcf256dc4959284860739f0428b1 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777302529 +0100	commit (amend): test: add 24 provider HTTP integration tests and fix detection bugs
+4bcf0a382fa3bcf256dc4959284860739f0428b1 4bcf0a382fa3bcf256dc4959284860739f0428b1 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777302795 +0100	checkout: moving from test/provider-http-integration-tests to test/provider-http-integration-tests
+4bcf0a382fa3bcf256dc4959284860739f0428b1 03bcba27dfbdd2c1aac62f37d4a200c84a46bbd3 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777302795 +0100	commit: ci: trigger PR checks
+03bcba27dfbdd2c1aac62f37d4a200c84a46bbd3 4bcf0a382fa3bcf256dc4959284860739f0428b1 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777302800 +0100	reset: moving to HEAD~1
+4bcf0a382fa3bcf256dc4959284860739f0428b1 fd30ad9c9df652cb46b9de5782e283df1a3d83df YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777302800 +0100	checkout: moving from test/provider-http-integration-tests to main
+fd30ad9c9df652cb46b9de5782e283df1a3d83df 4bcf0a382fa3bcf256dc4959284860739f0428b1 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777302800 +0100	checkout: moving from main to test/provider-http-integration-tests
+4bcf0a382fa3bcf256dc4959284860739f0428b1 03bcba27dfbdd2c1aac62f37d4a200c84a46bbd3 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777302804 +0100	pull origin test/provider-http-integration-tests: Fast-forward
+03bcba27dfbdd2c1aac62f37d4a200c84a46bbd3 4bcf0a382fa3bcf256dc4959284860739f0428b1 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777302807 +0100	reset: moving to HEAD~1
+4bcf0a382fa3bcf256dc4959284860739f0428b1 33be60f7018f8e9b1f1046d92446bee91c714e10 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777303076 +0100	commit (amend): test: add 24 provider HTTP integration tests and fix detection bugs
+33be60f7018f8e9b1f1046d92446bee91c714e10 fd30ad9c9df652cb46b9de5782e283df1a3d83df YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777303084 +0100	reset: moving to HEAD~1
+fd30ad9c9df652cb46b9de5782e283df1a3d83df fd30ad9c9df652cb46b9de5782e283df1a3d83df YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777303099 +0100	checkout: moving from test/provider-http-integration-tests to fix/provider-http-tests-and-detection
+fd30ad9c9df652cb46b9de5782e283df1a3d83df cffa528fec1d765b19bc5684cd6cb0114a779fc6 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777303288 +0100	cherry-pick: test: add 24 provider HTTP integration tests and fix detection bugs
+cffa528fec1d765b19bc5684cd6cb0114a779fc6 cffa528fec1d765b19bc5684cd6cb0114a779fc6 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777303408 +0100	reset: moving to HEAD
+cffa528fec1d765b19bc5684cd6cb0114a779fc6 e6dadc6e4a815e2bcf3647b59b16604b35bafd9c YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777303531 +0100	commit: style: format provider integration test files
+e6dadc6e4a815e2bcf3647b59b16604b35bafd9c e6dadc6e4a815e2bcf3647b59b16604b35bafd9c YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777304658 +0100	checkout: moving from fix/provider-http-tests-and-detection to fix/provider-http-tests-and-detection
+e6dadc6e4a815e2bcf3647b59b16604b35bafd9c a8224bf3ee623b2bf4c2a6f43ec0c22a1fc69cdd YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777304681 +0100	rebase (start): checkout origin/main
+a8224bf3ee623b2bf4c2a6f43ec0c22a1fc69cdd f218289a1e2064437091d36bd4ec16e3e2c56dff YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777304681 +0100	rebase (pick): style: format provider integration test files
+f218289a1e2064437091d36bd4ec16e3e2c56dff f218289a1e2064437091d36bd4ec16e3e2c56dff YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777304681 +0100	rebase (finish): returning to refs/heads/fix/provider-http-tests-and-detection
+f218289a1e2064437091d36bd4ec16e3e2c56dff f218289a1e2064437091d36bd4ec16e3e2c56dff YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777306238 +0100	reset: moving to HEAD
+f218289a1e2064437091d36bd4ec16e3e2c56dff ce9efe7fcca4bbc0ccbf62ff4ae19f08a96b7ed3 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777307098 +0100	commit: feat: wire FullScreenTui into run_repl when --tui flag is passed
+ce9efe7fcca4bbc0ccbf62ff4ae19f08a96b7ed3 ddaf4fbf12f1b5e5a61b153addadd9c355f96271 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777308793 +0100	commit: refactor: prefix all internal crates with ninmu- for crates.io publishing
+ddaf4fbf12f1b5e5a61b153addadd9c355f96271 fd30ad9c9df652cb46b9de5782e283df1a3d83df YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777309224 +0100	checkout: moving from fix/provider-http-tests-and-detection to main
+fd30ad9c9df652cb46b9de5782e283df1a3d83df 9a808998cace6a2fea0e4bf28e265116b4c427ba YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777309225 +0100	pull origin main: Fast-forward
+9a808998cace6a2fea0e4bf28e265116b4c427ba 961c7bc914651094411750c3b99f665cc2ff3298 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777310326 +0100	commit: chore: add missing descriptions and homepages to ninmu-api and ninmu-tools for crates.io
+961c7bc914651094411750c3b99f665cc2ff3298 623bfd4767ef2fae5ffed9cb60a3b71fbb586c2e YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777312148 +0100	commit: feat: add --tui to help, wire PageUp/Down scrolling, update spinner labels
+623bfd4767ef2fae5ffed9cb60a3b71fbb586c2e 5cb55b59073c84109007d94c837b01d9b35c01ed YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777314144 +0100	commit: fix: pager uses EnterAlternateScreen, add fullscreen scroll tests
+5cb55b59073c84109007d94c837b01d9b35c01ed 47d41e08bf0d582cc0178e6f35bc4c43c8d955c8 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777317822 +0100	commit: fix: add env_lock() to flaky permission-mode-bleeding tests
+47d41e08bf0d582cc0178e6f35bc4c43c8d955c8 65235cecda64d2b6a9dd95052dbdb580b71b6875 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777317968 +0100	commit: test: add 73 e2e tests across 9 test files covering MCP, OAuth, sandbox, git, session, config, plugins, and provider fallback
+65235cecda64d2b6a9dd95052dbdb580b71b6875 2d587f024fd3276f2aaad325960377808b6a07d6 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777323548 +0100	commit: docs: add design docs for framework adapters, TUI review, and agent orchestration with policy engine
+2d587f024fd3276f2aaad325960377808b6a07d6 286b345cd810a6e6c8cd1259815e40f4aac65cb9 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777326141 +0100	commit: feat: wire ThinkingKind reasoning phase into streaming progress reporter, add TUI integration tests
+286b345cd810a6e6c8cd1259815e40f4aac65cb9 db8baefa68d6d5c23ff6a549416de17513a6e37a YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777326285 +0100	commit: feat: implement ninmu-py core client, framework adapters, and test suite
+db8baefa68d6d5c23ff6a549416de17513a6e37a ff268e06ecd714cc4d11fc0a6590abfdf0ad7396 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777326422 +0100	commit: fix: make all 26 ninmu-py unit tests pass
+ff268e06ecd714cc4d11fc0a6590abfdf0ad7396 37fff5a06e7bfe8fb3deac870cb62f430029c227 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777329912 +0100	commit: fix: clean up ninmu-py imports after review
+37fff5a06e7bfe8fb3deac870cb62f430029c227 9afea686a99a08dcb858f858cf391822f6ac54f0 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777330980 +0100	commit: feat: implement inter-agent communication and policy engine (Phase 4.2-4.3)
+9afea686a99a08dcb858f858cf391822f6ac54f0 ffcd216c2b9368398f0fc6939b311a4563ef578d YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777331151 +0100	commit: feat: add collapsible tool output with expand/collapse toggle in fullscreen TUI
+ffcd216c2b9368398f0fc6939b311a4563ef578d 2290cc451f7dafcd7800337fab229dddddc9b364 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777374296 +0100	commit: fix: set 0o600 permissions on OAuth credentials, fix provider detection tests, add code review
+2290cc451f7dafcd7800337fab229dddddc9b364 2162bbe846c4df41880f7bf942e9e07c37e8bdee YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777375649 +0100	commit: security: Phase 1 & 2 — OAuth state validation, file permissions, staging hardening
+2162bbe846c4df41880f7bf942e9e07c37e8bdee 78b95cffe3818fb89ca1236afa962c3eb502ba48 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777375838 +0100	commit: don't commit DESIGN.md
+78b95cffe3818fb89ca1236afa962c3eb502ba48 27d6fc816ebb9452555a12dc19624a0740a2a9ff YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777376353 +0100	commit: fix: TUI response disappearing + Ctrl+C/D quit + clippy cleanup
+27d6fc816ebb9452555a12dc19624a0740a2a9ff 7430154d46f2a9a28eafb73b3d10eea56778f0d5 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777376533 +0100	commit: fix: re-apply TUI response fix (cargo fix had reverted it)
+7430154d46f2a9a28eafb73b3d10eea56778f0d5 017b5039d9593beed7370bfa61d1dc628ff25c52 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777377139 +0100	commit: feat: animated spinner in TUI while waiting for LLM response
+017b5039d9593beed7370bfa61d1dc628ff25c52 623d3cdf236602f7f31e91c56d7bf0d4ea45d8a4 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777377452 +0100	commit: security: Phase 3-6 — Python client, adapters, distribution hardening

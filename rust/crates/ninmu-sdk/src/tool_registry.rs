@@ -286,7 +286,7 @@ impl ToolDefinitionBuilder {
 ///     .build()
 ///     .expect("should build");
 /// ```
-#[must_use] 
+#[must_use]
 pub fn define_tool(name: &str) -> ToolDefinitionBuilder {
     ToolDefinition::builder(name)
 }
@@ -469,7 +469,9 @@ impl ToolExecutor for SdkToolExecutor {
         // Try custom handler first
         if let Some(def) = self.definitions.get(tool_name) {
             // Validate input against schema
-            let parsed: Value = if let Ok(v) = serde_json::from_str(input) { v } else {
+            let parsed: Value = if let Ok(v) = serde_json::from_str(input) {
+                v
+            } else {
                 // If the tool has a non-trivial input schema, reject malformed JSON
                 if def.input_schema.schema() != &Value::Object(serde_json::Map::new()) {
                     return Err(ToolError::new(format!(

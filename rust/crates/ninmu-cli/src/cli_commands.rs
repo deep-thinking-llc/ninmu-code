@@ -12,7 +12,15 @@ use std::process::Command;
 
 use crate::app::*;
 use crate::args::CliOutputFormat;
-use crate::format::{parse_git_status_metadata, parse_git_workspace_summary, StatusContext, load_session_reference, classify_error_kind, split_error_hint, render_repl_help, format_compact_report, write_session_clear_backup, new_cli_session, status_context, format_status_report, StatusUsage, default_permission_mode, status_json_value, format_sandbox_report, sandbox_json_value, format_cost_report, parse_history_count, collect_session_prompt_history, render_prompt_history_report, format_unknown_slash_command, list_managed_sessions, render_session_list, print_help_to};
+use crate::format::{
+    classify_error_kind, collect_session_prompt_history, default_permission_mode,
+    format_compact_report, format_cost_report, format_sandbox_report, format_status_report,
+    format_unknown_slash_command, list_managed_sessions, load_session_reference, new_cli_session,
+    parse_git_status_metadata, parse_git_workspace_summary, parse_history_count, print_help_to,
+    render_prompt_history_report, render_repl_help, render_session_list, sandbox_json_value,
+    split_error_hint, status_context, status_json_value, write_session_clear_backup, StatusContext,
+    StatusUsage,
+};
 use crate::tui::diff_view::format_colored_diff;
 use crate::{
     BUILD_TARGET, DEFAULT_DATE, DEPRECATED_INSTALL_COMMAND, GIT_SHA, OFFICIAL_REPO_SLUG,

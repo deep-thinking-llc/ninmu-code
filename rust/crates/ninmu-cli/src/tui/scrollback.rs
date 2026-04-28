@@ -62,19 +62,12 @@ impl Scrollback {
     /// Push a collapsible entry: full content is stored but only the first
     /// `visible_lines` are rendered initially. Pressing Tab toggles expand/collapse.
     /// Returns the number of lines pushed.
-    pub fn push_collapsible(
-        &mut self,
-        full_lines: &[String],
-        visible_lines: usize,
-    ) -> usize {
+    pub fn push_collapsible(&mut self, full_lines: &[String], visible_lines: usize) -> usize {
         let start_idx = self.lines.len();
         let collapsed_count = visible_lines.min(full_lines.len());
         let has_hint = full_lines.len() > collapsed_count;
-        let collapsed_lines: Vec<String> = full_lines
-            .iter()
-            .take(collapsed_count)
-            .cloned()
-            .collect();
+        let collapsed_lines: Vec<String> =
+            full_lines.iter().take(collapsed_count).cloned().collect();
 
         // Push the collapsed (or full) lines
         for line in &collapsed_lines {
@@ -82,25 +75,17 @@ impl Scrollback {
         }
         let display_lines = if has_hint {
             let extra = full_lines.len() - collapsed_count;
-            let hint = format!(
-                "[+] [Tab to expand · {extra} more lines]"
-            );
+            let hint = format!("[+] [Tab to expand · {extra} more lines]");
             self.push(hint);
             let mut with_hint = collapsed_lines;
-            with_hint.push(format!(
-                "[+] [Tab to expand · {extra} more lines]"
-            ));
+            with_hint.push(format!("[+] [Tab to expand · {extra} more lines]"));
             with_hint
         } else {
             collapsed_lines
         };
 
-        self.collapsible_entries.push((
-            start_idx,
-            full_lines.to_vec(),
-            display_lines,
-            false,
-        ));
+        self.collapsible_entries
+            .push((start_idx, full_lines.to_vec(), display_lines, false));
 
         full_lines.len()
     }
@@ -122,8 +107,7 @@ impl Scrollback {
             return false;
         };
 
-        let (start, full, collapsed, is_expanded) =
-            self.collapsible_entries.remove(ep);
+        let (start, full, collapsed, is_expanded) = self.collapsible_entries.remove(ep);
         let now_expanded = !is_expanded;
 
         // Calculate the height delta
@@ -166,12 +150,8 @@ impl Scrollback {
         }
 
         // Re-insert the updated entry
-        self.collapsible_entries.push((
-            start,
-            full,
-            collapsed,
-            now_expanded,
-        ));
+        self.collapsible_entries
+            .push((start, full, collapsed, now_expanded));
 
         // Sort by start_idx (insert order may have shifted)
         self.collapsible_entries.sort_by_key(|e| e.0);
