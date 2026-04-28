@@ -761,13 +761,17 @@ impl PluginDiscovery {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct PluginRegistry {
     plugins: Vec<RegisteredPlugin>,
+    initialized: bool,
 }
 
 impl PluginRegistry {
     #[must_use]
     pub fn new(mut plugins: Vec<RegisteredPlugin>) -> Self {
         plugins.sort_by(|left, right| left.metadata().id.cmp(&right.metadata().id));
-        Self { plugins }
+        Self {
+            plugins,
+            initialized: false,
+        }
     }
 
     #[must_use]
@@ -823,11 +827,15 @@ impl PluginRegistry {
         Ok(tools)
     }
 
-    pub fn initialize(&self) -> Result<(), PluginError> {
+    pub fn initialize(&mut self) -> Result<(), PluginError> {
+        if self.initialized {
+            return Ok(());
+        }
         for plugin in self.plugins.iter().filter(|plugin| plugin.is_enabled()) {
             plugin.validate()?;
             plugin.initialize()?;
         }
+        self.initialized = true;
         Ok(())
     }
 
@@ -3412,7 +3420,7 @@ mod tests {
             .expect("install should succeed");
         let log_path = install.install_path.join("lifecycle.log");
 
-        let registry = manager.plugin_registry().expect("registry should build");
+        let mut registry = manager.plugin_registry().expect("registry should build");
         registry.initialize().expect("init should succeed");
         registry.shutdown().expect("shutdown should succeed");
 
@@ -3610,7 +3618,7 @@ mod tests {
                         // Initialize and shutdown the registry to trigger lifecycle hooks
                         let registry = manager.plugin_registry();
                         match registry {
-                            Ok(registry) => {
+                            Ok(mut registry) => {
                                 if registry.initialize().is_ok() && registry.shutdown().is_ok() {
                                     // Verify lifecycle.log exists and has expected content
                                     if let Ok(log) = fs::read_to_string(&log_path) {

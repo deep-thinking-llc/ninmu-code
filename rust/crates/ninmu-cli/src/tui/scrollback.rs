@@ -39,8 +39,6 @@ impl Scrollback {
             // N pushes is O(n) amortised over those N pushes.
             let evict = (self.max_lines / 4).max(1);
             self.lines.drain(..evict);
-            // Adjust scroll offset so the view doesn't jump.
-            self.scroll_offset = self.scroll_offset.saturating_sub(evict);
             // Adjust collapsible entry indices.
             for entry in &mut self.collapsible_entries {
                 if entry.0 >= evict {
@@ -190,6 +188,13 @@ impl Scrollback {
     /// Whether the buffer is empty.
     pub fn is_empty(&self) -> bool {
         self.lines.is_empty()
+    }
+
+    /// Clear all lines and reset scroll state.
+    pub fn clear(&mut self) {
+        self.lines.clear();
+        self.scroll_offset = 0;
+        self.collapsible_entries.clear();
     }
 
     /// Scroll up by `n` lines (toward older content). Returns the new offset.

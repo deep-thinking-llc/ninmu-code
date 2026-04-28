@@ -26,7 +26,10 @@ use ratatui::Terminal;
 use crate::tui::event::{ThinkingState, TuiEvent, TuiSharedState};
 use crate::tui::permission::describe_tool_action;
 use crate::tui::scrollback::Scrollback;
-use ninmu_runtime::{ContentBlock, ConversationMessage, MessageRole, PermissionPromptDecision, PermissionRequest, TokenUsage};
+use ninmu_runtime::{
+    ContentBlock, ConversationMessage, MessageRole, PermissionPromptDecision, PermissionRequest,
+    TokenUsage,
+};
 
 // -- DESIGN.md colour palette ------------------------------------------------
 const BG: Color = Color::Rgb(10, 10, 10);
@@ -87,6 +90,16 @@ pub struct RatatuiApp {
     history_index: Option<usize>,
     /// Saved input buffer when navigating history.
     history_restore_buf: Vec<char>,
+    /// Whether the UI needs a redraw.
+    dirty: bool,
+    /// Cached header line (rebuilt only when model/perm/branch change).
+    cached_header: Line<'static>,
+    /// Cached input text (updated when input_buf changes).
+    cached_input: String,
+    /// Cached token count string (updated on usage events).
+    cached_tokens_str: String,
+    /// Cached elapsed-second display (updated when the second changes).
+    cached_elapsed_str: String,
 }
 
 /// A permission prompt waiting for the user to respond in the TUI.
@@ -99,7 +112,7 @@ struct PendingPermission {
 impl RatatuiApp {
     pub fn new(model: String, permission_mode: String, git_branch: Option<String>) -> Self {
         let model_pricing = ninmu_runtime::pricing_for_model(&model);
-        Self {
+        let mut app = Self {
             scrollback: Scrollback::default(),
             input_buf: Vec::new(),
             cursor: 0,
@@ -120,7 +133,15 @@ impl RatatuiApp {
             input_history: Vec::new(),
             history_index: None,
             history_restore_buf: Vec::new(),
-        }
+            dirty: true,
+            cached_header: Line::default(),
+            cached_input: String::new(),
+            cached_tokens_str: String::new(),
+            cached_elapsed_str: String::new(),
+        };
+        app.cached_header =
+            Self::build_header_line(&app.model, &app.permission_mode, app.git_branch.as_deref());
+        app
     }
 
     /// Run the ratatui event loop. Blocks until the user exits.
@@ -175,12 +196,16 @@ impl RatatuiApp {
         let mut turn_handle: Option<Box<dyn TurnHandle>> = None;
 
         loop {
-            // -- Render ---------------------------------------------------
-            terminal.draw(|frame| self.draw(frame))?;
+            // -- Render (only when state changed) -------------------------
+            if self.dirty {
+                terminal.draw(|frame| self.draw(frame))?;
+                self.dirty = false;
+            }
 
             // -- Poll events (blocking up to tick_rate) -------------------
             if crossterm::event::poll(tick_rate)? {
-                if let Event::Key(key) = event::read()? {
+                let event = event::read()?;
+                if let Event::Key(key) = event {
                     if key.kind == KeyEventKind::Press {
                         // Ctrl+C / Ctrl+D always quits
                         if key.modifiers.contains(KeyModifiers::CONTROL)
@@ -237,6 +262,7 @@ impl RatatuiApp {
                                     self.pending_permission = Some(perm);
                                 }
                             }
+                            self.dirty = true;
                             continue;
                         }
 
@@ -263,6 +289,7 @@ impl RatatuiApp {
                                 }
                                 _ => {}
                             }
+                            self.dirty = true;
                             continue;
                         }
 
@@ -274,6 +301,7 @@ impl RatatuiApp {
                                 // Ctrl+Enter: insert newline
                                 self.input_buf.insert(self.cursor, '\n');
                                 self.cursor += 1;
+                                self.refresh_input_cache();
                             }
                             KeyCode::Enter if !self.input_buf.is_empty() => {
                                 let input: String = self.input_buf.drain(..).collect();
@@ -306,13 +334,16 @@ impl RatatuiApp {
                             {
                                 self.input_buf.insert(self.cursor, c);
                                 self.cursor += 1;
+                                self.refresh_input_cache();
                             }
                             KeyCode::Backspace if self.cursor > 0 => {
                                 self.cursor -= 1;
                                 self.input_buf.remove(self.cursor);
+                                self.refresh_input_cache();
                             }
                             KeyCode::Delete if self.cursor < self.input_buf.len() => {
                                 self.input_buf.remove(self.cursor);
+                                self.refresh_input_cache();
                             }
                             KeyCode::Left if self.cursor > 0 => self.cursor -= 1,
                             KeyCode::Right if self.cursor < self.input_buf.len() => {
@@ -322,6 +353,7 @@ impl RatatuiApp {
                             KeyCode::End => self.cursor = self.input_buf.len(),
                             KeyCode::Up => {
                                 if self.input_history.is_empty() {
+                                    self.dirty = true;
                                     continue;
                                 }
                                 if self.history_index.is_none() {
@@ -338,6 +370,7 @@ impl RatatuiApp {
                                     self.input_buf = entry.chars().collect();
                                     self.cursor = self.input_buf.len();
                                 }
+                                self.refresh_input_cache();
                             }
                             KeyCode::Down => {
                                 if let Some(i) = self.history_index {
@@ -353,6 +386,7 @@ impl RatatuiApp {
                                         self.cursor = self.input_buf.len();
                                     }
                                 }
+                                self.refresh_input_cache();
                             }
                             KeyCode::PageUp => {
                                 self.scrollback.scroll_up(20);
@@ -370,7 +404,11 @@ impl RatatuiApp {
                             }
                             _ => {}
                         }
+                        self.dirty = true;
+                        self.refresh_status_cache();
                     }
+                } else if matches!(event, Event::Resize(_, _)) {
+                    self.dirty = true;
                 }
             }
 
@@ -400,11 +438,25 @@ impl RatatuiApp {
                 if self.spinner_frame.is_multiple_of(4) {
                     self.show_cursor_blink = !self.show_cursor_blink;
                 }
+                self.dirty = true;
             }
         }
     }
 
+    fn refresh_input_cache(&mut self) {
+        self.cached_input = self.input_buf.iter().collect();
+    }
+
+    fn refresh_status_cache(&mut self) {
+        self.cached_tokens_str = format_tokens(self.usage.input_tokens + self.usage.output_tokens);
+        self.cached_elapsed_str = self
+            .turn_start
+            .map(|t| format!("{}s", t.elapsed().as_secs()))
+            .unwrap_or_default();
+    }
+
     fn process_event(&mut self, ev: TuiEvent) {
+        self.dirty = true;
         match ev {
             TuiEvent::TextDelta(text) => {
                 self.response_text.push_str(&text);
@@ -431,6 +483,7 @@ impl RatatuiApp {
             }
             TuiEvent::Usage(u) => {
                 self.usage = u;
+                self.refresh_status_cache();
             }
             TuiEvent::ThinkingStart => {
                 self.state.thinking_state = ThinkingState::Thinking {
@@ -453,6 +506,7 @@ impl RatatuiApp {
                 self.state.current_tool = None;
                 self.state.current_prompt.clear();
                 self.turn_start = None;
+                self.refresh_status_cache();
             }
             TuiEvent::PermissionPrompt {
                 request,
@@ -472,6 +526,10 @@ impl RatatuiApp {
             TuiEvent::ToolProgress { .. } => {
                 // Not yet wired up.
             }
+            TuiEvent::LoadHistory { messages } => {
+                self.scrollback.clear();
+                self.load_conversation_history(&messages);
+            }
         }
     }
 
@@ -489,10 +547,14 @@ impl RatatuiApp {
             if let Some(pricing) = self.model_pricing {
                 let in_cost =
                     (self.usage.input_tokens as f64 / 1_000_000.0) * pricing.input_cost_per_million;
-                let out_cost =
-                    (self.usage.output_tokens as f64 / 1_000_000.0)
-                        * pricing.output_cost_per_million;
-                let total = in_cost + out_cost;
+                let out_cost = (self.usage.output_tokens as f64 / 1_000_000.0)
+                    * pricing.output_cost_per_million;
+                let cache_create_cost = (self.usage.cache_creation_input_tokens as f64
+                    / 1_000_000.0)
+                    * pricing.cache_creation_cost_per_million;
+                let cache_read_cost = (self.usage.cache_read_input_tokens as f64 / 1_000_000.0)
+                    * pricing.cache_read_cost_per_million;
+                let total = in_cost + out_cost + cache_create_cost + cache_read_cost;
                 if total >= 0.0001 {
                     let cost_str = format!("  \u{2022} ${total:.4}");
                     msg.push_str(&cost_str);
@@ -518,6 +580,13 @@ impl RatatuiApp {
         self.response_text = remainder;
     }
 
+    /// Clear the scrollback buffer. Used before loading a new session's
+    /// history to avoid duplicating content from a previous session.
+    pub fn clear_scrollback(&mut self) {
+        self.scrollback.clear();
+        self.dirty = true;
+    }
+
     /// Load previous conversation history into the scrollback.
     pub fn load_conversation_history(&mut self, messages: &[ConversationMessage]) {
         for msg in messages {
@@ -538,9 +607,7 @@ impl RatatuiApp {
                             self.scrollback.push(format!("{prefix}{line}"));
                         }
                     }
-                    ContentBlock::ToolUse {
-                        name, input, ..
-                    } => {
+                    ContentBlock::ToolUse { name, input, .. } => {
                         self.scrollback.push(format!("  -- {name}"));
                         if let Some(first_line) = input.lines().next() {
                             let summary = truncate(first_line, 76);
@@ -588,15 +655,19 @@ impl RatatuiApp {
         }
     }
 
-    fn draw_header(&self, frame: &mut ratatui::Frame, area: Rect) {
-        let git = self.git_branch.as_deref().unwrap_or("?");
-        let perm_short = match self.permission_mode.as_str() {
+    fn build_header_line(
+        model: &str,
+        permission_mode: &str,
+        git_branch: Option<&str>,
+    ) -> Line<'static> {
+        let git = git_branch.unwrap_or("?");
+        let perm_short = match permission_mode {
             "danger-full-access" => "full",
             "workspace-write" => "write",
             _ => "read",
         };
 
-        let spans = vec![
+        Line::from(vec![
             Span::styled(
                 "  ninmu ",
                 Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
@@ -607,17 +678,19 @@ impl RatatuiApp {
             ),
             Span::raw("  "),
             Span::styled("model ", Style::default().fg(MUTED)),
-            Span::styled(&*self.model, Style::default().fg(TEXT_SEC)),
+            Span::styled(model.to_string(), Style::default().fg(TEXT_SEC)),
             Span::raw("  "),
             Span::styled("perm ", Style::default().fg(MUTED)),
-            Span::styled(perm_short, Style::default().fg(TEXT_SEC)),
+            Span::styled(perm_short.to_string(), Style::default().fg(TEXT_SEC)),
             Span::raw("  "),
             Span::styled("branch ", Style::default().fg(MUTED)),
-            Span::styled(git, Style::default().fg(TEXT_SEC)),
-        ];
+            Span::styled(git.to_string(), Style::default().fg(TEXT_SEC)),
+        ])
+    }
 
-        let header = Paragraph::new(Line::from(spans)).style(Style::default().bg(SURFACE).fg(TEXT));
-
+    fn draw_header(&self, frame: &mut ratatui::Frame, area: Rect) {
+        let header =
+            Paragraph::new(self.cached_header.clone()).style(Style::default().bg(SURFACE).fg(TEXT));
         frame.render_widget(header, area);
     }
 
@@ -665,7 +738,11 @@ impl RatatuiApp {
 
         if self.state.is_generating {
             if !self.response_text.is_empty() {
-                let cursor_char = if self.show_cursor_blink { "\u{258C}" } else { " " };
+                let cursor_char = if self.show_cursor_blink {
+                    "\u{258C}"
+                } else {
+                    " "
+                };
                 let partial = format!("{}{cursor_char}", self.response_text);
                 lines.push(Line::from(markdown_spans(&partial)));
             }
@@ -716,11 +793,9 @@ impl RatatuiApp {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let input_text: String = self.input_buf.iter().collect();
-
         let spans = vec![
             Span::styled("> ", Style::default().fg(ACCENT)),
-            Span::styled(input_text, Style::default().fg(TEXT)),
+            Span::styled(self.cached_input.clone(), Style::default().fg(TEXT)),
         ];
 
         let paragraph = Paragraph::new(Line::from(spans));
@@ -734,14 +809,6 @@ impl RatatuiApp {
     }
 
     fn draw_status(&self, frame: &mut ratatui::Frame, area: Rect) {
-        let elapsed_str = self
-            .turn_start
-            .map(|t| format!("{}s", t.elapsed().as_secs()))
-            .unwrap_or_default();
-
-        let total_tokens = self.usage.input_tokens + self.usage.output_tokens;
-        let tokens_str = format_tokens(total_tokens);
-
         let status_label = if self.state.is_generating {
             "streaming"
         } else {
@@ -758,12 +825,18 @@ impl RatatuiApp {
             Span::styled(status_label, Style::default().fg(status_color)),
             Span::raw("  "),
             Span::styled("tokens ", Style::default().fg(MUTED)),
-            Span::styled(tokens_str, Style::default().fg(TEXT_SEC)),
+            Span::styled(
+                self.cached_tokens_str.clone(),
+                Style::default().fg(TEXT_SEC),
+            ),
             Span::raw("  "),
         ];
 
-        if self.state.is_generating && !elapsed_str.is_empty() {
-            spans.push(Span::styled(elapsed_str, Style::default().fg(ACCENT)));
+        if self.state.is_generating && !self.cached_elapsed_str.is_empty() {
+            spans.push(Span::styled(
+                self.cached_elapsed_str.clone(),
+                Style::default().fg(ACCENT),
+            ));
             spans.push(Span::raw("  "));
         }
 
@@ -1339,5 +1412,190 @@ mod tests {
     fn pricing_model_none_for_unknown_model() {
         let app = RatatuiApp::new("unknown-model-xyz".into(), "write".into(), None);
         assert!(app.model_pricing.is_none());
+    }
+
+    // -- Cached string tests ------------------------------------------------
+
+    #[test]
+    fn header_cached_after_new() {
+        let app = RatatuiApp::new(
+            "claude-sonnet".into(),
+            "workspace-write".into(),
+            Some("main".into()),
+        );
+        assert!(!app.cached_header.spans.is_empty());
+        let joined: String = app
+            .cached_header
+            .spans
+            .iter()
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert!(joined.contains("claude-sonnet"));
+        assert!(joined.contains("write"));
+        assert!(joined.contains("main"));
+    }
+
+    #[test]
+    fn input_cached_on_typing() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.input_buf = vec!['h', 'e', 'l', 'l', 'o'];
+        app.refresh_input_cache();
+        assert_eq!(app.cached_input, "hello");
+    }
+
+    #[test]
+    fn input_cache_cleared_on_backspace() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.input_buf = vec!['a', 'b'];
+        app.refresh_input_cache();
+        assert_eq!(app.cached_input, "ab");
+        app.input_buf.pop();
+        app.refresh_input_cache();
+        assert_eq!(app.cached_input, "a");
+    }
+
+    #[test]
+    fn status_tokens_cached_on_usage() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.usage = TokenUsage {
+            input_tokens: 1_500,
+            output_tokens: 300,
+            ..Default::default()
+        };
+        app.refresh_status_cache();
+        assert_eq!(app.cached_tokens_str, "1.8k");
+    }
+
+    #[test]
+    fn status_elapsed_cached_per_second() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.turn_start = Some(Instant::now() - Duration::from_secs(5));
+        app.refresh_status_cache();
+        assert_eq!(app.cached_elapsed_str, "5s");
+    }
+
+    // -- Dirty tracking tests -----------------------------------------------
+
+    #[test]
+    fn idle_app_is_dirty_on_new() {
+        let app = RatatuiApp::new("m".into(), "r".into(), None);
+        assert!(
+            app.dirty,
+            "app should be dirty immediately after new() so first draw happens"
+        );
+    }
+
+    #[test]
+    fn process_text_delta_sets_dirty() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.dirty = false;
+        app.process_event(TuiEvent::TextDelta("hello".into()));
+        assert!(app.dirty);
+    }
+
+    #[test]
+    fn process_turn_complete_sets_dirty() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.state.is_generating = true;
+        app.dirty = false;
+        app.process_event(TuiEvent::TurnComplete);
+        assert!(app.dirty);
+        assert!(!app.state.is_generating);
+    }
+
+    #[test]
+    fn process_permission_prompt_sets_dirty() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.dirty = false;
+        let (tx, _rx) = std::sync::mpsc::channel();
+        app.process_event(TuiEvent::PermissionPrompt {
+            request: ninmu_runtime::PermissionRequest {
+                tool_name: "read".into(),
+                input: "{}".into(),
+                required_mode: ninmu_runtime::PermissionMode::WorkspaceWrite,
+                current_mode: ninmu_runtime::PermissionMode::ReadOnly,
+                reason: None,
+            },
+            response_tx: tx,
+        });
+        assert!(app.dirty);
+        assert!(app.pending_permission.is_some());
+    }
+
+    #[test]
+    fn process_error_sets_dirty() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.dirty = false;
+        app.process_event(TuiEvent::Error("something went wrong".into()));
+        assert!(app.dirty);
+    }
+
+    // -- LoadHistory / resume guard tests -----------------------------------
+
+    #[test]
+    fn load_history_event_clears_existing_scrollback() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        // Pre-populate scrollback with old content.
+        app.scrollback.push("old line 1".into());
+        app.scrollback.push("old line 2".into());
+        assert!(!app.scrollback.is_empty());
+
+        // Send a LoadHistory event with new messages.
+        app.dirty = false;
+        app.process_event(TuiEvent::LoadHistory {
+            messages: vec![ConversationMessage {
+                role: MessageRole::User,
+                blocks: vec![ContentBlock::Text {
+                    text: "new message".into(),
+                }],
+                usage: None,
+            }],
+        });
+
+        assert!(app.dirty);
+        let all = app.scrollback.visible(usize::MAX).0;
+        let has_old = all.iter().any(|l| l.contains("old line"));
+        let has_new = all.iter().any(|l| l.contains("> new message"));
+        let has_separator = all.iter().any(|l| l.contains("session resumed"));
+        assert!(!has_old, "old content should be cleared");
+        assert!(has_new, "new messages should appear");
+        assert!(has_separator, "resume separator should appear");
+    }
+
+    #[test]
+    fn cost_includes_cache_tokens() {
+        let mut app = RatatuiApp::new("claude-sonnet".into(), "write".into(), None);
+        app.usage = TokenUsage {
+            input_tokens: 0,
+            output_tokens: 0,
+            cache_creation_input_tokens: 1000,
+            cache_read_input_tokens: 5000,
+            ..Default::default()
+        };
+        app.flush_response();
+        // Total tokens (input + output) is 0, so no usage line is emitted.
+        // This verifies the guard works correctly.
+        assert!(app.scrollback.is_empty());
+    }
+
+    #[test]
+    fn cost_shows_nonzero_cache_tokens() {
+        let mut app = RatatuiApp::new("claude-sonnet".into(), "write".into(), None);
+        app.usage = TokenUsage {
+            input_tokens: 100,
+            output_tokens: 50,
+            cache_creation_input_tokens: 1000,
+            cache_read_input_tokens: 5000,
+            ..Default::default()
+        };
+        app.response_text = "hello".into();
+        app.flush_response();
+        let all = app.scrollback.visible(usize::MAX).0;
+        let usage_line = all.last().expect("usage line should exist");
+        assert!(usage_line.contains('$'), "expected cost: {usage_line}");
+        // Cost should be higher than just 100+50 tokens — cache tokens add to it.
+        // With sonnet pricing: 100 in + 50 out + 1000 cache_create + 5000 cache_read
+        // = $0.0015 + $0.00375 + $0.01875 + $0.0075 ≈ $0.0315
+        assert!(usage_line.contains("0.03"), "expected cache-aware cost: {usage_line}");
     }
 }

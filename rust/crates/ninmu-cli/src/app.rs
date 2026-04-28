@@ -7,6 +7,7 @@ use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::OnceLock;
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, UNIX_EPOCH};
@@ -126,6 +127,8 @@ pub(crate) struct LiveCli {
     runtime: BuiltRuntime,
     session: SessionHandle,
     prompt_history: Vec<PromptHistoryEntry>,
+    /// Cached plugin state so TUI turns don't reload config / re-init plugins.
+    runtime_plugin_state: RuntimePluginState,
 }
 
 impl LiveCli {
@@ -139,7 +142,8 @@ impl LiveCli {
         let system_prompt = build_system_prompt()?;
         let session_state = new_cli_session()?;
         let session = create_managed_session_handle(&session_state.session_id)?;
-        let runtime = build_runtime(
+        let runtime_plugin_state = build_runtime_plugin_state()?;
+        let runtime = build_runtime_with_plugin_state(
             session_state.with_persistence_path(session.path.clone()),
             &session.id,
             model.clone(),
@@ -149,6 +153,7 @@ impl LiveCli {
             allowed_tools.clone(),
             permission_mode,
             None,
+            runtime_plugin_state.clone(),
         )?;
         let cli = Self {
             model,
@@ -159,6 +164,7 @@ impl LiveCli {
             runtime,
             session,
             prompt_history: Vec::new(),
+            runtime_plugin_state,
         };
         cli.persist_session()?;
         Ok(cli)
@@ -264,7 +270,7 @@ impl LiveCli {
         emit_output: bool,
     ) -> Result<(BuiltRuntime, HookAbortMonitor), Box<dyn std::error::Error>> {
         let hook_abort_signal = ninmu_runtime::HookAbortSignal::new();
-        let runtime = build_runtime(
+        let runtime = build_runtime_with_plugin_state(
             self.runtime.session().clone(),
             &self.session.id,
             self.model.clone(),
@@ -274,6 +280,7 @@ impl LiveCli {
             self.allowed_tools.clone(),
             self.permission_mode,
             None,
+            self.runtime_plugin_state.clone(),
         )?
         .with_hook_abort_signal(hook_abort_signal.clone());
         let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal);
@@ -413,12 +420,13 @@ impl LiveCli {
         let system_prompt = self.system_prompt.clone();
         let session = self.runtime.session().clone();
         let session_id = self.session.id.clone();
+        let runtime_plugin_state = self.runtime_plugin_state.clone();
 
         let handle = std::thread::spawn(move || {
             let hook_abort_signal = ninmu_runtime::HookAbortSignal::new();
             let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal.clone());
 
-            let mut runtime = build_runtime(
+            let mut runtime = build_runtime_with_plugin_state(
                 session,
                 &session_id,
                 model.clone(),
@@ -428,6 +436,7 @@ impl LiveCli {
                 allowed_tools.clone(),
                 permission_mode,
                 None,
+                runtime_plugin_state,
             )
             .map_err(|e| {
                 let msg = e.to_string();
@@ -1470,6 +1479,7 @@ pub(crate) struct ReadMcpResourceRequest {
 // RuntimePluginState
 // ═══════════════════════════════════════════════════════════════════════════
 
+#[derive(Clone)]
 pub(crate) struct RuntimePluginState {
     pub(crate) feature_config: ninmu_runtime::RuntimeFeatureConfig,
     pub(crate) tool_registry: GlobalToolRegistry,
@@ -1482,7 +1492,7 @@ pub(crate) struct RuntimePluginState {
 // ═══════════════════════════════════════════════════════════════════════════
 
 pub(crate) struct RuntimeMcpState {
-    runtime: tokio::runtime::Runtime,
+    runtime: std::sync::Arc<tokio::runtime::Runtime>,
     manager: McpServerManager,
     pending_servers: Vec<String>,
     degraded_report: Option<ninmu_runtime::McpDegradedReport>,
@@ -1498,7 +1508,7 @@ impl RuntimeMcpState {
             return Ok(None);
         }
 
-        let runtime = tokio::runtime::Runtime::new()?;
+        let runtime = std::sync::Arc::new(tokio::runtime::Runtime::new()?);
         let discovery = runtime.block_on(manager.discover_tools_best_effort());
         let pending_servers = discovery
             .failed_servers
@@ -1913,7 +1923,7 @@ pub(crate) fn build_runtime_with_plugin_state(
     let RuntimePluginState {
         feature_config,
         tool_registry,
-        plugin_registry,
+        mut plugin_registry,
         mcp_state,
     } = runtime_plugin_state;
     plugin_registry.initialize()?;
@@ -2184,8 +2194,12 @@ impl ninmu_runtime::PermissionPrompter for TuiPermissionPrompter {
 // `detect_provider_kind(&model)`. The struct name is kept to avoid
 // churning `BuiltRuntime` and every Deref/DerefMut site that references
 // it. See ROADMAP #29 for the provider-dispatch routing fix.
+/// Shared tokio runtime for all API clients in this process.
+/// Creating a fresh runtime per turn is expensive (spawns OS threads).
+static TOKIO_RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+
 pub(crate) struct AnthropicRuntimeClient {
-    pub(crate) runtime: tokio::runtime::Runtime,
+    pub(crate) runtime: tokio::runtime::Handle,
     pub(crate) client: ApiProviderClient,
     pub(crate) session_id: String,
     pub(crate) model: String,
@@ -2232,8 +2246,12 @@ impl AnthropicRuntimeClient {
                 ApiProviderClient::from_model_with_anthropic_auth(&resolved_model, None)?
             }
         };
+        let handle = TOKIO_RUNTIME
+            .get_or_init(|| tokio::runtime::Runtime::new().expect("tokio runtime"))
+            .handle()
+            .clone();
         Ok(Self {
-            runtime: tokio::runtime::Runtime::new()?,
+            runtime: handle,
             client,
             session_id: session_id.to_string(),
             model,
@@ -2966,43 +2984,10 @@ fn run_tui_repl(cli: &mut LiveCli) -> Result<(), Box<dyn std::error::Error>> {
                     bridge.error(line.to_string());
                 }
                 bridge.turn_complete();
-                // For /resume, also push the new session's messages so the
-                // user can see the conversation context immediately.
-                if is_resume && !cli.runtime.session().messages.is_empty() {
-                    for msg in &cli.runtime.session().messages {
-                        match msg.role {
-                            MessageRole::User => {
-                                for block in &msg.blocks {
-                                    if let ContentBlock::Text { text } = block {
-                                        for line in text.lines() {
-                                            bridge.text(format!("  > {line}\n"));
-                                        }
-                                    }
-                                }
-                            }
-                            MessageRole::Assistant => {
-                                for block in &msg.blocks {
-                                    match block {
-                                        ContentBlock::Text { text } => {
-                                            for line in text.lines() {
-                                                bridge.text(format!("{line}\n"));
-                                            }
-                                        }
-                                        ContentBlock::ToolUse { name, input, .. } => {
-                                            bridge.text(format!("  -- {name}\n"));
-                                            if let Some(first_line) = input.lines().next() {
-                                                bridge.text(format!("  {first_line}\n"));
-                                            }
-                                        }
-                                        ContentBlock::ToolResult { .. } => {}
-                                        ContentBlock::Thinking { .. } => {}
-                                    }
-                                }
-                            }
-                            MessageRole::System | MessageRole::Tool => {}
-                        }
-                    }
-                    bridge.text("\n  \u{2500} session resumed \u{2500}\n\n".to_string());
+                // For /resume, clear scrollback and load the new session's
+                // history so the user sees fresh context.
+                if is_resume {
+                    bridge.load_history(cli.runtime.session().messages.clone());
                 }
                 return Ok((
                     rx,
@@ -3641,4 +3626,15 @@ pub(crate) fn collect_prompt_cache_events(
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AnthropicRuntimeClient;
+
+    #[test]
+    fn anthropic_runtime_client_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<AnthropicRuntimeClient>();
+    }
 }

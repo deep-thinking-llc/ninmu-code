@@ -10,7 +10,7 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
-use ninmu_runtime::{PermissionPromptDecision, PermissionRequest, TokenUsage};
+use ninmu_runtime::{ContentBlock, ConversationMessage, MessageRole, PermissionPromptDecision, PermissionRequest, TokenUsage};
 
 /// Events that can be emitted during a TUI turn and consumed by the
 /// ratatui render loop on the main thread.
@@ -56,6 +56,9 @@ pub enum TuiEvent {
 
     /// A heartbeat / progress tick from long-running tool execution.
     ToolProgress { name: String, elapsed: Duration },
+
+    /// Clear the scrollback and load conversation history (used by /resume).
+    LoadHistory { messages: Vec<ConversationMessage> },
 }
 
 /// Bridge that lets the streaming / tool layer push events to the TUI.
@@ -149,6 +152,12 @@ impl TuiEventBridge {
             name: name.into(),
             elapsed,
         });
+    }
+
+    /// Push a load-history event.  The TUI will clear its scrollback and
+    /// display the provided messages.
+    pub fn load_history(&self, messages: Vec<ConversationMessage>) {
+        self.push(TuiEvent::LoadHistory { messages });
     }
 }
 

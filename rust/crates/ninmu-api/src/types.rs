@@ -27,10 +27,18 @@ pub struct MessageRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop: Option<Vec<String>>,
     /// Reasoning effort level for OpenAI-compatible reasoning models (e.g. `o4-mini`).
-    /// Accepted values: `"low"`, `"medium"`, `"high"`. Omitted when `None`.
+    /// Accepted values: `"low"`, `"medium"`, `"high"`, `"max"`. Omitted when `None`.
     /// Silently ignored by backends that do not support it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    /// DeepSeek/Qwen thinking mode toggle. When `Some(true)`, sends
+    /// `{"thinking": {"type": "enabled"}}` in the request body.
+    /// When `Some(false)`, sends `{"thinking": {"type": "disabled"}}`.
+    /// Omitted when `None` (provider default applies).
+    /// This is NOT serialized directly — it is handled in
+    /// `build_chat_completion_request` for OpenAI-compatible providers.
+    #[serde(skip)]
+    pub thinking_mode: Option<bool>,
 }
 
 impl MessageRequest {
