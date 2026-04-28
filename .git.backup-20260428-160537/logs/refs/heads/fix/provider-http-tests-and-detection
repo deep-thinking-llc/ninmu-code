@@ -1,6 +1,0 @@
-0000000000000000000000000000000000000000 fd30ad9c9df652cb46b9de5782e283df1a3d83df YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777303099 +0100	branch: Created from HEAD
-fd30ad9c9df652cb46b9de5782e283df1a3d83df cffa528fec1d765b19bc5684cd6cb0114a779fc6 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777303288 +0100	cherry-pick: test: add 24 provider HTTP integration tests and fix detection bugs
-cffa528fec1d765b19bc5684cd6cb0114a779fc6 e6dadc6e4a815e2bcf3647b59b16604b35bafd9c YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777303531 +0100	commit: style: format provider integration test files
-e6dadc6e4a815e2bcf3647b59b16604b35bafd9c f218289a1e2064437091d36bd4ec16e3e2c56dff YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777304681 +0100	rebase (finish): refs/heads/fix/provider-http-tests-and-detection onto a8224bf3ee623b2bf4c2a6f43ec0c22a1fc69cdd
-f218289a1e2064437091d36bd4ec16e3e2c56dff ce9efe7fcca4bbc0ccbf62ff4ae19f08a96b7ed3 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777307098 +0100	commit: feat: wire FullScreenTui into run_repl when --tui flag is passed
-ce9efe7fcca4bbc0ccbf62ff4ae19f08a96b7ed3 ddaf4fbf12f1b5e5a61b153addadd9c355f96271 YeonGyu-Kim <code.yeon.gyu@gmail.com> 1777308793 +0100	commit: refactor: prefix all internal crates with ninmu- for crates.io publishing
