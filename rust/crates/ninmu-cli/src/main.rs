@@ -2380,47 +2380,44 @@ mod tests {
     // Items still in main.rs
     use super::{
         format_unknown_slash_command, format_unknown_slash_command_message,
-        merge_prompt_with_stdin, parse_args, render_help_topic, run_resume_command,
-        short_tool_id, try_resolve_bare_skill_prompt, write_mcp_server_fixture,
-        DEFAULT_MODEL, STUB_COMMANDS,
+        merge_prompt_with_stdin, parse_args, render_help_topic, run_resume_command, short_tool_id,
+        try_resolve_bare_skill_prompt, write_mcp_server_fixture, DEFAULT_MODEL, STUB_COMMANDS,
     };
     // Items in app.rs
     use crate::app::{
-        build_runtime_plugin_state_with_loader, build_runtime_with_plugin_state,
-        convert_messages, describe_tool_progress, format_internal_prompt_progress_line,
-        permission_policy, push_output_block, resolve_cli_auth_source_for_cwd,
-        response_to_events, CliToolExecutor, HookAbortMonitor,
-        InternalPromptProgressEvent, InternalPromptProgressReporter,
+        build_runtime_plugin_state_with_loader, build_runtime_with_plugin_state, convert_messages,
+        describe_tool_progress, format_internal_prompt_progress_line, permission_policy,
+        push_output_block, resolve_cli_auth_source_for_cwd, response_to_events, CliToolExecutor,
+        HookAbortMonitor, InternalPromptProgressEvent, InternalPromptProgressReporter,
         InternalPromptProgressState, LiveCli,
     };
     // Items in args.rs
-    use crate::args::{CliAction, CliOutputFormat, parse_export_args};
+    use crate::args::{parse_export_args, CliAction, CliOutputFormat};
     // Items in cli_commands.rs
     use crate::cli_commands::{
-        dump_manifests_at_path, format_bughunter_report, format_issue_report,
-        format_pr_report, format_ultraplan_report, render_config_report,
-        render_diff_report, render_diff_report_for, render_memory_report,
-        render_session_markdown, summarize_tool_payload_for_markdown, validate_no_args,
+        dump_manifests_at_path, format_bughunter_report, format_issue_report, format_pr_report,
+        format_ultraplan_report, render_config_report, render_diff_report, render_diff_report_for,
+        render_memory_report, render_session_markdown, summarize_tool_payload_for_markdown,
+        validate_no_args,
     };
     // Items in format submodules
     use crate::format::{
-        classify_error_kind, create_managed_session_handle, format_commit_preflight_report,
-        format_commit_skipped_report, format_compact_report,
-        format_connected_line, format_cost_report, format_history_timestamp,
+        classify_error_kind, collect_session_prompt_history, create_managed_session_handle,
+        filter_tool_specs, format_commit_preflight_report, format_commit_skipped_report,
+        format_compact_report, format_connected_line, format_cost_report, format_history_timestamp,
         format_model_report, format_model_switch_report, format_permissions_report,
         format_permissions_switch_report, format_resume_report, format_status_report,
         format_tool_call_start, format_tool_result, format_user_visible_api_error,
-        filter_tool_specs, normalize_permission_mode, parse_git_status_branch,
-        parse_git_status_metadata_for, parse_git_workspace_summary, parse_history_count,
-        print_help_to, render_prompt_history_report, render_repl_help, render_resume_usage,
-        resolve_model_alias, resolve_model_alias_with_config, resolve_repl_model,
-        resolve_session_reference, slash_command_completion_candidates_with_sessions,
-        split_error_hint, status_context, StatusContext,
-        collect_session_prompt_history, GitWorkspaceSummary, LocalHelpTopic, PromptHistoryEntry,
-        StatusUsage, LATEST_SESSION_REFERENCE,
+        normalize_permission_mode, parse_git_status_branch, parse_git_status_metadata_for,
+        parse_git_workspace_summary, parse_history_count, print_help_to,
+        render_prompt_history_report, render_repl_help, render_resume_usage, resolve_model_alias,
+        resolve_model_alias_with_config, resolve_repl_model, resolve_session_reference,
+        slash_command_completion_candidates_with_sessions, split_error_hint, status_context,
+        GitWorkspaceSummary, LocalHelpTopic, PromptHistoryEntry, StatusContext, StatusUsage,
+        LATEST_SESSION_REFERENCE,
     };
-    use ninmu_commands::{resume_supported_slash_commands, SlashCommand};
     use ninmu_api::{ApiError, MessageResponse, OutputContentBlock, Usage};
+    use ninmu_commands::{resume_supported_slash_commands, SlashCommand};
     use ninmu_plugins::{
         PluginManager, PluginManagerConfig, PluginTool, PluginToolDefinition, PluginToolPermission,
     };
@@ -6504,8 +6501,8 @@ mod sandbox_report_tests {
 
 #[cfg(test)]
 mod dump_manifests_tests {
-    use crate::cli_commands::dump_manifests_at_path;
     use crate::args::CliOutputFormat;
+    use crate::cli_commands::dump_manifests_at_path;
     use std::fs;
 
     #[test]
