@@ -427,6 +427,17 @@ impl LiveCli {
         let session = self.runtime.session().clone();
         let session_id = self.session.id.clone();
         let runtime_plugin_state = self.runtime_plugin_state.clone();
+        // Propagate reasoning/thinking settings to the worker thread's client.
+        let reasoning_effort = self
+            .runtime
+            .runtime
+            .as_ref()
+            .and_then(|rt| rt.api_client().reasoning_effort.clone());
+        let thinking_mode = self
+            .runtime
+            .runtime
+            .as_ref()
+            .and_then(|rt| rt.api_client().thinking_mode);
 
         let handle = std::thread::spawn(move || {
             let hook_abort_signal = ninmu_runtime::HookAbortSignal::new();
@@ -453,6 +464,12 @@ impl LiveCli {
             // Inject bridge into the API client and tool executor.
             if let Some(r) = runtime.runtime.as_mut() {
                 r.api_client_mut().event_bridge = Some(bridge2.clone());
+                if let Some(effort) = reasoning_effort {
+                    r.api_client_mut().set_reasoning_effort(Some(effort));
+                }
+                if let Some(mode) = thinking_mode {
+                    r.api_client_mut().set_thinking_mode(Some(mode));
+                }
                 r.tool_executor_mut().event_bridge = Some(bridge2.clone());
             }
 

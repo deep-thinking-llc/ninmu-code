@@ -188,6 +188,66 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
     ),
 ];
 
+/// A model entry for the model selector dialog.
+#[derive(Debug, Clone)]
+pub struct ModelEntry {
+    /// Display alias (e.g. "opus", "sonnet", "deepseek-reasoner").
+    pub alias: String,
+    /// Canonical resolved model name (e.g. "claude-opus-4-6").
+    pub canonical: String,
+    /// Provider kind.
+    pub provider: ProviderKind,
+}
+
+/// Returns all registered model entries (from `MODEL_REGISTRY`) plus any
+/// custom models from `models.json`.  Used by the TUI model selector.
+#[must_use]
+pub fn list_available_models() -> Vec<ModelEntry> {
+    let mut entries: Vec<ModelEntry> = MODEL_REGISTRY
+        .iter()
+        .map(|(alias, metadata)| ModelEntry {
+            alias: (*alias).to_string(),
+            canonical: resolve_model_alias(alias),
+            provider: metadata.provider,
+        })
+        .collect();
+    // Deduplicate: skip entries whose canonical name is already present.
+    let mut seen: std::collections::HashSet<String> = entries.iter().map(|e| e.canonical.clone()).collect();
+    // Add custom models from models.json.
+    if let Ok(cwd) = std::env::current_dir() {
+        let _ = models_file::discover_and_load_models(&cwd, &config_home_dir());
+        for model in models_file::all_custom_models() {
+            if seen.insert(model.model_id.clone()) {
+                let provider = metadata_for_model(&model.model_id)
+                    .map_or(ProviderKind::OpenAi, |m| m.provider);
+                entries.push(ModelEntry {
+                    alias: model.model_id.clone(),
+                    canonical: model.model_id,
+                    provider,
+                });
+            }
+        }
+    }
+    entries
+}
+
+/// Returns the default config home directory (`~/.claw` or `$CLAW_CONFIG_HOME`).
+fn config_home_dir() -> std::path::PathBuf {
+    std::env::var("CLAW_CONFIG_HOME")
+        .ok()
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(|| {
+            dirs_or_default().join(".claw")
+        })
+}
+
+fn dirs_or_default() -> std::path::PathBuf {
+    std::env::var("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("."))
+}
+
 #[must_use]
 pub fn resolve_model_alias(model: &str) -> String {
     let trimmed = model.trim();

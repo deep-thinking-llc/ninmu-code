@@ -122,6 +122,24 @@ struct PendingPermission {
     action_description: String,
 }
 
+/// Interactive model selector dialog state.
+struct ModelSelector {
+    /// All available model entries from the registry + custom models.
+    all_entries: Vec<ninmu_api::ModelEntry>,
+    /// Indices into `all_entries` that match the current filter.
+    filtered: Vec<usize>,
+    /// Current filter text typed by the user.
+    filter: Vec<char>,
+    /// Cursor position in the filter input.
+    filter_cursor: usize,
+    /// Currently highlighted row in the filtered list.
+    selected: usize,
+    /// Scroll offset for the filtered list (top visible row index).
+    scroll_offset: usize,
+    /// Maximum visible rows in the dropdown.
+    max_visible: usize,
+}
+
 impl RatatuiApp {
     pub fn new(model: String, permission_mode: String, git_branch: Option<String>) -> Self {
         let model_pricing = ninmu_runtime::pricing_for_model(&model);
