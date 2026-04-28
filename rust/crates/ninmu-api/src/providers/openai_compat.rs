@@ -965,22 +965,23 @@ struct ResponseToolFunction {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(clippy::struct_field_names)]
 struct OpenAiUsage {
     #[serde(default)]
     prompt_tokens: u32,
     #[serde(default)]
     completion_tokens: u32,
-    /// OpenAI's prompt cache hit tokens (from `prompt_tokens_details.cached_tokens`).
+    /// `OpenAI`'s prompt cache hit tokens (from `prompt_tokens_details.cached_tokens`).
     #[serde(default, rename = "cached_tokens")]
     prompt_cache_hit_tokens: u32,
-    /// DeepSeek's prompt cache hit tokens.
+    /// `DeepSeek`'s prompt cache hit tokens.
     #[serde(default, rename = "prompt_cache_hit_tokens")]
     deepseek_prompt_cache_hit_tokens: u32,
 }
 
 impl OpenAiUsage {
     /// Returns the number of cache-read input tokens, combining
-    /// OpenAI's `cached_tokens` and DeepSeek's `prompt_cache_hit_tokens`.
+    /// `OpenAI`'s `cached_tokens` and `DeepSeek`'s `prompt_cache_hit_tokens`.
     fn cache_read_input_tokens(&self) -> u32 {
         self.prompt_cache_hit_tokens + self.deepseek_prompt_cache_hit_tokens
     }
@@ -1534,7 +1535,7 @@ fn normalize_response(
             cache_read_input_tokens: response
                 .usage
                 .as_ref()
-                .map_or(0, |usage| usage.cache_read_input_tokens()),
+                .map_or(0, OpenAiUsage::cache_read_input_tokens),
             output_tokens: response
                 .usage
                 .as_ref()

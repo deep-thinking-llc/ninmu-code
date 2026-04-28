@@ -78,7 +78,7 @@ use crate::tui::theme::Theme;
 use crate::tui::timeline::{SharedToolCallTimeline, ToolCallTimeline};
 use crate::{
     AllowedToolSet, RuntimePluginStateBuildOutput, DEFAULT_DATE,
-    INTERNAL_PROGRESS_HEARTBEAT_INTERVAL, POST_TOOL_STALL_TIMEOUT,
+    INTERNAL_PROGRESS_HEARTBEAT_INTERVAL, POST_TOOL_STALL_TIMEOUT, STREAM_IDLE_TIMEOUT,
 };
 
 /// Print content using the internal pager if it exceeds terminal height.
@@ -2433,6 +2433,14 @@ impl AnthropicRuntimeClient {
         let mut thinking_chars: usize = 0;
 
         loop {
+            // Choose timeout strategy:
+            //  1. First event of a post-tool continuation → short (10 s) stall
+            //     detection (existing behaviour).
+            //  2. Subsequent events → general idle timeout (120 s) to catch
+            //     mid-stream SSE hangs that would otherwise block forever.
+            //  3. First event of a brand-new turn (not post-tool) → no timeout
+            //     because the model may legitimately think for a long time
+            //     before sending the first token.
             let next = if apply_stall_timeout && !received_any_event {
                 match tokio::time::timeout(POST_TOOL_STALL_TIMEOUT, stream.next_event()).await {
                     Ok(inner) => inner.map_err(|error| {
@@ -2442,6 +2450,20 @@ impl AnthropicRuntimeClient {
                         return Err(RuntimeError::new(
                             "post-tool stall: model did not respond within timeout",
                         ));
+                    }
+                }
+            } else if received_any_event {
+                // General idle timeout: if no event arrives within
+                // STREAM_IDLE_TIMEOUT the connection is considered dead.
+                match tokio::time::timeout(STREAM_IDLE_TIMEOUT, stream.next_event()).await {
+                    Ok(inner) => inner.map_err(|error| {
+                        RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
+                    })?,
+                    Err(_elapsed) => {
+                        return Err(RuntimeError::new(format!(
+                            "stream stall: no event received in {}s, connection appears dead",
+                            STREAM_IDLE_TIMEOUT.as_secs()
+                        )));
                     }
                 }
             } else {

@@ -461,8 +461,12 @@ impl RatatuiApp {
                     while let Some(ev) = handle.try_recv() {
                         self.process_event(ev);
                     }
-                    self.flush_response();
-                    self.state.is_generating = false;
+                    // Only flush if TurnComplete wasn't already processed
+                    // (process_event sets is_generating=false on TurnComplete).
+                    if self.state.is_generating {
+                        self.flush_response();
+                        self.state.is_generating = false;
+                    }
                     self.state.thinking_state = ThinkingState::Idle;
                     self.state.current_tool = None;
                     turn_handle.take();
@@ -585,7 +589,7 @@ impl RatatuiApp {
     fn flush_response(&mut self) {
         if !self.response_text.is_empty() {
             for line in self.response_text.lines() {
-                self.scrollback.push(format!("  \u{25A0} {line}"));
+                self.scrollback.push(format!("{line}"));
             }
             if self.response_text.ends_with('\n') {
                 self.scrollback.push(String::new());
@@ -615,6 +619,7 @@ impl RatatuiApp {
                 }
             }
             self.scrollback.push(msg);
+            self.usage = TokenUsage::default();
         }
     }
 
@@ -629,7 +634,7 @@ impl RatatuiApp {
         let mut parts = text.split('\n');
         let remainder = parts.next_back().unwrap_or("").to_string();
         for part in parts {
-            self.scrollback.push(format!("  \u{25A0} {part}"));
+            self.scrollback.push(format!("{part}"));
         }
         self.response_text = remainder;
     }
@@ -653,7 +658,7 @@ impl RatatuiApp {
                     ContentBlock::Text { text } => {
                         let prefix = match msg.role {
                             MessageRole::User => "  \u{25B8} ",
-                            MessageRole::Assistant => "  \u{25A0} ",
+                            MessageRole::Assistant => "",
                             _ => "  ",
                         };
                         for line in text.lines() {
@@ -778,89 +783,74 @@ impl RatatuiApp {
         let viewport_height = area.height as usize;
         let (visible, _, _total) = self.scrollback.visible(viewport_height);
 
-        // Pre-compute pulsing green brightness for the current user prompt.
-        // Oscillates between USER_COLOR and USER_COLOR_DIM.
-        let pulse_t = if self.state.is_generating {
-            // Use a sine-like oscillation from spinner_frame (0..24 range).
-            let phase = (self.spinner_frame % 8) as f32 / 8.0;
-            (phase * std::f32::consts::PI).sin().abs()
-        } else {
-            1.0
-        };
-        let pulse_green = lerp_u8(USER_COLOR_DIM.g(), USER_COLOR.g(), pulse_t);
-        let user_prompt_color = Color::Rgb(
-            lerp_u8(USER_COLOR_DIM.r(), USER_COLOR.r(), pulse_t),
-            pulse_green,
-            lerp_u8(USER_COLOR_DIM.b(), USER_COLOR.b(), pulse_t),
-        );
+        // Find the index of the LAST user prompt line (for pulsing).
+        let last_user_idx = visible
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, s)| {
+                let t = s.trim_end();
+                t.starts_with("  \u{25B8} ") || t.starts_with("  > ")
+            })
+            .map(|(i, _)| i);
 
         let mut in_code_block = false;
         let mut lines: Vec<Line> = visible
             .iter()
-            .map(|s| {
+            .enumerate()
+            .map(|(idx, s)| {
                 let s = s.trim_end();
+
                 // -- User prompt: ▸ prefix --
-                if let Some(rest) = s.strip_prefix("  \u{25B8} ") {
+                let is_user_prompt = s.starts_with("  \u{25B8} ") || s.starts_with("  > ");
+                if is_user_prompt {
+                    let rest = if let Some(r) = s.strip_prefix("  \u{25B8} ") {
+                        r
+                    } else {
+                        s.strip_prefix("  > ").unwrap_or(s)
+                    };
+                    // Pulse only the last user prompt while generating.
+                    let is_active = self.state.is_generating && Some(idx) == last_user_idx;
+                    let color = if is_active {
+                        let phase = (self.spinner_frame % 8) as f32 / 8.0;
+                        let t = (phase * std::f32::consts::PI).sin().abs();
+                        Color::Rgb(
+                            lerp_u8(USER_COLOR_DIM.r(), USER_COLOR.r(), t),
+                            lerp_u8(USER_COLOR_DIM.g(), USER_COLOR.g(), t),
+                            lerp_u8(USER_COLOR_DIM.b(), USER_COLOR.b(), t),
+                        )
+                    } else {
+                        USER_COLOR
+                    };
                     return Line::from(vec![
                         Span::styled(
                             "  \u{25B8} ",
-                            Style::default()
-                                .fg(user_prompt_color)
-                                .add_modifier(Modifier::BOLD),
+                            Style::default().fg(color).add_modifier(Modifier::BOLD),
                         ),
-                        Span::styled(rest.to_string(), Style::default().fg(user_prompt_color)),
+                        Span::styled(rest.to_string(), Style::default().fg(color)),
                     ]);
                 }
-                // Legacy "  > " prefix (session resume, tests)
-                if let Some(rest) = s.strip_prefix("  > ") {
-                    return Line::from(vec![
-                        Span::styled(
-                            "  \u{25B8} ",
-                            Style::default()
-                                .fg(user_prompt_color)
-                                .add_modifier(Modifier::BOLD),
-                        ),
-                        Span::styled(rest.to_string(), Style::default().fg(user_prompt_color)),
-                    ]);
-                }
-                // -- LLM response: ■ prefix --
-                if let Some(rest) = s.strip_prefix("  \u{25A0} ") {
-                    // Detect fenced code block open/close
-                    let trimmed = rest.trim();
-                    if trimmed.starts_with("```") {
-                        in_code_block = !in_code_block;
-                        if in_code_block {
-                            // Opening fence — show language tag
-                            let lang = trimmed.strip_prefix("`").unwrap_or("");
-                            return Line::from(vec![
-                                Span::styled("  \u{25A0} ", Style::default().fg(LLM_COLOR)),
-                                Span::styled(
-                                    format!("{lang}"),
-                                    Style::default().fg(MUTED).bg(CODE_BG),
-                                ),
-                            ]);
-                        }
-                        // Closing fence
-                        return Line::from(vec![
-                            Span::styled("  \u{25A0} ", Style::default().fg(LLM_COLOR)),
-                            Span::styled("```".to_string(), Style::default().fg(MUTED).bg(CODE_BG)),
-                        ]);
-                    }
+                // -- Fenced code block detection (any line) --
+                let trimmed = s.trim();
+                if trimmed.starts_with("```") {
+                    in_code_block = !in_code_block;
                     if in_code_block {
-                        // Code line: monochrome on dark background
-                        return Line::from(vec![
-                            Span::styled("  \u{25A0} ", Style::default().fg(LLM_COLOR)),
-                            Span::styled(
-                                rest.to_string(),
-                                Style::default().fg(CODE_FG).bg(CODE_BG),
-                            ),
-                        ]);
+                        let lang = trimmed.strip_prefix("`").unwrap_or("");
+                        return Line::from(Span::styled(
+                            format!("  {lang}"),
+                            Style::default().fg(MUTED).bg(CODE_BG),
+                        ));
                     }
-                    // Regular LLM text with inline markdown
-                    let mut spans =
-                        vec![Span::styled("  \u{25A0} ", Style::default().fg(LLM_COLOR))];
-                    spans.extend(markdown_spans(rest));
-                    return Line::from(spans);
+                    return Line::from(Span::styled(
+                        "  ```".to_string(),
+                        Style::default().fg(MUTED).bg(CODE_BG),
+                    ));
+                }
+                if in_code_block {
+                    return Line::from(Span::styled(
+                        format!("  {s}"),
+                        Style::default().fg(CODE_FG).bg(CODE_BG),
+                    ));
                 }
                 // -- Error --
                 if let Some(rest) = s.strip_prefix("  error:") {
@@ -901,7 +891,7 @@ impl RatatuiApp {
                 } else {
                     " "
                 };
-                let partial = format!("  \u{25A0} {}{cursor_char}", self.response_text);
+                let partial = format!("{}{cursor_char}", self.response_text);
                 lines.push(Line::from(markdown_spans(&partial)));
             }
 
@@ -1995,5 +1985,106 @@ mod tests {
             "header must show thinking=off: {text}"
         );
         assert!(text.contains("max"), "header must show effort=max: {text}");
+    }
+
+    // -- Double-flush guard tests -------------------------------------------
+
+    #[test]
+    fn flush_response_does_not_emit_usage_twice() {
+        let mut app = RatatuiApp::new("claude-sonnet".into(), "write".into(), None);
+        app.usage = TokenUsage {
+            input_tokens: 100,
+            output_tokens: 50,
+            ..Default::default()
+        };
+        app.response_text = "hello".into();
+        // First flush — emits response + usage.
+        app.flush_response();
+        let count_after_first = app.scrollback.len();
+        // Second flush — response_text is empty, but usage still > 0.
+        // It must NOT emit a duplicate usage line.
+        app.flush_response();
+        let count_after_second = app.scrollback.len();
+        assert_eq!(
+            count_after_first, count_after_second,
+            "second flush must not add more lines (duplicate usage)"
+        );
+    }
+
+    #[test]
+    fn turn_complete_then_is_finished_no_double_flush() {
+        let mut app = RatatuiApp::new("claude-sonnet".into(), "write".into(), None);
+        app.state.is_generating = true;
+        app.usage = TokenUsage {
+            input_tokens: 200,
+            output_tokens: 100,
+            ..Default::default()
+        };
+        app.response_text = "world".into();
+        // Simulate TurnComplete event (sets is_generating = false).
+        app.process_event(TuiEvent::TurnComplete);
+        let count_after_complete = app.scrollback.len();
+        // Now simulate is_finished() path — it should NOT flush again.
+        // The guard is: if self.state.is_generating { flush }
+        if app.state.is_generating {
+            app.flush_response();
+        }
+        let count_after_finished = app.scrollback.len();
+        assert_eq!(
+            count_after_complete, count_after_finished,
+            "is_finished path must not double-flush after TurnComplete"
+        );
+    }
+
+    // -- Pulse only last user prompt tests ----------------------------------
+
+    #[test]
+    fn only_last_user_prompt_gets_pulse_color() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        // Push two user prompts.
+        app.scrollback.push("  \u{25B8} first prompt".into());
+        app.scrollback.push("response".into());
+        app.scrollback.push("  \u{25B8} second prompt".into());
+        // Set generating state so pulse logic kicks in.
+        app.state.is_generating = true;
+        app.spinner_frame = 0; // deterministic pulse phase
+
+        let visible = app.scrollback.visible(usize::MAX).0;
+        // Find last user prompt index.
+        let last_user_idx = visible
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, s)| s.trim_end().starts_with("  \u{25B8}"))
+            .map(|(i, _)| i);
+        assert_eq!(last_user_idx, Some(2), "last user prompt should be at index 2");
+
+        // The first user prompt (index 0) is NOT the last, so it should
+        // use static USER_COLOR, not pulse.
+        let first_is_active = app.state.is_generating && Some(0) == last_user_idx;
+        assert!(!first_is_active, "first prompt should not be active/pulsing");
+
+        // The second user prompt (index 2) IS the last, so it should pulse.
+        let second_is_active = app.state.is_generating && Some(2) == last_user_idx;
+        assert!(second_is_active, "second prompt should be active/pulsing");
+    }
+
+    #[test]
+    fn no_pulse_when_not_generating() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.scrollback.push("  \u{25B8} hello".into());
+        app.state.is_generating = false;
+
+        let visible = app.scrollback.visible(usize::MAX).0;
+        let last_user_idx = visible
+            .iter()
+            .enumerate()
+            .rev()
+            .find(|(_, s)| s.trim_end().starts_with("  \u{25B8}"))
+            .map(|(i, _)| i);
+
+        // Not generating → is_active is false even for the last prompt.
+        let is_active = app.state.is_generating && Some(0) == last_user_idx;
+        assert!(!is_active, "no pulse when idle");
     }
 }

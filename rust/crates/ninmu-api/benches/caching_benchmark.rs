@@ -239,6 +239,7 @@ fn analyze_cache_savings(request: &MessageRequest) -> CacheAnalysis {
 }
 
 #[derive(Debug)]
+#[allow(clippy::struct_field_names)]
 struct CacheAnalysis {
     total_input_tokens: u32,
     cache_read_tokens: u32,

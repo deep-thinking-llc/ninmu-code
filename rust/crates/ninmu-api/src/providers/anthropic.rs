@@ -982,9 +982,9 @@ fn strip_unsupported_beta_body_fields(body: &mut Value) {
 /// Anthropic prompt caching. This mutates the JSON value in-place.
 ///
 /// Strategy:
-/// - Convert `system` string → array of text blocks with cache_control.
-/// - Add cache_control to all tool definitions.
-/// - Add cache_control to all message content blocks except the last 2 messages.
+/// - Convert `system` string → array of text blocks with `cache_control`.
+/// - Add `cache_control` to all tool definitions.
+/// - Add `cache_control` to all message content blocks except the last 2 messages.
 pub fn inject_prompt_cache_control(body: &mut Value) {
     let Some(object) = body.as_object_mut() else {
         return;
@@ -1027,7 +1027,7 @@ pub fn inject_prompt_cache_control(body: &mut Value) {
     }
 }
 
-/// Recursively add cache_control to all text/tool_use content blocks.
+/// Recursively add `cache_control` to all `text`/`tool_use` content blocks.
 fn inject_cache_control_into_content(content: &mut Value) {
     if let Some(text) = content.as_str() {
         *content = json!([{

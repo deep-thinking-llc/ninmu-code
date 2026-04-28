@@ -23,3 +23,7 @@ workspace = true
 [[bench]]
 name = "request_building"
 harness = false
+
+[[bench]]
+name = "caching_benchmark"
+harness = false
