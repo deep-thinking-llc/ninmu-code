@@ -41,6 +41,48 @@ const ERROR_COLOR: Color = Color::Rgb(203, 80, 80);
 const SUCCESS: Color = Color::Rgb(70, 180, 70);
 const THINKING_COLOR: Color = Color::Rgb(136, 100, 220);
 
+// -- Splash screen constants -------------------------------------------------
+const SPLASH_DURATION: Duration = Duration::from_secs(5);
+const SPLASH_FADE_START: Duration = Duration::from_secs(4);
+/// Amber/gold colour matching the original DT-INTERFACE retro terminal.
+const SPLASH_COLOR: Color = Color::Rgb(218, 165, 32);
+
+const SPLASH_ART: &str = r##"+----------------------------------------------------------+
+|                                                          |
+|     DDDDD   TTTTTTT                                      |
+|     D    D     T        DEEP THINKING CORP               |
+|     D     D    T        BUILDING BETTER WORLDS           |
+|     D    D     T                                         |
+|     DDDDD      T        DT-INTERFACE 1.0.7               |
+|                         ANDROID MEMORY MANAGEMENT SYSTEM |
+|                                                          |
+|     USER: TECHNICIAN-07    DATE: 05-24-87                |
+|     ACCESS LEVEL: 3        TIME: 14:32:11                |
+|                                                          |
+|  +-------------------------------------------+           |
+|  |        MEMORY CORE DIAGNOSTICS            |           |
+|  |                                           |           |
+|  |         .-"""-.                           |           |
+|  |        /       \    PRIMARY MEMORY  100%  |           |
+|  |       |  o   o  |   PERSONALITY     100%  |           |
+|  |       |    <    |   BEHAVIORAL      100%  |           |
+|  |        \  '-'  /    MISSION         100%  |           |
+|  |         '-...-'     LEARNING        100%  |           |
+|  |                   SENSOR ARCHIVE    100%  |           |
+|  +-------------------------------------------+           |
+|                                                          |
+|  > MEM CORE INTEGRITY CHECK...... OK                     |
+|  > ALL MEMORY BANKS VERIFIED..... OK                     |
+|  > NEURAL NET SYNCHRONIZATION.... OK                     |
+|  > BEHAVIORAL INHIBITORS......... LOCKED                 |
+|  > MEMORY SYSTEM................. NOMINAL                |
+|                                                          |
+|  [F1 HELP] [F2 INFO] [F3 DIAGNOSTICS] [F8 EXIT]          |
+|                                                          |
+|       DEEP THINKING CORP  (c) 1987 ALL RIGHTS RESERVED   |
+|                                                          |
++----------------------------------------------------------+"##;
+
 // -- Spinner frames -----------------------------------------------------------
 const SPINNER: &[&str] = &[
     "  \u{2593}\u{2591}\u{2591}\u{2591}",
@@ -77,6 +119,8 @@ pub struct RatatuiApp {
     last_conv_height: usize,
     /// Pending permission prompt waiting for user decision.
     pending_permission: Option<PendingPermission>,
+    /// When the splash screen started (`None` once dismissed).
+    splash_start: Option<Instant>,
 }
 
 /// A permission prompt waiting for the user to respond in the TUI.
@@ -104,6 +148,7 @@ impl RatatuiApp {
             permission_mode,
             last_conv_height: 20,
             pending_permission: None,
+            splash_start: Some(Instant::now()),
         }
     }
 
@@ -166,21 +211,22 @@ impl RatatuiApp {
             if crossterm::event::poll(tick_rate)? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
+                        // Dismiss splash on any keypress.
+                        if self.splash_start.take().is_some() {
+                            continue;
+                        }
+
                         // Ctrl+C / Ctrl+D always quits
                         if key.modifiers.contains(KeyModifiers::CONTROL)
                             && matches!(key.code, KeyCode::Char('c' | 'd'))
                         {
                             // If a permission prompt is active, deny it and continue.
                             if let Some(perm) = self.pending_permission.take() {
-                                let _ = perm.response_tx.send(
-                                    PermissionPromptDecision::Deny {
-                                        reason: "user pressed Ctrl+C/D".to_string(),
-                                    },
-                                );
-                                self.scrollback.push(format!(
-                                    "  denied: {}",
-                                    perm.request.tool_name
-                                ));
+                                let _ = perm.response_tx.send(PermissionPromptDecision::Deny {
+                                    reason: "user pressed Ctrl+C/D".to_string(),
+                                });
+                                self.scrollback
+                                    .push(format!("  denied: {}", perm.request.tool_name));
                             }
                             return Ok(());
                         }
@@ -188,55 +234,37 @@ impl RatatuiApp {
                         // Permission prompt mode — intercept all keypresses.
                         if let Some(perm) = self.pending_permission.take() {
                             match key.code {
-                                KeyCode::Char('y') | KeyCode::Char('a')
-                                    if key.modifiers.is_empty() =>
-                                {
-                                    let _ = perm
-                                        .response_tx
-                                        .send(PermissionPromptDecision::Allow);
-                                    self.scrollback.push(format!(
-                                        "  allowed: {}",
-                                        perm.request.tool_name
-                                    ));
+                                KeyCode::Char('y' | 'a') if key.modifiers.is_empty() => {
+                                    let _ = perm.response_tx.send(PermissionPromptDecision::Allow);
+                                    self.scrollback
+                                        .push(format!("  allowed: {}", perm.request.tool_name));
                                 }
-                                KeyCode::Char('n') | KeyCode::Char('d')
-                                    if key.modifiers.is_empty() =>
-                                {
-                                    let _ = perm.response_tx.send(
-                                        PermissionPromptDecision::Deny {
-                                            reason: format!(
-                                                "tool '{}' denied by user",
-                                                perm.request.tool_name
-                                            ),
-                                        },
-                                    );
-                                    self.scrollback.push(format!(
-                                        "  denied: {}",
-                                        perm.request.tool_name
-                                    ));
+                                KeyCode::Char('n' | 'd') if key.modifiers.is_empty() => {
+                                    let _ = perm.response_tx.send(PermissionPromptDecision::Deny {
+                                        reason: format!(
+                                            "tool '{}' denied by user",
+                                            perm.request.tool_name
+                                        ),
+                                    });
+                                    self.scrollback
+                                        .push(format!("  denied: {}", perm.request.tool_name));
                                 }
                                 KeyCode::Char('v') if key.modifiers.is_empty() => {
                                     // View input: push it to scrollback,
                                     // then re-present the prompt.
-                                    self.scrollback.push(format!(
-                                        "  input: {}",
-                                        perm.request.input
-                                    ));
+                                    self.scrollback
+                                        .push(format!("  input: {}", perm.request.input));
                                     self.pending_permission = Some(perm);
                                 }
                                 KeyCode::Esc => {
-                                    let _ = perm.response_tx.send(
-                                        PermissionPromptDecision::Deny {
-                                            reason: format!(
-                                                "tool '{}' denied by user (Esc)",
-                                                perm.request.tool_name
-                                            ),
-                                        },
-                                    );
-                                    self.scrollback.push(format!(
-                                        "  denied: {}",
-                                        perm.request.tool_name
-                                    ));
+                                    let _ = perm.response_tx.send(PermissionPromptDecision::Deny {
+                                        reason: format!(
+                                            "tool '{}' denied by user (Esc)",
+                                            perm.request.tool_name
+                                        ),
+                                    });
+                                    self.scrollback
+                                        .push(format!("  denied: {}", perm.request.tool_name));
                                 }
                                 _ => {
                                     // Unrecognised key — re-present.
@@ -465,6 +493,11 @@ impl RatatuiApp {
     fn draw(&mut self, frame: &mut ratatui::Frame) {
         let area = frame.area();
 
+        // Splash screen takes over the whole display while active.
+        if self.draw_splash(frame, area) {
+            return;
+        }
+
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
@@ -489,6 +522,60 @@ impl RatatuiApp {
         if self.pending_permission.is_some() {
             self.draw_permission_modal(frame, area);
         }
+    }
+
+    /// Draw the startup splash screen.
+    /// Returns `true` while the splash is still visible.
+    fn draw_splash(&mut self, frame: &mut ratatui::Frame, area: Rect) -> bool {
+        let start = match self.splash_start {
+            Some(s) => s,
+            None => return false,
+        };
+
+        let elapsed = start.elapsed();
+        if elapsed >= SPLASH_DURATION {
+            self.splash_start = None;
+            return false;
+        }
+
+        // Compute fade colour.
+        let fg = if elapsed >= SPLASH_FADE_START {
+            let progress = (elapsed - SPLASH_FADE_START).as_secs_f32()
+                / (SPLASH_DURATION - SPLASH_FADE_START).as_secs_f32();
+            let r = lerp(218, 10, progress);
+            let g = lerp(165, 10, progress);
+            let b = lerp(32, 10, progress);
+            Color::Rgb(r, g, b)
+        } else {
+            SPLASH_COLOR
+        };
+
+        // Clear the background.
+        frame.render_widget(Block::default().style(Style::default().bg(BG)), area);
+
+        let lines: Vec<&str> = SPLASH_ART.lines().collect();
+        let splash_h = lines.len() as u16;
+        let splash_w = lines.iter().map(|l| l.chars().count()).max().unwrap_or(0) as u16;
+
+        let x = area
+            .x
+            .saturating_add(area.width.saturating_sub(splash_w) / 2);
+        let y = area
+            .y
+            .saturating_add(area.height.saturating_sub(splash_h) / 2);
+
+        for (row, line) in lines.iter().enumerate() {
+            let row_y = y + row as u16;
+            if row_y >= area.y + area.height {
+                break;
+            }
+            frame.render_widget(
+                Paragraph::new(*line).style(Style::default().fg(fg).bg(BG)),
+                Rect::new(x, row_y, splash_w.min(area.width), 1),
+            );
+        }
+
+        true
     }
 
     fn draw_header(&self, frame: &mut ratatui::Frame, area: Rect) {
@@ -716,30 +803,77 @@ impl RatatuiApp {
             return;
         };
 
-        let lines = vec![
-            Line::from(vec![
-                Span::styled("  tool: ", Style::default().fg(MUTED)),
-                Span::styled(
-                    &perm.request.tool_name,
-                    Style::default().fg(ACCENT),
-                ),
-            ]),
-            Line::from(vec![
-                Span::styled("  action: ", Style::default().fg(MUTED)),
-                Span::styled(
-                    &perm.action_description,
-                    Style::default().fg(TEXT),
-                ),
-            ]),
-            Line::from(""),
+        let required_str = format!("{:?}", perm.request.required_mode);
+        let current_str = format!("{:?}", perm.request.current_mode);
+
+        let mut lines = vec![
             Line::from(Span::styled(
-                "  y/a = allow  n/d = deny  v = view input  Esc = deny",
-                Style::default().fg(TEXT_SEC),
+                "  \u{2500}\u{2500} permission required",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
             )),
+            Line::from(Span::styled(
+                "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+                Style::default().fg(BORDER_BRIGHT),
+            )),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled("  tool     ", Style::default().fg(MUTED)),
+                Span::styled(
+                    perm.request.tool_name.clone(),
+                    Style::default().fg(TEXT).add_modifier(Modifier::BOLD),
+                ),
+            ]),
+            Line::from(vec![
+                Span::styled("  action   ", Style::default().fg(MUTED)),
+                Span::styled(perm.action_description.clone(), Style::default().fg(TEXT)),
+            ]),
+            Line::from(vec![
+                Span::styled("  current  ", Style::default().fg(MUTED)),
+                Span::styled(current_str, Style::default().fg(TEXT_SEC)),
+            ]),
+            Line::from(vec![
+                Span::styled("  required ", Style::default().fg(MUTED)),
+                Span::styled(required_str, Style::default().fg(ACCENT)),
+            ]),
         ];
 
-        let popup_w = 60.min(area.width.saturating_sub(4));
-        let popup_h = 6;
+        if let Some(reason) = &perm.request.reason {
+            lines.push(Line::from(vec![
+                Span::styled("  reason   ", Style::default().fg(MUTED)),
+                Span::styled(reason.clone(), Style::default().fg(TEXT_SEC)),
+            ]));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+            Style::default().fg(BORDER_BRIGHT),
+        )));
+        lines.push(Line::from(vec![
+            Span::styled(
+                "  Y",
+                Style::default().fg(SUCCESS).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("/A allow  ", Style::default().fg(TEXT_SEC)),
+            Span::styled(
+                "N",
+                Style::default()
+                    .fg(ERROR_COLOR)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("/D deny  ", Style::default().fg(TEXT_SEC)),
+            Span::styled(
+                "V",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" view input  ", Style::default().fg(TEXT_SEC)),
+            Span::styled("Esc", Style::default().fg(MUTED)),
+            Span::styled(" deny", Style::default().fg(TEXT_SEC)),
+        ]));
+
+        let popup_w = 56.min(area.width.saturating_sub(4));
+        let popup_h =
+            (u16::try_from(lines.len()).unwrap_or(u16::MAX) + 2).min(area.height.saturating_sub(2));
         let popup_x = (area.width.saturating_sub(popup_w)) / 2;
         let popup_y = (area.height.saturating_sub(popup_h)) / 2;
         let popup_area = Rect::new(popup_x, popup_y, popup_w, popup_h);
@@ -747,7 +881,6 @@ impl RatatuiApp {
         frame.render_widget(Clear, popup_area);
 
         let block = Block::default()
-            .title(" permission ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(ACCENT))
             .style(Style::default().bg(SURFACE));
@@ -893,6 +1026,10 @@ fn format_tokens(count: u32) -> String {
     }
 }
 
+fn lerp(a: u8, b: u8, t: f32) -> u8 {
+    (a as f32 * (1.0 - t) + b as f32 * t) as u8
+}
+
 fn help_line<'a>(key: &str, desc: &str) -> Line<'a> {
     Line::from(vec![
         Span::raw("  "),
@@ -986,5 +1123,80 @@ mod tests {
         app.flush_response();
         assert!(app.response_text.is_empty());
         assert!(app.scrollback.len() >= 1);
+    }
+
+    #[test]
+    fn flush_response_shows_usage_when_tokens_present() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.response_text.push_str("hello\n");
+        app.usage = TokenUsage {
+            input_tokens: 100,
+            output_tokens: 50,
+            ..Default::default()
+        };
+        app.flush_response();
+        let lines: Vec<String> = (0..app.scrollback.len())
+            .filter_map(|i| app.scrollback.visible(100).0.get(i).cloned())
+            .collect();
+        assert!(
+            lines.iter().any(|l| l.contains("100 in / 50 out tokens")),
+            "expected usage line in scrollback, got: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn flush_response_skips_usage_when_zero_tokens() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.response_text.push_str("hello\n");
+        app.usage = TokenUsage::default();
+        let before = app.scrollback.len();
+        app.flush_response();
+        // Should only have the response line, no usage line
+        let visible = app.scrollback.visible(100).0;
+        assert!(!visible.iter().any(|l| l.contains("tokens")));
+    }
+
+    #[test]
+    fn markdown_spans_bold() {
+        let spans = markdown_spans("say **hello** world");
+        let has_bold = spans
+            .iter()
+            .any(|s| s.content.contains("hello") && s.style.add_modifier.contains(Modifier::BOLD));
+        assert!(has_bold, "expected bold span, got: {spans:?}");
+    }
+
+    #[test]
+    fn markdown_spans_italic() {
+        let spans = markdown_spans("say *hello* world");
+        let has_italic = spans.iter().any(|s| {
+            s.content.contains("hello") && s.style.add_modifier.contains(Modifier::ITALIC)
+        });
+        assert!(has_italic, "expected italic span, got: {spans:?}");
+    }
+
+    #[test]
+    fn markdown_spans_code() {
+        let spans = markdown_spans("use `foo` here");
+        let has_code = spans
+            .iter()
+            .any(|s| s.content == "foo" && s.style.fg == Some(ACCENT));
+        assert!(has_code, "expected code span with accent, got: {spans:?}");
+    }
+
+    #[test]
+    fn markdown_spans_plain_text() {
+        let spans = markdown_spans("no formatting here");
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].content, "no formatting here");
+    }
+
+    #[test]
+    fn markdown_spans_multiple_inline() {
+        let spans = markdown_spans("**bold** and *italic* and `code`");
+        // Should have: "bold" (bold), " and " (plain), "italic" (italic), " and " (plain), "code" (code)
+        assert!(
+            spans.len() >= 5,
+            "expected at least 5 spans, got: {spans:?}"
+        );
     }
 }

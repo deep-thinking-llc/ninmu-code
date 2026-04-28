@@ -149,7 +149,8 @@ impl FullScreenTui {
                         Ok(output) => {
                             if !output.text.is_empty() {
                                 for line in output.text.lines() {
-                                    self.scrollback.push(super::markdown::render_markdown_line(line));
+                                    self.scrollback
+                                        .push(super::markdown::render_markdown_line(line));
                                 }
                             }
                             if let Some(usage) = output.usage {
@@ -251,7 +252,9 @@ impl FullScreenTui {
             match crossterm::event::read() {
                 Ok(crossterm::event::Event::Key(key)) => match key.code {
                     crossterm::event::KeyCode::Enter
-                        if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) =>
+                        if key
+                            .modifiers
+                            .contains(crossterm::event::KeyModifiers::CONTROL) =>
                     {
                         // Ctrl+Enter: insert newline
                         buffer.insert(cursor, '\n');

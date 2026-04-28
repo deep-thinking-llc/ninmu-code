@@ -157,4 +157,31 @@ mod tests {
         let out = render_markdown_line("---");
         assert!(out.contains("─"));
     }
+
+    #[test]
+    fn numbered_list_renders() {
+        let out = render_markdown_line("1. first");
+        assert!(out.contains("1."));
+        assert!(out.contains("first"));
+    }
+
+    #[test]
+    fn heading_level_2_renders() {
+        let out = render_markdown_line("## Subtitle");
+        assert!(out.contains("Subtitle"));
+        assert!(out.contains(Theme::ACCENT));
+    }
+
+    #[test]
+    fn nested_bold_in_code_not_mangled() {
+        // Code should take precedence; ** inside backticks is literal
+        let out = render_inline("`**not bold**`");
+        assert!(out.contains("**not bold**"));
+    }
+
+    #[test]
+    fn empty_line_passthrough() {
+        let out = render_markdown_line("");
+        assert_eq!(out, "");
+    }
 }

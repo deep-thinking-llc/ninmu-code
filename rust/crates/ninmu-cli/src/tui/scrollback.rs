@@ -484,4 +484,23 @@ mod tests {
         // After expansion there are 20 lines, max_scroll = 19
         assert!(sb.scroll_offset() <= sb.max_scroll());
     }
+
+    #[test]
+    fn pop_removes_last_line() {
+        let mut sb = Scrollback::new(100);
+        sb.push("first".to_string());
+        sb.push("second".to_string());
+        sb.push("third".to_string());
+        assert_eq!(sb.len(), 3);
+        assert_eq!(sb.pop(), Some("third".to_string()));
+        assert_eq!(sb.len(), 2);
+        assert_eq!(sb.pop(), Some("second".to_string()));
+        assert_eq!(sb.len(), 1);
+    }
+
+    #[test]
+    fn pop_on_empty_returns_none() {
+        let mut sb = Scrollback::new(100);
+        assert_eq!(sb.pop(), None);
+    }
 }

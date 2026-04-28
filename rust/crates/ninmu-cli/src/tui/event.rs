@@ -217,14 +217,8 @@ mod tests {
         let e1 = rx.recv().unwrap();
         let e2 = rx.recv().unwrap();
 
-        assert_eq!(e1, TuiEvent::TextDelta("hello".to_string()));
-        match &e2 {
-            TuiEvent::Usage(u) => {
-                assert_eq!(u.input_tokens, 10);
-                assert_eq!(u.output_tokens, 5);
-            }
-            other => panic!("expected Usage, got {other:?}"),
-        }
+        assert!(matches!(&e1, TuiEvent::TextDelta(s) if s == "hello"));
+        assert!(matches!(&e2, TuiEvent::Usage(u) if u.input_tokens == 10 && u.output_tokens == 5));
     }
 
     #[test]
