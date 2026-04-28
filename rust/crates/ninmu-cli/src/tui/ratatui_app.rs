@@ -1672,4 +1672,51 @@ mod tests {
             "expected cache-aware cost: {usage_line}"
         );
     }
+
+    // -- Input cache clearing tests -----------------------------------------
+
+    #[test]
+    fn enter_clears_cached_input() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        // Simulate typing "hello" into the input buffer.
+        app.input_buf = "hello".chars().collect();
+        app.cursor = app.input_buf.len();
+        app.refresh_input_cache();
+        assert_eq!(app.cached_input, "hello");
+
+        // Simulate what Enter does: drain the buffer then refresh.
+        let _input: String = app.input_buf.drain(..).collect();
+        app.cursor = 0;
+        app.refresh_input_cache();
+
+        assert!(
+            app.cached_input.is_empty(),
+            "cached_input should be empty after Enter, got: {:?}",
+            app.cached_input
+        );
+        assert!(app.input_buf.is_empty());
+    }
+
+    #[test]
+    fn cached_input_matches_input_buf() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        // Initially both are empty.
+        assert_eq!(app.cached_input, "");
+
+        // Type "ab".
+        app.input_buf.push('a');
+        app.input_buf.push('b');
+        app.refresh_input_cache();
+        assert_eq!(app.cached_input, "ab");
+
+        // Backspace one char.
+        app.input_buf.pop();
+        app.refresh_input_cache();
+        assert_eq!(app.cached_input, "a");
+
+        // Clear all (simulate Enter drain).
+        app.input_buf.clear();
+        app.refresh_input_cache();
+        assert_eq!(app.cached_input, "");
+    }
 }

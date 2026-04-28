@@ -2751,4 +2751,244 @@ mod tests {
         let url = super::read_base_url(OpenAiCompatConfig::deepseek());
         assert!(url.contains("api.deepseek.com"));
     }
+
+    // ====================================================================
+    // Thinking mode toggle tests
+    // ====================================================================
+
+    #[test]
+    fn is_deepseek_reasoning_model_detects_deepseek_r1() {
+        assert!(super::is_deepseek_reasoning_model("deepseek-reasoner"));
+        assert!(super::is_deepseek_reasoning_model("deepseek-r1"));
+        assert!(super::is_deepseek_reasoning_model("deepseek/deepseek-reasoner"));
+        assert!(!super::is_deepseek_reasoning_model("deepseek-chat"));
+        assert!(!super::is_deepseek_reasoning_model("gpt-4o"));
+    }
+
+    #[test]
+    fn is_deepseek_reasoning_model_detects_qwen_thinking() {
+        assert!(super::is_deepseek_reasoning_model("qwq-32b"));
+        assert!(super::is_deepseek_reasoning_model("qwen-qwq-32b"));
+        assert!(super::is_deepseek_reasoning_model("qwen3-30b-a3b-thinking"));
+        assert!(!super::is_deepseek_reasoning_model("qwen-plus"));
+        assert!(!super::is_deepseek_reasoning_model("qwen-turbo"));
+    }
+
+    #[test]
+    fn is_deepseek_reasoning_model_detects_mimo() {
+        assert!(super::is_deepseek_reasoning_model("mimo-v2-flash"));
+        assert!(super::is_deepseek_reasoning_model("mimo-7b"));
+        assert!(super::is_deepseek_reasoning_model("openrouter/xiaomi/mimo-v2-flash"));
+    }
+
+    #[test]
+    fn is_reasoning_model_detects_mimo() {
+        assert!(super::is_reasoning_model("mimo-v2-flash"));
+        assert!(super::is_reasoning_model("mimo-7b"));
+        assert!(!super::is_reasoning_model("gpt-4o"));
+    }
+
+    #[test]
+    fn thinking_mode_enabled_emitted_in_payload() {
+        let payload = build_chat_completion_request(
+            &MessageRequest {
+                model: "deepseek-reasoner".to_string(),
+                max_tokens: 1024,
+                messages: vec![InputMessage::user_text("think hard")],
+                thinking_mode: Some(true),
+                ..Default::default()
+            },
+            OpenAiCompatConfig::deepseek(),
+        );
+        assert_eq!(
+            payload["thinking"],
+            json!({"type": "enabled"}),
+            "thinking mode enabled must produce thinking.enabled"
+        );
+    }
+
+    #[test]
+    fn thinking_mode_disabled_emitted_in_payload() {
+        let payload = build_chat_completion_request(
+            &MessageRequest {
+                model: "deepseek-reasoner".to_string(),
+                max_tokens: 1024,
+                messages: vec![InputMessage::user_text("no think")],
+                thinking_mode: Some(false),
+                ..Default::default()
+            },
+            OpenAiCompatConfig::deepseek(),
+        );
+        assert_eq!(
+            payload["thinking"],
+            json!({"type": "disabled"}),
+            "thinking mode disabled must produce thinking.disabled"
+        );
+    }
+
+    #[test]
+    fn thinking_auto_enabled_for_deepseek_reasoner() {
+        // When thinking_mode is None (auto) and model is a DeepSeek reasoning
+        // model, thinking should be auto-enabled.
+        let payload = build_chat_completion_request(
+            &MessageRequest {
+                model: "deepseek-reasoner".to_string(),
+                max_tokens: 1024,
+                messages: vec![InputMessage::user_text("auto think")],
+                thinking_mode: None,
+                ..Default::default()
+            },
+            OpenAiCompatConfig::deepseek(),
+        );
+        assert_eq!(
+            payload["thinking"],
+            json!({"type": "enabled"}),
+            "deepseek-reasoner must auto-enable thinking when thinking_mode is None"
+        );
+    }
+
+    #[test]
+    fn thinking_auto_enabled_for_mimo() {
+        // MiMo models should also auto-enable thinking.
+        let payload = build_chat_completion_request(
+            &MessageRequest {
+                model: "mimo-v2-flash".to_string(),
+                max_tokens: 1024,
+                messages: vec![InputMessage::user_text("auto think")],
+                thinking_mode: None,
+                ..Default::default()
+            },
+            OpenAiCompatConfig::dashscope(),
+        );
+        assert_eq!(
+            payload["thinking"],
+            json!({"type": "enabled"}),
+            "mimo models must auto-enable thinking when thinking_mode is None"
+        );
+    }
+
+    #[test]
+    fn thinking_not_auto_enabled_for_non_reasoning_model() {
+        // For models that are NOT reasoning models, thinking should NOT be
+        // auto-enabled.
+        let payload = build_chat_completion_request(
+            &MessageRequest {
+                model: "gpt-4o".to_string(),
+                max_tokens: 1024,
+                messages: vec![InputMessage::user_text("hello")],
+                thinking_mode: None,
+                ..Default::default()
+            },
+            OpenAiCompatConfig::openai(),
+        );
+        assert!(
+            payload.get("thinking").is_none(),
+            "non-reasoning models must not have thinking field"
+        );
+    }
+
+    #[test]
+    fn thinking_mode_disabled_overrides_auto_for_deepseek() {
+        // Explicitly disabling thinking should override auto-enable.
+        let payload = build_chat_completion_request(
+            &MessageRequest {
+                model: "deepseek-reasoner".to_string(),
+                max_tokens: 1024,
+                messages: vec![InputMessage::user_text("no think")],
+                thinking_mode: Some(false),
+                ..Default::default()
+            },
+            OpenAiCompatConfig::deepseek(),
+        );
+        assert_eq!(
+            payload["thinking"],
+            json!({"type": "disabled"}),
+            "explicit thinking_mode=false must override auto-enable"
+        );
+    }
+
+    #[test]
+    fn reasoning_effort_and_thinking_mode_coexist() {
+        // Both reasoning_effort and thinking_mode should be emitted when set.
+        let payload = build_chat_completion_request(
+            &MessageRequest {
+                model: "deepseek-reasoner".to_string(),
+                max_tokens: 1024,
+                messages: vec![InputMessage::user_text("think hard")],
+                reasoning_effort: Some("high".to_string()),
+                thinking_mode: Some(true),
+                ..Default::default()
+            },
+            OpenAiCompatConfig::deepseek(),
+        );
+        assert_eq!(payload["reasoning_effort"], json!("high"));
+        assert_eq!(payload["thinking"], json!({"type": "enabled"}));
+    }
+
+    // ====================================================================
+    // E2E-style: translate_message with thinking content round-trip
+    // ====================================================================
+
+    #[test]
+    fn assistant_message_with_thinking_block_serializes_reasoning_content() {
+        use crate::types::{InputContentBlock, InputMessage};
+
+        let request = MessageRequest {
+            model: "deepseek-reasoner".to_string(),
+            max_tokens: 100,
+            messages: vec![InputMessage {
+                role: "assistant".to_string(),
+                content: vec![
+                    InputContentBlock::Thinking {
+                        thinking: "let me reason step by step".to_string(),
+                    },
+                    InputContentBlock::Text {
+                        text: "the answer is 42".to_string(),
+                    },
+                ],
+            }],
+            stream: false,
+            ..Default::default()
+        };
+        let payload = build_chat_completion_request(&request, OpenAiCompatConfig::deepseek());
+        let messages = payload["messages"].as_array().unwrap();
+        let assistant = messages
+            .iter()
+            .find(|m| m["role"] == "assistant")
+            .expect("assistant message must be present");
+        assert_eq!(assistant["content"], json!("the answer is 42"));
+        assert_eq!(
+            assistant["reasoning_content"],
+            json!("let me reason step by step"),
+            "thinking block must serialize to reasoning_content"
+        );
+    }
+
+    #[test]
+    fn assistant_message_without_thinking_omits_reasoning_content() {
+        use crate::types::{InputContentBlock, InputMessage};
+
+        let request = MessageRequest {
+            model: "deepseek-reasoner".to_string(),
+            max_tokens: 100,
+            messages: vec![InputMessage {
+                role: "assistant".to_string(),
+                content: vec![InputContentBlock::Text {
+                    text: "just text".to_string(),
+                }],
+            }],
+            stream: false,
+            ..Default::default()
+        };
+        let payload = build_chat_completion_request(&request, OpenAiCompatConfig::deepseek());
+        let messages = payload["messages"].as_array().unwrap();
+        let assistant = messages
+            .iter()
+            .find(|m| m["role"] == "assistant")
+            .expect("assistant message must be present");
+        assert!(
+            assistant.get("reasoning_content").is_none(),
+            "assistant without thinking must omit reasoning_content"
+        );
+    }
 }
