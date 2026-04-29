@@ -366,9 +366,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         eprintln!("ok  {count} models loaded from models.dev");
                     }
                     CliOutputFormat::Json => {
-                        println!(
-                            r#"{{"status":"ok","count":{count}}}"#
-                        );
+                        println!(r#"{{"status":"ok","count":{count}}}"#);
                     }
                 },
                 Err(e) => match output_format {
@@ -377,14 +375,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         std::process::exit(1);
                     }
                     CliOutputFormat::Json => {
-                        println!(
-                            r#"{{"status":"error","message":"{e}"}}"#
-                        );
+                        println!(r#"{{"status":"error","message":"{e}"}}"#);
                         std::process::exit(1);
                     }
                 },
             }
-        },
+        }
         // #146: dispatch pure-local introspection. Text mode uses existing
         // render_config_report/render_diff_report; JSON mode uses the
         // corresponding _json helpers already exposed for resume sessions.
@@ -6336,6 +6332,7 @@ UU conflicted.rs",
             PermissionMode::DangerFullAccess,
             None,
             runtime_plugin_state,
+            None,
         )
         .expect("runtime should build");
 

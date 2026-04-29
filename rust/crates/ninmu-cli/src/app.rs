@@ -13,8 +13,8 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use ninmu_api::{
-    detect_provider_kind, resolve_startup_auth_source, AnthropicClient, AuthSource,
-    ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest, MessageResponse,
+    detect_provider_kind, resolve_startup_auth_source, AnthropicClient, ApiClientPool, AuthSource,
+    ClientKey, ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest, MessageResponse,
     OutputContentBlock, PromptCache, ProviderClient as ApiProviderClient, ProviderKind,
     StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition, ToolResultContentBlock,
 };
@@ -129,6 +129,35 @@ pub(crate) struct LiveCli {
     prompt_history: Vec<PromptHistoryEntry>,
     /// Cached plugin state so TUI turns don't reload config / re-init plugins.
     runtime_plugin_state: RuntimePluginState,
+    /// Process-wide pool of shareable Anthropic API clients.
+    client_pool: ApiClientPool,
+}
+
+/// Compute a [`ClientKey`] from the current model + session and retrieve (or
+/// create) a shareable [`AnthropicClient`] from the pool.
+fn get_pooled_client(
+    pool: &ApiClientPool,
+    model: &str,
+    session_id: &str,
+) -> Option<Arc<AnthropicClient>> {
+    let resolved = ninmu_api::resolve_model_alias(model);
+    let provider = detect_provider_kind(&resolved);
+    if provider != ProviderKind::Anthropic {
+        return None;
+    }
+    let auth = resolve_cli_auth_source().ok()?;
+    let auth_hash = {
+        let mut s = std::collections::hash_map::DefaultHasher::new();
+        std::hash::Hash::hash(&format!("{auth:?}"), &mut s);
+        std::hash::Hasher::finish(&s)
+    };
+    let scope = session_id.to_string();
+    let key = ClientKey::new(provider, auth_hash, scope.clone());
+    Some(pool.get_or_create(key, move || {
+        AnthropicClient::from_auth(auth)
+            .with_base_url(ninmu_api::read_base_url())
+            .with_prompt_cache(PromptCache::new(&scope))
+    }))
 }
 
 impl LiveCli {
@@ -143,6 +172,8 @@ impl LiveCli {
         let session_state = new_cli_session()?;
         let session = create_managed_session_handle(&session_state.session_id)?;
         let runtime_plugin_state = build_runtime_plugin_state()?;
+        let client_pool = ApiClientPool::new();
+        let shared_client = get_pooled_client(&client_pool, &model, &session.id);
         let runtime = build_runtime_with_plugin_state(
             session_state.with_persistence_path(session.path.clone()),
             &session.id,
@@ -154,6 +185,7 @@ impl LiveCli {
             permission_mode,
             None,
             runtime_plugin_state.clone(),
+            shared_client,
         )?;
         let cli = Self {
             model,
@@ -165,6 +197,7 @@ impl LiveCli {
             session,
             prompt_history: Vec::new(),
             runtime_plugin_state,
+            client_pool,
         };
         cli.persist_session()?;
         Ok(cli)
@@ -276,6 +309,7 @@ impl LiveCli {
         emit_output: bool,
     ) -> Result<(BuiltRuntime, HookAbortMonitor), Box<dyn std::error::Error>> {
         let hook_abort_signal = ninmu_runtime::HookAbortSignal::new();
+        let shared_client = get_pooled_client(&self.client_pool, &self.model, &self.session.id);
         let runtime = build_runtime_with_plugin_state(
             self.runtime.session().clone(),
             &self.session.id,
@@ -287,6 +321,7 @@ impl LiveCli {
             self.permission_mode,
             None,
             self.runtime_plugin_state.clone(),
+            shared_client,
         )?
         .with_hook_abort_signal(hook_abort_signal.clone());
         let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal);
@@ -438,6 +473,9 @@ impl LiveCli {
             .runtime
             .as_ref()
             .and_then(|rt| rt.api_client().thinking_mode);
+        // Retrieve (or create) the shared AnthropicClient before spawning so the
+        // worker thread reuses the same pooled instance and its prompt cache.
+        let shared_client = get_pooled_client(&self.client_pool, &self.model, &self.session.id);
 
         let handle = std::thread::spawn(move || {
             let hook_abort_signal = ninmu_runtime::HookAbortSignal::new();
@@ -454,6 +492,7 @@ impl LiveCli {
                 permission_mode,
                 None,
                 runtime_plugin_state,
+                shared_client,
             )
             .map_err(|e| {
                 let msg = e.to_string();
@@ -1962,6 +2001,7 @@ pub(crate) fn build_runtime(
         permission_mode,
         progress_reporter,
         runtime_plugin_state,
+        None,
     )
 }
 
@@ -1978,6 +2018,7 @@ pub(crate) fn build_runtime_with_plugin_state(
     permission_mode: PermissionMode,
     progress_reporter: Option<InternalPromptProgressReporter>,
     runtime_plugin_state: RuntimePluginState,
+    shared_client: Option<Arc<AnthropicClient>>,
 ) -> Result<BuiltRuntime, Box<dyn std::error::Error>> {
     if session.model.is_none() {
         session.model = Some(model.clone());
@@ -2002,6 +2043,7 @@ pub(crate) fn build_runtime_with_plugin_state(
             tool_registry.clone(),
             progress_reporter,
             feature_config.provider_defaults().clone(),
+            shared_client,
         )?,
         CliToolExecutor::new(
             allowed_tools.clone(),
@@ -2287,15 +2329,20 @@ impl AnthropicRuntimeClient {
         tool_registry: GlobalToolRegistry,
         progress_reporter: Option<InternalPromptProgressReporter>,
         provider_defaults: std::collections::BTreeMap<String, ninmu_runtime::ProviderDefaultConfig>,
+        shared_client: Option<Arc<AnthropicClient>>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let resolved_model = ninmu_api::resolve_model_alias(&model);
         let client = match detect_provider_kind(&resolved_model) {
             ProviderKind::Anthropic => {
-                let auth = resolve_cli_auth_source()?;
-                let inner = AnthropicClient::from_auth(auth)
-                    .with_base_url(ninmu_api::read_base_url())
-                    .with_prompt_cache(PromptCache::new(session_id));
-                ApiProviderClient::Anthropic(inner)
+                if let Some(arc) = shared_client {
+                    ApiProviderClient::Anthropic((*arc).clone())
+                } else {
+                    let auth = resolve_cli_auth_source()?;
+                    let inner = AnthropicClient::from_auth(auth)
+                        .with_base_url(ninmu_api::read_base_url())
+                        .with_prompt_cache(PromptCache::new(session_id));
+                    ApiProviderClient::Anthropic(inner)
+                }
             }
             ProviderKind::Xai
             | ProviderKind::OpenAi
