@@ -113,6 +113,10 @@ pub struct RatatuiApp {
     /// detect stalled turns where the worker is stuck (e.g. dead SSE
     /// connection or blocked tool) and force-cancel them.
     last_event_received: Option<Instant>,
+    /// Interactive model selector dialog (when open).
+    model_selector: Option<ModelSelector>,
+    /// Selected model callback — set by the TUI to communicate model changes.
+    selected_model: Option<String>,
 }
 
 /// A permission prompt waiting for the user to respond in the TUI.
@@ -172,6 +176,8 @@ impl RatatuiApp {
             reasoning_effort: None,
             thinking_mode: None,
             last_event_received: None,
+            model_selector: None,
+            selected_model: None,
         };
         app.cached_header = Self::build_header_line(
             &app.model,
@@ -203,6 +209,27 @@ impl RatatuiApp {
             self.reasoning_effort.as_deref(),
             self.thinking_mode,
         );
+    }
+
+    /// Open the interactive model selector dialog.
+    pub fn open_model_selector(&mut self) {
+        let entries = ninmu_api::list_available_models();
+        let filtered: Vec<usize> = (0..entries.len()).collect();
+        self.model_selector = Some(ModelSelector {
+            all_entries: entries,
+            filtered,
+            filter: Vec::new(),
+            filter_cursor: 0,
+            selected: 0,
+            scroll_offset: 0,
+            max_visible: 12,
+        });
+        self.dirty = true;
+    }
+
+    /// Take the selected model (if any) — returns `Some(model_name)` once.
+    pub fn pop_selected_model(&mut self) -> Option<String> {
+        self.selected_model.take()
     }
 
     /// Run the ratatui event loop. Blocks until the user exits.
@@ -281,6 +308,76 @@ impl RatatuiApp {
                                     .push(format!("  denied: {}", perm.request.tool_name));
                             }
                             return Ok(());
+                        }
+
+                        // Model selector mode — intercept all keypresses.
+                        if self.model_selector.is_some() {
+                            match key.code {
+                                KeyCode::Char(c)
+                                    if key.modifiers.is_empty()
+                                        || key.modifiers == KeyModifiers::SHIFT =>
+                                {
+                                    let sel = self.model_selector.as_mut().unwrap();
+                                    sel.filter.insert(sel.filter_cursor, c);
+                                    sel.filter_cursor += 1;
+                                    sel.apply_filter();
+                                }
+                                KeyCode::Backspace => {
+                                    let sel = self.model_selector.as_mut().unwrap();
+                                    if sel.filter_cursor > 0 {
+                                        sel.filter_cursor -= 1;
+                                        sel.filter.remove(sel.filter_cursor);
+                                        sel.apply_filter();
+                                    }
+                                }
+                                KeyCode::Up => {
+                                    let sel = self.model_selector.as_mut().unwrap();
+                                    if sel.selected > 0 {
+                                        sel.selected -= 1;
+                                        if sel.selected < sel.scroll_offset {
+                                            sel.scroll_offset = sel.selected;
+                                        }
+                                    }
+                                }
+                                KeyCode::Down => {
+                                    let sel = self.model_selector.as_mut().unwrap();
+                                    if sel.selected + 1 < sel.filtered.len() {
+                                        sel.selected += 1;
+                                        if sel.selected >= sel.scroll_offset + sel.max_visible {
+                                            sel.scroll_offset = sel.selected + 1 - sel.max_visible;
+                                        }
+                                    }
+                                }
+                                KeyCode::Enter => {
+                                    if let Some(sel) = self.model_selector.take() {
+                                        if let Some(entry) = sel.selected_entry() {
+                                            let model_name = entry.canonical.clone();
+                                            let cmd = format!("/model {model_name}");
+                                            self.scrollback
+                                                .push(format!("  model set to {model_name}"));
+                                            match start_turn(&cmd) {
+                                                Ok(handle) => {
+                                                    self.state.is_generating = true;
+                                                    self.state.current_prompt = cmd;
+                                                    self.response_text.clear();
+                                                    self.turn_start = Some(Instant::now());
+                                                    self.usage = TokenUsage::default();
+                                                    turn_handle = Some(Box::new(handle));
+                                                }
+                                                Err(e) => {
+                                                    self.scrollback.push(format!("  error: {e}"));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                KeyCode::Esc => {
+                                    self.model_selector = None;
+                                }
+                                _ => {}
+                            }
+                            self.dirty = true;
+                            continue;
                         }
 
                         // Permission prompt mode — intercept all keypresses.
@@ -374,19 +471,25 @@ impl RatatuiApp {
                                 }
                                 self.history_index = None;
                                 self.history_restore_buf.clear();
-                                self.scrollback.push(format!("  \u{25B8} {input}"));
 
-                                match start_turn(&input) {
-                                    Ok(handle) => {
-                                        self.state.is_generating = true;
-                                        self.state.current_prompt = input;
-                                        self.response_text.clear();
-                                        self.turn_start = Some(Instant::now());
-                                        self.usage = TokenUsage::default();
-                                        turn_handle = Some(Box::new(handle));
-                                    }
-                                    Err(e) => {
-                                        self.scrollback.push(format!("  error: {e}"));
+                                // Intercept /model with no args → open selector.
+                                let trimmed = input.trim();
+                                if trimmed == "/model" {
+                                    self.open_model_selector();
+                                } else {
+                                    self.scrollback.push(format!("  \u{25B8} {input}"));
+                                    match start_turn(&input) {
+                                        Ok(handle) => {
+                                            self.state.is_generating = true;
+                                            self.state.current_prompt = input;
+                                            self.response_text.clear();
+                                            self.turn_start = Some(Instant::now());
+                                            self.usage = TokenUsage::default();
+                                            turn_handle = Some(Box::new(handle));
+                                        }
+                                        Err(e) => {
+                                            self.scrollback.push(format!("  error: {e}"));
+                                        }
                                     }
                                 }
                             }
@@ -733,6 +836,10 @@ impl RatatuiApp {
 
         if self.pending_permission.is_some() {
             self.draw_permission_modal(frame, area);
+        }
+
+        if self.model_selector.is_some() {
+            self.draw_model_selector(frame, area);
         }
     }
 
@@ -1148,6 +1255,111 @@ impl RatatuiApp {
         let paragraph = Paragraph::new(lines).block(block);
         frame.render_widget(paragraph, popup_area);
     }
+
+    fn draw_model_selector(&mut self, frame: &mut ratatui::Frame, area: Rect) {
+        let sel = match &self.model_selector {
+            Some(s) => s,
+            None => return,
+        };
+
+        let popup_w = 52.min(area.width.saturating_sub(4));
+        let list_h = sel.max_visible.min(sel.filtered.len());
+        // filter prompt (1) + separator (1) + list + keybinds (1) + border (2)
+        let popup_h = (3 + list_h as u16 + 2).min(area.height.saturating_sub(2));
+        let popup_x = (area.width.saturating_sub(popup_w)) / 2;
+        let popup_y = (area.height.saturating_sub(popup_h)) / 2;
+        let popup_area = Rect::new(popup_x, popup_y, popup_w, popup_h);
+
+        frame.render_widget(Clear, popup_area);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(ACCENT))
+            .style(Style::default().bg(SURFACE))
+            .title(Span::styled(
+                " select model ",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            ))
+            .title_alignment(ratatui::layout::Alignment::Center);
+
+        let inner = block.inner(popup_area);
+        frame.render_widget(block, popup_area);
+
+        let filter_str: String = sel.filter.iter().collect();
+        let mut lines: Vec<Line> = vec![Line::from(vec![
+            Span::styled(" filter ", Style::default().fg(MUTED)),
+            Span::styled(
+                if filter_str.is_empty() {
+                    "type to filter...".to_string()
+                } else {
+                    filter_str.clone()
+                },
+                Style::default().fg(if filter_str.is_empty() { MUTED } else { TEXT }),
+            ),
+            Span::styled("▏", Style::default().fg(ACCENT)),
+        ])];
+
+        lines.push(Line::from(Span::styled(
+            " ".repeat(popup_w as usize - 4),
+            Style::default().fg(BORDER_BRIGHT),
+        )));
+
+        // Clamp scroll so selected is always visible.
+        let scroll_start = sel.scroll_offset;
+        let visible_end = (scroll_start + sel.max_visible).min(sel.filtered.len());
+        for vi in scroll_start..visible_end {
+            let fi = match sel.filtered.get(vi) {
+                Some(&idx) => idx,
+                None => continue,
+            };
+            let entry = &sel.all_entries[fi];
+            let is_selected = vi == sel.selected;
+            let prov = ModelSelector::provider_label(entry.provider);
+
+            let highlight = if is_selected {
+                Style::default().fg(TEXT).bg(ACCENT)
+            } else {
+                Style::default().fg(TEXT)
+            };
+            let prov_style = if is_selected {
+                Style::default().fg(Color::Rgb(255, 200, 170)).bg(ACCENT)
+            } else {
+                Style::default().fg(MUTED)
+            };
+
+            let label = if entry.alias == entry.canonical {
+                entry.canonical.clone()
+            } else {
+                format!("{} → {}", entry.alias, entry.canonical)
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(if is_selected { " > " } else { "   " }, highlight),
+                Span::styled(label, highlight),
+                Span::styled(format!("  {prov}"), prov_style),
+            ]));
+        }
+
+        // Pad remaining rows.
+        for _ in visible_end..scroll_start + sel.max_visible {
+            lines.push(Line::from(""));
+        }
+
+        lines.push(Line::from(vec![
+            Span::styled(
+                " Enter",
+                Style::default().fg(SUCCESS).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" select  ", Style::default().fg(TEXT_SEC)),
+            Span::styled("↑↓", Style::default().fg(TEXT_SEC)),
+            Span::styled(" nav  ", Style::default().fg(TEXT_SEC)),
+            Span::styled("Esc", Style::default().fg(MUTED)),
+            Span::styled(" cancel", Style::default().fg(TEXT_SEC)),
+        ]));
+
+        let paragraph = Paragraph::new(lines);
+        frame.render_widget(paragraph, inner);
+    }
 }
 
 // -- TurnHandle trait ---------------------------------------------------------
@@ -1185,6 +1397,50 @@ impl TurnHandle
 
     fn is_finished(&self) -> bool {
         self.1.is_finished()
+    }
+}
+
+impl ModelSelector {
+    fn provider_label(provider: ninmu_api::ProviderKind) -> &'static str {
+        match provider {
+            ninmu_api::ProviderKind::Anthropic => "anthropic",
+            ninmu_api::ProviderKind::Xai => "xai",
+            ninmu_api::ProviderKind::OpenAi => "openai",
+            ninmu_api::ProviderKind::DeepSeek => "deepseek",
+            ninmu_api::ProviderKind::Ollama => "ollama",
+            ninmu_api::ProviderKind::Qwen => "qwen",
+            ninmu_api::ProviderKind::Vllm => "vllm",
+            ninmu_api::ProviderKind::Mistral => "mistral",
+            ninmu_api::ProviderKind::Gemini => "gemini",
+            ninmu_api::ProviderKind::Cohere => "cohere",
+        }
+    }
+
+    fn filter_text(&self) -> String {
+        self.filter.iter().collect()
+    }
+
+    fn apply_filter(&mut self) {
+        let query = self.filter_text().to_ascii_lowercase();
+        self.filtered = (0..self.all_entries.len())
+            .filter(|&i| {
+                let e = &self.all_entries[i];
+                let query_empty = query.is_empty();
+                let alias_match = e.alias.to_ascii_lowercase().contains(&query);
+                let canon_match = e.canonical.to_ascii_lowercase().contains(&query);
+                let prov_match = Self::provider_label(e.provider).contains(&query);
+                query_empty || alias_match || canon_match || prov_match
+            })
+            .collect();
+        if self.selected >= self.filtered.len() {
+            self.selected = self.filtered.len().saturating_sub(1);
+        }
+    }
+
+    fn selected_entry(&self) -> Option<&ninmu_api::ModelEntry> {
+        self.filtered
+            .get(self.selected)
+            .map(|&i| &self.all_entries[i])
     }
 }
 
@@ -2114,5 +2370,77 @@ mod tests {
         // Not generating → is_active is false even for the last prompt.
         let is_active = app.state.is_generating && Some(0) == last_user_idx;
         assert!(!is_active, "no pulse when idle");
+    }
+
+    // -- ModelSelector tests ---------------------------------------------------
+
+    #[test]
+    fn model_selector_opens_with_entries() {
+        let mut app = RatatuiApp::new("gpt-4o".into(), "write".into(), None);
+        app.open_model_selector();
+        assert!(app.model_selector.is_some());
+        let sel = app.model_selector.as_ref().unwrap();
+        assert!(!sel.all_entries.is_empty(), "should have model entries");
+        assert!(
+            sel.filtered.len() == sel.all_entries.len(),
+            "initial filter should match all entries"
+        );
+    }
+
+    #[test]
+    fn model_selector_filter_narrows_results() {
+        let mut app = RatatuiApp::new("gpt-4o".into(), "write".into(), None);
+        app.open_model_selector();
+        let sel = app.model_selector.as_mut().unwrap();
+        let total = sel.all_entries.len();
+        // Type "deep" to filter.
+        for c in "deep".chars() {
+            sel.filter.push(c);
+            sel.filter_cursor += 1;
+        }
+        sel.apply_filter();
+        assert!(
+            sel.filtered.len() < total,
+            "filter 'deep' should narrow results"
+        );
+        // Every filtered entry should contain "deep".
+        for &idx in &sel.filtered {
+            let e = &sel.all_entries[idx];
+            let matches = e.alias.to_ascii_lowercase().contains("deep")
+                || e.canonical.to_ascii_lowercase().contains("deep")
+                || ModelSelector::provider_label(e.provider).contains("deep");
+            assert!(matches, "entry {:?} should match 'deep'", e.alias);
+        }
+    }
+
+    #[test]
+    fn model_selector_navigate_and_select() {
+        let mut app = RatatuiApp::new("gpt-4o".into(), "write".into(), None);
+        app.open_model_selector();
+        let sel = app.model_selector.as_mut().unwrap();
+        assert!(sel.filtered.len() > 1, "need multiple entries");
+        assert_eq!(sel.selected, 0);
+        // Simulate Down.
+        sel.selected = 1;
+        let entry = sel.selected_entry().unwrap();
+        assert!(!entry.alias.is_empty());
+    }
+
+    #[test]
+    fn model_selector_empty_filter_returns_all() {
+        let mut app = RatatuiApp::new("gpt-4o".into(), "write".into(), None);
+        app.open_model_selector();
+        let sel = app.model_selector.as_mut().unwrap();
+        sel.apply_filter();
+        assert_eq!(sel.filtered.len(), sel.all_entries.len());
+    }
+
+    #[test]
+    fn model_selector_esc_closes() {
+        let mut app = RatatuiApp::new("gpt-4o".into(), "write".into(), None);
+        app.open_model_selector();
+        assert!(app.model_selector.is_some());
+        app.model_selector = None;
+        assert!(app.model_selector.is_none());
     }
 }

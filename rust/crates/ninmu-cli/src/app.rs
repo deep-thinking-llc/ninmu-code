@@ -906,6 +906,8 @@ impl LiveCli {
         )?;
         self.replace_runtime(runtime)?;
         self.model.clone_from(&model);
+        // Persist to user settings.json so it becomes the default on next launch.
+        let _ = persist_model_to_settings(&model);
         println!(
             "{}",
             format_model_switch_report(&previous, &model, message_count)
@@ -3188,6 +3190,57 @@ fn run_repl_standard(cli: &mut LiveCli) -> Result<(), Box<dyn std::error::Error>
 // ═══════════════════════════════════════════════════════════════════════════
 // build_system_prompt
 // ═══════════════════════════════════════════════════════════════════════════
+
+/// Persist the chosen model to the user-level settings.json so it becomes
+/// the default on the next launch.
+fn persist_model_to_settings(model: &str) -> Result<(), String> {
+    use std::path::Path;
+    let config_home = std::env::var("CLAW_CONFIG_HOME")
+        .ok()
+        .map(std::path::PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(|| {
+            std::env::var("HOME").map_or_else(
+                |_| Path::new(".").to_path_buf(),
+                |h| Path::new(&h).join(".claw"),
+            )
+        });
+    let settings_path = config_home.join("settings.json");
+    let mut settings = ninmu_tools_read_json_object(&settings_path)?;
+    settings.insert(
+        "model".to_string(),
+        serde_json::Value::String(model.to_string()),
+    );
+    ninmu_tools_write_json_object(&settings_path, &settings)
+}
+
+fn ninmu_tools_read_json_object(
+    path: &std::path::Path,
+) -> Result<serde_json::Map<String, serde_json::Value>, String> {
+    match std::fs::read_to_string(path) {
+        Ok(content) => serde_json::from_str::<serde_json::Value>(&content)
+            .map_err(|e| e.to_string())?
+            .as_object()
+            .cloned()
+            .ok_or_else(|| "config file must contain a JSON object".to_string()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::Map::new()),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn ninmu_tools_write_json_object(
+    path: &std::path::Path,
+    value: &serde_json::Map<String, serde_json::Value>,
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(
+        path,
+        serde_json::to_string_pretty(value).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())
+}
 
 fn build_system_prompt() -> Result<Vec<String>, Box<dyn std::error::Error>> {
     Ok(load_system_prompt(

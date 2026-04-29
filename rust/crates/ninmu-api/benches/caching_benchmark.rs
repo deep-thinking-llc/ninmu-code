@@ -26,9 +26,7 @@
 )]
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use ninmu_api::{
-    InputContentBlock, InputMessage, MessageRequest, ToolDefinition,
-};
+use ninmu_api::{InputContentBlock, InputMessage, MessageRequest, ToolDefinition};
 use serde_json::json;
 
 /// Build a realistic multi-turn conversation request.

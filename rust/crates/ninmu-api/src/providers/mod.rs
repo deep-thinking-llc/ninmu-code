@@ -242,8 +242,7 @@ fn config_home_dir() -> std::path::PathBuf {
 }
 
 fn dirs_or_default() -> std::path::PathBuf {
-    std::env::var("HOME")
-        .map_or_else(|_| std::path::PathBuf::from("."), std::path::PathBuf::from)
+    std::env::var("HOME").map_or_else(|_| std::path::PathBuf::from("."), std::path::PathBuf::from)
 }
 
 #[must_use]
