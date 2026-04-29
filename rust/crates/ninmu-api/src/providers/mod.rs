@@ -14,7 +14,7 @@ pub mod openai_compat;
 ///
 /// Used for routing and credential detection. New providers are added here
 /// and wired through [`detect_provider_kind`] and [`metadata_for_model`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ProviderKind {
     Anthropic,
     Xai,
@@ -30,7 +30,7 @@ pub enum ProviderKind {
 
 /// Static metadata for a recognized provider: where to find credentials
 /// and which base URL to use.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ProviderMetadata {
     pub provider: ProviderKind,
     /// Environment variable name for the API key (e.g. `"ANTHROPIC_API_KEY"`).
@@ -45,7 +45,7 @@ pub struct ProviderMetadata {
 ///
 /// Used by [`preflight_message_request`] to reject requests that would
 /// exceed the model's context window before sending them to the provider.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ModelTokenLimit {
     pub max_output_tokens: u32,
     pub context_window_tokens: u32,
