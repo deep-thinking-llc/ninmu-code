@@ -726,6 +726,10 @@ impl RatatuiApp {
     const PASTE_ANIM_DURATION: Duration = Duration::from_millis(1200);
     const PACMAN_FRAMES: &[char] = &['ᗤ', 'ᐨ', 'ᗧ', 'ᐨ'];
 
+    fn is_pacman(ch: char) -> bool {
+        Self::PACMAN_FRAMES.contains(&ch)
+    }
+
     fn handle_paste(&mut self, text: &str) {
         if text.len() <= Self::PASTE_THRESHOLD {
             for c in text.chars() {

@@ -149,15 +149,16 @@ impl PromptCache {
 
     #[must_use]
     pub fn lookup_completion(&self, request: &MessageRequest) -> Option<MessageResponse> {
+        let mut inner = self.lock();
         let request_hash = request_hash_hex(request);
-        let (paths, ttl) = {
-            let inner = self.lock();
-            (inner.paths.clone(), inner.config.completion_ttl)
-        };
-        let entry_path = paths.completion_entry_path(&request_hash);
+        let entry_path = inner.paths.completion_entry_path(&request_hash);
+        let ttl = inner.config.completion_ttl;
+
+        lock_exclusive_with_timeout(&inner.lock_file, Duration::from_secs(5));
+        let _guard = FileLockGuard { file: &inner.lock_file };
+
         let entry = read_json::<CompletionCacheEntry>(&entry_path);
         let Some(entry) = entry else {
-            let mut inner = self.lock();
             inner.stats.completion_cache_misses += 1;
             inner.stats.last_completion_cache_key = Some(request_hash);
             persist_state(&inner);
@@ -165,7 +166,6 @@ impl PromptCache {
         };
 
         if entry.fingerprint_version != current_fingerprint_version() {
-            let mut inner = self.lock();
             inner.stats.completion_cache_misses += 1;
             inner.stats.last_completion_cache_key = Some(request_hash.clone());
             let _ = fs::remove_file(entry_path);
@@ -174,7 +174,6 @@ impl PromptCache {
         }
 
         let expired = now_unix_secs().saturating_sub(entry.cached_at_unix_secs) >= ttl.as_secs();
-        let mut inner = self.lock();
         inner.stats.last_completion_cache_key = Some(request_hash.clone());
         if expired {
             inner.stats.completion_cache_misses += 1;
@@ -469,6 +468,15 @@ fn write_completion_entry(
 
 fn ensure_cache_dirs(paths: &PromptCachePaths) -> std::io::Result<()> {
     fs::create_dir_all(&paths.completion_dir)
+}
+
+fn create_lock_file(path: &Path) -> std::fs::File {
+    let _ = fs::create_dir_all(path.parent().unwrap_or(path));
+    std::fs::OpenOptions::new()
+        .create(true)
+        .write(true)
+        .open(path)
+        .expect("prompt-cache lock file should be creatable")
 }
 
 fn write_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
