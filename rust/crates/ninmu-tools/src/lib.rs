@@ -3250,8 +3250,8 @@ fn skill_lookup_roots() -> Vec<SkillLookupRoot> {
         push_project_skill_lookup_roots(&mut roots, &cwd);
     }
 
-    if let Ok(claw_config_home) = std::env::var("NINMU_CONFIG_HOME") {
-        push_prefixed_skill_lookup_roots(&mut roots, std::path::Path::new(&claw_config_home));
+    if let Ok(ninmu_config_home) = std::env::var("NINMU_CONFIG_HOME") {
+        push_prefixed_skill_lookup_roots(&mut roots, std::path::Path::new(&ninmu_config_home));
     }
     if let Ok(codex_home) = std::env::var("CODEX_HOME") {
         push_prefixed_skill_lookup_roots(&mut roots, std::path::Path::new(&codex_home));
