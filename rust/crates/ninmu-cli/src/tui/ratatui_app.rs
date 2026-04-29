@@ -120,22 +120,30 @@ pub struct RatatuiApp {
     model_selector: Option<ModelSelector>,
     /// Selected model callback — set by the TUI to communicate model changes.
     selected_model: Option<String>,
-    /// Original pasted text (for long pastes collapsed to a summary).
-    pasted_text: Option<String>,
+    /// Tracked paste spans within `input_buf`. Each entry records the
+    /// `(start, len)` range in `input_buf` and the display summary.
+    /// Used only for rendering; `input_buf` always holds the real text.
+    paste_spans: Vec<PasteSpan>,
     /// Whether a paste animation is currently running.
     paste_animating: bool,
     /// Current frame index of the paste animation.
     paste_anim_frame: usize,
     /// When the paste animation started.
     paste_anim_start: Option<Instant>,
-    /// Summary string shown after paste animation completes.
-    paste_summary: Option<String>,
-    /// Characters typed by the user after a long paste (appended on submit).
-    paste_suffix: Vec<char>,
-    /// Rapid-input detection: accumulates chars that arrive <20ms apart.
-    rapid_buf: String,
-    /// Timestamp of the last character key event (for rapid-input detection).
-    last_char_time: Option<Instant>,
+    /// The summary for the currently-animating paste (set during animation).
+    anim_summary: Option<String>,
+    /// The range in `input_buf` for the currently-animating paste.
+    anim_range: Option<(usize, usize)>,
+}
+
+/// A tracked paste region inside `input_buf`.
+struct PasteSpan {
+    /// Start index in `input_buf` (chars).
+    start: usize,
+    /// Length in `input_buf` (chars).
+    len: usize,
+    /// Summary string, e.g. "[Pasted 42 words, 3 lines]".
+    summary: String,
 }
 
 /// A permission prompt waiting for the user to respond in the TUI.
@@ -196,14 +204,12 @@ impl RatatuiApp {
             last_event_received: None,
             model_selector: None,
             selected_model: None,
-            pasted_text: None,
+            paste_spans: Vec::new(),
             paste_animating: false,
             paste_anim_frame: 0,
             paste_anim_start: None,
-            paste_summary: None,
-            paste_suffix: Vec::new(),
-            rapid_buf: String::new(),
-            last_char_time: None,
+            anim_summary: None,
+            anim_range: None,
         };
         app.cached_header = Self::build_header_line(
             &app.model,
@@ -517,17 +523,6 @@ impl RatatuiApp {
                             continue;
                         }
 
-                        // Flush any accumulated rapid-input buffer before handling
-                        // non-character keys (Enter, Backspace, arrows, etc.).
-                        if !matches!(
-                            key.code,
-                            KeyCode::Char(_)
-                                if key.modifiers.is_empty()
-                                    || key.modifiers == KeyModifiers::SHIFT
-                        ) {
-                            self.flush_rapid_buf();
-                        }
-
                         match key.code {
                             KeyCode::Enter
                                 if key.modifiers.contains(KeyModifiers::CONTROL)
@@ -539,19 +534,11 @@ impl RatatuiApp {
                                 self.refresh_input_cache();
                             }
                             KeyCode::Enter if !self.input_buf.is_empty() => {
-                                let input = if self.pasted_text.is_some() {
-                                    let text = self.submit_text();
-                                    self.input_buf.clear();
-                                    self.cursor = 0;
-                                    self.clear_paste_state();
-                                    self.refresh_input_cache();
-                                    text
-                                } else {
-                                    let text: String = self.input_buf.drain(..).collect();
-                                    self.cursor = 0;
-                                    self.refresh_input_cache();
-                                    text
-                                };
+                                let text: String = self.input_buf.drain(..).collect();
+                                self.cursor = 0;
+                                self.clear_paste_state();
+                                self.refresh_input_cache();
+                                let input = text;
                                 // Save to history, deduplicate consecutive.
                                 if self.input_history.last().is_none_or(|last| last != &input) {
                                     self.input_history.push(input.clone());
@@ -564,12 +551,7 @@ impl RatatuiApp {
                                 if trimmed == "/model" {
                                     self.open_model_selector();
                                 } else {
-                                    let scrollback_display =
-                                        if let Some(ref summary) = self.paste_summary {
-                                            summary.clone()
-                                        } else {
-                                            input.clone()
-                                        };
+                                    let scrollback_display = self.build_scrollback_display();
                                     self.scrollback
                                         .push(format!("  \u{25B8} {scrollback_display}"));
                                     match start_turn(&input) {
@@ -592,38 +574,17 @@ impl RatatuiApp {
                                 if key.modifiers.is_empty()
                                     || key.modifiers == KeyModifiers::SHIFT =>
                             {
-                                let now = Instant::now();
-                                let is_rapid = self
-                                    .last_char_time
-                                    .is_some_and(|t| now.duration_since(t) < Self::RAPID_INPUT_GAP);
-                                self.last_char_time = Some(now);
-
-                                if is_rapid {
-                                    self.rapid_buf.push(c);
-                                } else {
-                                    // Gap too long — flush any previous rapid buf,
-                                    // then handle this char normally.
-                                    self.flush_rapid_buf();
-                                    if self.paste_summary.is_some() {
-                                        self.paste_suffix.push(c);
-                                    } else {
-                                        self.input_buf.insert(self.cursor, c);
-                                        self.cursor += 1;
-                                    }
-                                }
+                                self.input_buf.insert(self.cursor, c);
+                                self.cursor += 1;
+                                self.shift_paste_spans(self.cursor - 1, 1);
                                 self.refresh_input_cache();
                             }
                             KeyCode::Backspace if self.cursor > 0 => {
-                                if self.paste_summary.is_some() {
-                                    if self.paste_suffix.pop().is_none() {
-                                        // No suffix left — clear entire paste.
-                                        self.clear_paste_state();
-                                        self.input_buf.clear();
-                                        self.cursor = 0;
-                                    }
-                                } else {
-                                    self.cursor -= 1;
-                                    self.input_buf.remove(self.cursor);
+                                self.cursor -= 1;
+                                let removed = self.input_buf.remove(self.cursor);
+                                self.shift_paste_spans(self.cursor, -1);
+                                if removed == '\n' || !removed.is_whitespace() {
+                                    self.trim_trailing_paste_span();
                                 }
                                 self.refresh_input_cache();
                             }
@@ -760,22 +721,17 @@ impl RatatuiApp {
                         if start.elapsed() >= Self::PASTE_ANIM_DURATION {
                             self.paste_animating = false;
                             self.paste_anim_start = None;
-                            if let Some(ref summary) = self.paste_summary {
-                                self.input_buf = summary.chars().collect();
-                                self.cursor = self.input_buf.len();
-                                self.refresh_input_cache();
+                            if let Some((s, len)) = self.anim_range {
+                                let summary = self.anim_summary.clone().unwrap_or_default();
+                                self.paste_spans.push(PasteSpan {
+                                    start: s,
+                                    len,
+                                    summary,
+                                });
                             }
+                            self.anim_summary = None;
+                            self.anim_range = None;
                         }
-                    }
-                }
-                // Flush rapid-input buffer if no new chars arrived recently.
-                if !self.rapid_buf.is_empty() {
-                    let flush_gap = Duration::from_millis(50);
-                    if self
-                        .last_char_time
-                        .is_some_and(|t| t.elapsed() >= flush_gap)
-                    {
-                        self.flush_rapid_buf();
                     }
                 }
                 self.dirty = true;
@@ -798,158 +754,184 @@ impl RatatuiApp {
     const PASTE_PREVIEW_LEN: usize = 30;
     const PASTE_ANIM_DURATION: Duration = Duration::from_millis(1200);
     const PACMAN_FRAMES: &[char] = &['C', '(', 'C', '('];
-    /// Max gap between key events to consider them part of a rapid burst (paste).
-    const RAPID_INPUT_GAP: Duration = Duration::from_millis(20);
-    /// Min chars in a rapid burst to treat it as a paste.
-    const RAPID_PASTE_MIN: usize = 10;
 
     fn is_pacman(ch: char) -> bool {
         ch == 'C' || ch == '('
     }
 
-    fn flush_rapid_buf(&mut self) {
-        let buf = std::mem::take(&mut self.rapid_buf);
-        if buf.is_empty() {
-            return;
-        }
-        if buf.len() >= Self::RAPID_PASTE_MIN {
-            self.handle_paste(&buf);
-        } else if self.paste_summary.is_some() {
-            self.paste_suffix.extend(buf.chars());
-            self.refresh_input_cache();
-        } else {
-            for c in buf.chars() {
-                self.input_buf.insert(self.cursor, c);
-                self.cursor += 1;
-            }
-            self.refresh_input_cache();
-        }
-    }
-
+    /// Insert paste text into `input_buf` at the cursor position.
+    /// For long pastes (>PASTE_THRESHOLD), starts the pacman animation.
+    /// For short pastes, inserts directly like normal typing.
     fn handle_paste(&mut self, text: &str) {
-        // If a paste animation is still running, finish it first.
+        // Finish any running animation first.
         if self.paste_animating {
-            self.paste_animating = false;
-            self.paste_anim_start = None;
-            if let Some(ref summary) = self.paste_summary {
-                self.input_buf = summary.chars().collect();
-                self.cursor = self.input_buf.len();
-                self.refresh_input_cache();
-            }
+            self.finish_animation();
         }
 
-        if self.pasted_text.is_some() {
-            // There's already a paste — append new text to it.
-            if let Some(ref mut existing) = self.pasted_text {
-                existing.push_str(text);
-            }
-            // Recalculate summary from combined text.
-            if let Some(ref combined) = self.pasted_text {
-                let words = combined.split_whitespace().count();
-                let lines = combined.lines().count();
-                self.paste_summary = Some(format!("[Pasted {words} words, {lines} lines]"));
-            }
-            // Update display to show the new summary.
-            if let Some(ref summary) = self.paste_summary {
-                self.input_buf = summary.chars().collect();
-                self.cursor = self.input_buf.len();
-                self.refresh_input_cache();
-            }
-        } else if text.len() <= Self::PASTE_THRESHOLD {
-            // Short paste with no existing paste: insert directly.
-            for c in text.chars() {
-                self.input_buf.insert(self.cursor, c);
-                self.cursor += 1;
-            }
-            self.refresh_input_cache();
-        } else {
-            // Long paste: start animation.
+        let char_count = text.chars().count();
+        let insert_pos = self.cursor;
+
+        // Insert text into input_buf at cursor.
+        for (i, c) in text.chars().enumerate() {
+            self.input_buf.insert(self.cursor + i, c);
+        }
+        self.cursor += char_count;
+
+        // Shift existing paste spans past the insertion point.
+        self.shift_paste_spans(insert_pos, char_count as isize);
+
+        if char_count > Self::PASTE_THRESHOLD {
             let words: usize = text.split_whitespace().count();
             let lines = text.lines().count();
-            self.pasted_text = Some(text.to_string());
-            self.paste_summary = Some(format!("[Pasted {words} words, {lines} lines]"));
-            self.paste_animating = true;
-            self.paste_anim_frame = 0;
-            self.paste_anim_start = Some(Instant::now());
-            let preview: String = text.chars().take(Self::PASTE_PREVIEW_LEN).collect();
-            self.input_buf = preview.chars().collect();
-            self.cursor = self.input_buf.len();
-            self.refresh_input_cache();
+            let summary = format!("[Pasted {words} words, {lines} lines]");
+
+            if Self::PASTE_ANIM_DURATION.is_zero() {
+                // No animation — record span immediately.
+                self.paste_spans.push(PasteSpan {
+                    start: insert_pos,
+                    len: char_count,
+                    summary,
+                });
+            } else {
+                // Start animation.
+                self.paste_animating = true;
+                self.paste_anim_frame = 0;
+                self.paste_anim_start = Some(Instant::now());
+                self.anim_summary = Some(summary);
+                self.anim_range = Some((insert_pos, char_count));
+            }
         }
+
+        self.refresh_input_cache();
         self.dirty = true;
     }
 
-    fn paste_display_text(&self) -> String {
-        if self.paste_animating {
-            let preview: String = self.input_buf.iter().collect();
-            // Total chars beyond the preview that the pacman needs to eat.
-            let total_eaten_target = if let Some(ref pasted) = self.pasted_text {
-                pasted.len().saturating_sub(Self::PASTE_PREVIEW_LEN)
-            } else {
-                0
-            };
-            let tick_rate = Duration::from_millis(120);
-            let elapsed_ticks = self.paste_anim_frame;
-            let max_ticks =
-                (Self::PASTE_ANIM_DURATION.as_millis() / tick_rate.as_millis()).max(1) as usize;
-            let eaten = if max_ticks > 0 && total_eaten_target > 0 {
-                (total_eaten_target * elapsed_ticks / max_ticks).min(total_eaten_target)
-            } else {
-                total_eaten_target
-            };
-            let remaining = total_eaten_target.saturating_sub(eaten);
-            let pacman = Self::PACMAN_FRAMES[elapsed_ticks % Self::PACMAN_FRAMES.len()];
+    /// Finish a running animation immediately, recording the paste span.
+    fn finish_animation(&mut self) {
+        self.paste_animating = false;
+        self.paste_anim_start = None;
+        if let Some((s, len)) = self.anim_range {
+            let summary = self.anim_summary.take().unwrap_or_default();
+            self.paste_spans.push(PasteSpan {
+                start: s,
+                len,
+                summary,
+            });
+        }
+        self.anim_summary = None;
+        self.anim_range = None;
+    }
 
-            // Build: first_30 + [remaining chars not yet eaten] + pacman + summary_so_far
-            let mut result = String::new();
-            result.push_str(&preview);
-            if remaining > 0 {
-                // Show chars from original text that haven't been eaten yet.
-                if let Some(ref pasted) = self.pasted_text {
-                    let start = Self::PASTE_PREVIEW_LEN + eaten;
-                    let chunk: String = pasted.chars().skip(start).take(remaining).collect();
-                    result.push_str(&chunk);
-                }
+    /// Adjust paste span offsets after an insertion or deletion at `pos`
+    /// with the given delta (positive = insert, negative = delete).
+    fn shift_paste_spans(&mut self, pos: usize, delta: isize) {
+        for span in &mut self.paste_spans {
+            if pos <= span.start {
+                span.start = (span.start as isize + delta) as usize;
+            } else if pos < span.start + span.len {
+                span.len = (span.len as isize + delta) as usize;
             }
-            result.push(pacman);
-            // Reveal summary progressively as chars are eaten.
-            if let Some(ref summary) = self.paste_summary {
-                let reveal = eaten.min(summary.len());
-                result.push_str(&summary.chars().take(reveal).collect::<String>());
+        }
+        if let Some((ref mut s, ref mut l)) = self.anim_range {
+            if pos <= *s {
+                *s = (*s as isize + delta) as usize;
+            } else if pos < *s + *l {
+                *l = (*l as isize + delta) as usize;
             }
-            result
-        } else if let Some(ref summary) = self.paste_summary {
-            if self.paste_suffix.is_empty() {
-                summary.clone()
-            } else {
-                let suffix: String = self.paste_suffix.iter().collect();
-                format!("{summary} {suffix}")
-            }
-        } else {
-            self.cached_input.clone()
         }
     }
 
-    fn submit_text(&self) -> String {
-        if let Some(ref pasted) = self.pasted_text {
-            let mut result = pasted.clone();
-            if !self.paste_suffix.is_empty() {
-                result.extend(self.paste_suffix.iter());
-            }
-            return result;
+    /// Remove any paste span whose length has dropped to zero
+    /// (the user backspaced through all of it).
+    fn trim_trailing_paste_span(&mut self) {
+        self.paste_spans.retain(|s| s.len > 0);
+    }
+
+    /// Build the display string for the input area.
+    /// Shows summary overlays for tracked paste spans.
+    fn paste_display_text(&self) -> String {
+        let flat: String = self.input_buf.iter().collect();
+
+        if self.paste_spans.is_empty() && !self.paste_animating {
+            return flat;
         }
-        self.cached_input.clone()
+
+        // Animation mode: show pacman eating the last pasted range.
+        if self.paste_animating {
+            if let Some((start, len)) = self.anim_range {
+                let preview_end = (start + Self::PASTE_PREVIEW_LEN).min(start + len);
+                let preview: String = self.input_buf[start..preview_end].iter().collect();
+                let total_beyond = len.saturating_sub(Self::PASTE_PREVIEW_LEN);
+                let tick_rate = Duration::from_millis(120);
+                let elapsed_ticks = self.paste_anim_frame;
+                let max_ticks = (Self::PASTE_ANIM_DURATION.as_millis()
+                    / tick_rate.as_millis())
+                .max(1) as usize;
+                let eaten = if max_ticks > 0 && total_beyond > 0 {
+                    (total_beyond * elapsed_ticks / max_ticks).min(total_beyond)
+                } else {
+                    total_beyond
+                };
+                let remaining = total_beyond.saturating_sub(eaten);
+                let pacman = Self::PACMAN_FRAMES[elapsed_ticks % Self::PACMAN_FRAMES.len()];
+
+                let mut result = String::new();
+                // Text before the pasted range.
+                result.push_str(&flat[..start]);
+                // Preview (first 30 chars).
+                result.push_str(&preview);
+                // Remaining uneaten chars.
+                if remaining > 0 {
+                    let chunk_start = preview_end + eaten;
+                    let chunk_end = (chunk_start + remaining).min(start + len);
+                    result.push_str(&flat[chunk_start..chunk_end]);
+                }
+                result.push(pacman);
+                // Progressively reveal summary.
+                if let Some(ref summary) = self.anim_summary {
+                    let reveal = eaten.min(summary.len());
+                    result.push_str(&summary[..reveal]);
+                }
+                // Text after the pasted range.
+                result.push_str(&flat[start + len..]);
+                return result;
+            }
+        }
+
+        // Post-animation: replace each paste span with its summary.
+        let mut result = String::new();
+        let mut prev_end = 0;
+        // Sort spans by start position.
+        let mut spans: Vec<&PasteSpan> = self.paste_spans.iter().collect();
+        spans.sort_by_key(|s| s.start);
+        for span in &spans {
+            if span.start > prev_end {
+                result.push_str(&flat[prev_end..span.start]);
+            }
+            result.push_str(&span.summary);
+            prev_end = span.start + span.len;
+        }
+        if prev_end < flat.len() {
+            result.push_str(&flat[prev_end..]);
+        }
+        result
+    }
+
+    /// Build a scrollback display string — uses summaries for paste spans.
+    fn build_scrollback_display(&self) -> String {
+        if self.paste_spans.is_empty() {
+            return self.cached_input.clone();
+        }
+        self.paste_display_text()
     }
 
     fn clear_paste_state(&mut self) {
-        self.pasted_text = None;
-        self.paste_summary = None;
+        self.paste_spans.clear();
         self.paste_animating = false;
         self.paste_anim_start = None;
         self.paste_anim_frame = 0;
-        self.paste_suffix.clear();
-        self.rapid_buf.clear();
-        self.last_char_time = None;
+        self.anim_summary = None;
+        self.anim_range = None;
     }
 
     fn process_event(&mut self, ev: TuiEvent) {
@@ -1402,8 +1384,8 @@ impl RatatuiApp {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        let display_text = self.paste_display_text();
-        let display_len = display_text.len();
+        let flat: String = self.input_buf.iter().collect();
+
         let spans = if self.paste_animating {
             let orange = if self.paste_anim_frame.is_multiple_of(2) {
                 Color::Rgb(255, 160, 40)
@@ -1413,43 +1395,71 @@ impl RatatuiApp {
             vec![
                 Span::styled("> ", Style::default().fg(ACCENT)),
                 Span::styled(
-                    &display_text,
+                    self.paste_display_text(),
                     Style::default().fg(orange).add_modifier(Modifier::BOLD),
                 ),
             ]
-        } else if let Some(ref summary) = self.paste_summary {
-            let mut v = vec![
+        } else if self.paste_spans.is_empty() {
+            vec![
                 Span::styled("> ", Style::default().fg(ACCENT)),
-                Span::styled(summary.clone(), Style::default().fg(TEXT_SEC)),
-            ];
-            if !self.paste_suffix.is_empty() {
-                let suffix: String = self.paste_suffix.iter().collect();
+                Span::styled(flat.clone(), Style::default().fg(TEXT)),
+            ]
+        } else {
+            // Build mixed spans: normal text + summary overlays for paste spans.
+            let mut v = vec![Span::styled("> ", Style::default().fg(ACCENT))];
+            let mut spans_sorted: Vec<&PasteSpan> = self.paste_spans.iter().collect();
+            spans_sorted.sort_by_key(|s| s.start);
+            let mut prev_end = 0;
+            for span in &spans_sorted {
+                let s = span.start;
+                let e = span.start + span.len;
+                if s > prev_end && s <= flat.len() {
+                    v.push(Span::styled(
+                        flat[prev_end..s].to_string(),
+                        Style::default().fg(TEXT),
+                    ));
+                }
                 v.push(Span::styled(
-                    format!(" {suffix}"),
+                    span.summary.clone(),
+                    Style::default().fg(TEXT_SEC),
+                ));
+                prev_end = e.min(flat.len());
+            }
+            if prev_end < flat.len() {
+                v.push(Span::styled(
+                    flat[prev_end..].to_string(),
                     Style::default().fg(TEXT),
                 ));
             }
             v
-        } else {
-            vec![
-                Span::styled("> ", Style::default().fg(ACCENT)),
-                Span::styled(&display_text, Style::default().fg(TEXT)),
-            ]
         };
 
         let paragraph = Paragraph::new(Line::from(spans));
         frame.render_widget(paragraph, inner);
 
         if !self.state.is_generating && !self.paste_animating {
-            let cursor_pos = if self.paste_summary.is_some() {
-                display_len
-            } else {
-                self.cursor
-            };
+            // Map cursor position to display offset (summaries compress ranges).
+            let cursor_pos = self.display_cursor_offset();
             let cursor_x = inner.x + 2 + u16::try_from(cursor_pos).unwrap_or(u16::MAX);
             let cursor_y = inner.y;
             frame.set_cursor_position((cursor_x, cursor_y));
         }
+    }
+
+    /// Map `self.cursor` (offset into `input_buf`) to the display offset
+    /// (accounting for paste spans shown as shorter summaries).
+    fn display_cursor_offset(&self) -> usize {
+        let mut offset = self.cursor;
+        for span in &self.paste_spans {
+            if self.cursor > span.start + span.len {
+                // Cursor is past this span — subtract the compression.
+                offset = offset.saturating_sub(span.len).saturating_add(span.summary.len());
+            } else if self.cursor > span.start {
+                // Cursor is inside this span — clamp to span start + summary len.
+                offset = span.start + span.summary.len();
+            }
+        }
+        offset
     }
 
     fn draw_metadata(&self, frame: &mut ratatui::Frame, area: Rect) {
@@ -3131,7 +3141,7 @@ mod tests {
         app.handle_paste("hello world");
         assert_eq!(app.cached_input, "hello world");
         assert_eq!(app.cursor, 11);
-        assert!(app.pasted_text.is_none());
+        assert!(app.paste_spans.is_empty());
         assert!(!app.paste_animating);
     }
 
@@ -3141,7 +3151,7 @@ mod tests {
         let text = "a".repeat(128);
         app.handle_paste(&text);
         assert_eq!(app.cached_input, text);
-        assert!(app.pasted_text.is_none());
+        assert!(app.paste_spans.is_empty());
         assert!(!app.paste_animating);
     }
 
@@ -3151,11 +3161,13 @@ mod tests {
         let text = "a".repeat(200);
         app.handle_paste(&text);
         assert!(app.paste_animating);
-        assert!(app.pasted_text.is_some());
-        assert_eq!(app.pasted_text.as_ref().unwrap().len(), 200);
+        assert!(app.anim_summary.is_some());
+        assert_eq!(app.anim_range, Some((0, 200)));
         assert_eq!(app.paste_anim_frame, 0);
         assert!(app.paste_anim_start.is_some());
-        assert!(app.paste_summary.is_some());
+        // Text is in input_buf at cursor position.
+        assert_eq!(app.cached_input, text);
+        assert_eq!(app.cursor, 200);
     }
 
     #[test]
@@ -3163,7 +3175,7 @@ mod tests {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
         let long_text = format!("hello world\nfoo bar\nbaz{}", "x".repeat(200));
         app.handle_paste(&long_text);
-        let summary = app.paste_summary.as_ref().unwrap();
+        let summary = app.anim_summary.as_ref().unwrap();
         assert!(summary.starts_with("[Pasted "));
         assert!(summary.contains("words"));
         assert!(summary.contains("lines]"));
@@ -3174,13 +3186,10 @@ mod tests {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
         let text = "a".repeat(200);
         app.handle_paste(&text);
-        app.paste_animating = false;
-        app.paste_anim_start = None;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.cursor = app.input_buf.len();
-            app.refresh_input_cache();
-        }
+        // Simulate animation completion via finish_animation().
+        app.finish_animation();
+        assert!(!app.paste_animating);
+        assert_eq!(app.paste_spans.len(), 1);
         let display = app.paste_display_text();
         assert!(display.starts_with("[Pasted "));
         assert!(display.ends_with(']'));
@@ -3193,7 +3202,6 @@ mod tests {
         app.handle_paste(&text);
         assert!(app.paste_animating);
 
-        // Frame 0: preview (first 30 chars) + remaining 170 chars + pacman.
         app.paste_anim_frame = 0;
         let display = app.paste_display_text();
         assert!(
@@ -3202,26 +3210,18 @@ mod tests {
         );
         assert!(display.chars().any(RatatuiApp::is_pacman), "pacman present");
 
-        // Frame 5: pacman has eaten ~half the excess, summary partially revealed.
         app.paste_anim_frame = 5;
         let display_mid = app.paste_display_text();
         assert!(
             display_mid.chars().any(RatatuiApp::is_pacman),
             "pacman still present"
         );
-        assert!(
-            display_mid.contains("[Pasted"),
-            "summary beginning to appear"
-        );
     }
 
     #[test]
     fn paste_animation_reveals_summary_as_pacman_eats() {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
-        let text = "x".repeat(200);
-        app.handle_paste(&text);
-
-        // Near end of animation — most of summary visible.
+        app.handle_paste(&"x".repeat(200));
         app.paste_anim_frame = 8;
         let display = app.paste_display_text();
         assert!(display.contains("[Pasted"));
@@ -3229,124 +3229,78 @@ mod tests {
     }
 
     #[test]
-    fn submit_text_restores_original_paste() {
+    fn input_buf_always_has_real_text() {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
         let original = format!("{}\nsecond line\nthird line", "x".repeat(200));
         app.handle_paste(&original);
-        app.paste_animating = false;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.refresh_input_cache();
-        }
-        let submitted = app.submit_text();
-        assert_eq!(submitted, original);
-    }
-
-    #[test]
-    fn submit_text_returns_cached_input_when_no_paste() {
-        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
-        for c in "hello".chars() {
-            app.input_buf.push(c);
-        }
-        app.cursor = 5;
-        app.refresh_input_cache();
-        assert_eq!(app.submit_text(), "hello");
+        assert_eq!(app.cached_input, original);
+        app.finish_animation();
+        assert_eq!(app.cached_input, original);
     }
 
     #[test]
     fn clear_paste_state_resets_all_fields() {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
         app.handle_paste(&"a".repeat(200));
-        app.paste_suffix.push('x');
-        app.rapid_buf = "test".to_string();
-        app.last_char_time = Some(Instant::now());
-        assert!(app.pasted_text.is_some());
-        assert!(app.paste_summary.is_some());
+        assert!(!app.paste_spans.is_empty() || app.paste_animating);
         app.clear_paste_state();
-        assert!(app.pasted_text.is_none());
-        assert!(app.paste_summary.is_none());
+        assert!(app.paste_spans.is_empty());
         assert!(!app.paste_animating);
         assert!(app.paste_anim_start.is_none());
         assert_eq!(app.paste_anim_frame, 0);
-        assert!(app.paste_suffix.is_empty());
-        assert!(app.rapid_buf.is_empty());
-        assert!(app.last_char_time.is_none());
+        assert!(app.anim_summary.is_none());
+        assert!(app.anim_range.is_none());
     }
 
     #[test]
-    fn typing_after_paste_appends_to_suffix() {
+    fn typing_after_paste_inserts_at_cursor() {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
         let original = "a".repeat(200);
         app.handle_paste(&original);
-        // Simulate animation completion.
-        app.paste_animating = false;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.refresh_input_cache();
-        }
-        assert!(app.paste_summary.is_some());
+        app.finish_animation();
 
-        // Simulate what the Char handler does when paste_summary is set:
-        // append to suffix, keep summary visible.
-        app.paste_suffix.push('b');
-        app.paste_suffix.push('c');
+        // Type "bc" at the end (cursor is at end of pasted text).
+        app.input_buf.push('b');
+        app.input_buf.push('c');
+        app.cursor += 2;
         app.refresh_input_cache();
 
-        // Summary should still be visible with suffix appended.
-        assert!(app.paste_summary.is_some());
-        assert!(app.pasted_text.is_some());
+        assert_eq!(app.cached_input, format!("{original}bc"));
+        // Display shows summary for the paste + typed chars.
         let display = app.paste_display_text();
         assert!(display.starts_with("[Pasted "));
-        assert!(display.ends_with(" bc"));
-
-        // Submit should include original text + suffix.
-        let submitted = app.submit_text();
-        assert_eq!(submitted, format!("{original}bc"));
+        assert!(display.ends_with("bc"));
     }
 
     #[test]
-    fn backspace_removes_suffix_before_clearing_paste() {
-        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
-        let original = "a".repeat(200);
-        app.handle_paste(&original);
-        app.paste_animating = false;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.refresh_input_cache();
-        }
-
-        // Type some suffix.
-        app.paste_suffix.push('x');
-        app.paste_suffix.push('y');
-        assert_eq!(app.paste_suffix.len(), 2);
-
-        // Backspace removes from suffix.
-        app.paste_suffix.pop();
-        assert_eq!(app.paste_suffix.len(), 1);
-
-        // Another backspace removes last suffix char — paste still exists.
-        app.paste_suffix.pop();
-        assert!(app.paste_suffix.is_empty());
-        assert!(app.paste_summary.is_some());
-
-        // Submit with empty suffix returns just the original.
-        assert_eq!(app.submit_text(), original);
-    }
-
-    #[test]
-    fn display_shows_summary_without_suffix_initially() {
+    fn backspace_removes_from_input_buf() {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
         app.handle_paste(&"a".repeat(200));
-        app.paste_animating = false;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.refresh_input_cache();
-        }
+        app.finish_animation();
+
+        // Type "xy".
+        app.input_buf.push('x');
+        app.input_buf.push('y');
+        app.cursor += 2;
+
+        // Backspace removes 'y'.
+        app.cursor -= 1;
+        app.input_buf.remove(app.cursor);
+        app.shift_paste_spans(app.cursor, -1);
+        app.refresh_input_cache();
+
+        assert!(app.cached_input.ends_with('x'));
+        assert_eq!(app.cached_input, format!("{}{}", "a".repeat(200), "x"));
+    }
+
+    #[test]
+    fn display_shows_summary_without_typed_chars_initially() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.handle_paste(&"a".repeat(200));
+        app.finish_animation();
         let display = app.paste_display_text();
         assert!(display.starts_with("[Pasted "));
         assert!(display.ends_with("lines]"));
-        // No suffix appended — display equals the summary exactly.
-        assert_eq!(display, app.paste_summary.as_ref().unwrap().clone());
     }
 
     #[test]
@@ -3354,7 +3308,7 @@ mod tests {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
         let text = format!("line1\nline2\nline3\n{}", "x".repeat(200));
         app.handle_paste(&text);
-        let summary = app.paste_summary.as_ref().unwrap();
+        let summary = app.anim_summary.as_ref().unwrap();
         assert!(
             summary.contains("4 lines"),
             "summary should count 4 lines: {summary}"
@@ -3383,166 +3337,78 @@ mod tests {
     }
 
     #[test]
-    fn submit_text_during_animation_returns_original() {
+    fn input_buf_during_animation_has_real_text() {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
         let original = "a".repeat(200);
         app.handle_paste(&original);
         assert!(app.paste_animating);
-        assert_eq!(app.submit_text(), original);
+        // input_buf always has the real text.
+        assert_eq!(app.cached_input, original);
     }
 
     // -- E2E paste lifecycle tests -------------------------------------------
 
     #[test]
     fn e2e_paste_type_submit_full_flow() {
-        // Simulates: paste long text → animation completes → user types " hello" → submit
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
         let pasted = "original pasted code\nline 2\nline 3";
-
-        // Step 1: User pastes text.
         let long_paste = format!("{pasted}{}", "x".repeat(200));
+
         app.handle_paste(&long_paste);
         assert!(app.paste_animating);
-        assert_eq!(app.paste_anim_frame, 0);
 
-        // Step 2: Animation ticks advance.
+        // Animation ticks advance.
         app.paste_anim_frame = 5;
         let display = app.paste_display_text();
-        assert_ne!(display, long_paste);
-        assert!(
-            display.chars().any(RatatuiApp::is_pacman),
-            "pacman should be visible during animation"
-        );
+        assert!(display.chars().any(RatatuiApp::is_pacman));
 
-        // Step 3: Animation completes (1200ms passed).
-        app.paste_animating = false;
-        app.paste_anim_start = None;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.cursor = app.input_buf.len();
-            app.refresh_input_cache();
-        }
+        // Animation completes.
+        app.finish_animation();
         let display = app.paste_display_text();
         assert!(display.starts_with("[Pasted "));
 
-        // Step 4: User types " hello".
+        // User types " hello" at cursor (end of pasted text).
         for c in " hello".chars() {
-            app.paste_suffix.push(c);
+            app.input_buf.insert(app.cursor, c);
+            app.cursor += 1;
         }
-        let display = app.paste_display_text();
-        assert!(display.ends_with(" hello"));
+        app.refresh_input_cache();
 
-        // Step 5: User submits. Text should be original + suffix.
-        let submitted = app.submit_text();
-        assert_eq!(submitted, format!("{long_paste} hello"));
+        // input_buf has real text: paste + " hello".
+        assert_eq!(app.cached_input, format!("{long_paste} hello"));
     }
 
     #[test]
     fn e2e_paste_short_text_no_animation() {
-        // Short paste: directly in buffer, no animation.
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
         app.handle_paste("short text");
         assert!(!app.paste_animating);
-        assert!(app.pasted_text.is_none());
+        assert!(app.paste_spans.is_empty());
         assert_eq!(app.cached_input, "short text");
-        assert_eq!(app.submit_text(), "short text");
-    }
-
-    #[test]
-    fn e2e_paste_type_backspace_submit() {
-        // Paste → type "xy" → backspace (removes y) → submit
-        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
-        let long = "a".repeat(200);
-        app.handle_paste(&long);
-        app.paste_animating = false;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.refresh_input_cache();
-        }
-
-        // Type "xy".
-        app.paste_suffix.push('x');
-        app.paste_suffix.push('y');
-        assert!(app.paste_display_text().ends_with(" xy"));
-
-        // Backspace removes 'y'.
-        app.paste_suffix.pop();
-        assert!(app.paste_display_text().ends_with(" x"));
-
-        // Submit: original + "x".
-        assert_eq!(app.submit_text(), format!("{long}x"));
-    }
-
-    #[test]
-    fn e2e_paste_backspace_all_chars_then_type() {
-        // Paste → type "a" → backspace (removes a, paste still exists) → type "b" → submit
-        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
-        let long = "z".repeat(200);
-        app.handle_paste(&long);
-        app.paste_animating = false;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.refresh_input_cache();
-        }
-
-        // Type 'a'.
-        app.paste_suffix.push('a');
-        assert!(app.paste_summary.is_some());
-
-        // Backspace removes 'a' — paste state still exists.
-        app.paste_suffix.pop();
-        assert!(app.paste_summary.is_some());
-        assert!(app.paste_suffix.is_empty());
-
-        // Type 'b'.
-        app.paste_suffix.push('b');
-        assert_eq!(app.submit_text(), format!("{long}b"));
     }
 
     #[test]
     fn e2e_paste_submit_without_typing() {
-        // Paste → submit immediately (no typing after).
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
-        let long = "code snippet\nmore code";
-        let long_paste = format!("{long}{}", "x".repeat(200));
-        app.handle_paste(&long_paste);
-        app.paste_animating = false;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.refresh_input_cache();
-        }
-
-        // Submit immediately.
-        assert!(app.paste_suffix.is_empty());
-        assert_eq!(app.submit_text(), long_paste);
+        let long = format!("code snippet\nmore code{}", "x".repeat(200));
+        app.handle_paste(&long);
+        app.finish_animation();
+        assert_eq!(app.cached_input, long);
     }
 
     #[test]
     fn e2e_display_never_shows_raw_paste_text() {
-        // After paste animation, display should always show summary, never raw text.
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
         let raw = format!("secret{}\nmore secret stuff", "x".repeat(500));
         app.handle_paste(&raw);
 
-        // During animation — shows preview (first 30 chars) + pacman.
         app.paste_anim_frame = 3;
         let display = app.paste_display_text();
-        assert!(
-            display.chars().any(RatatuiApp::is_pacman),
-            "pacman visible during animation"
-        );
+        assert!(display.chars().any(RatatuiApp::is_pacman));
 
-        // After animation — shows summary only, never raw text.
-        app.paste_animating = false;
+        app.finish_animation();
         let display = app.paste_display_text();
         assert!(display.starts_with("[Pasted "));
-        assert!(!display.contains("secret"));
-
-        // With suffix.
-        app.paste_suffix.extend(" more".chars());
-        let display = app.paste_display_text();
-        assert!(display.starts_with("[Pasted "));
-        assert!(display.ends_with(" more"));
         assert!(!display.contains("secret"));
     }
 
@@ -3552,7 +3418,6 @@ mod tests {
         app.state.is_generating = true;
         app.last_event_received = Some(Instant::now() - Duration::from_secs(200));
 
-        // Simulate an active permission prompt.
         let (response_tx, _rx) = std::sync::mpsc::channel();
         app.pending_permission = Some(PendingPermission {
             request: ninmu_runtime::PermissionRequest {
@@ -3566,8 +3431,6 @@ mod tests {
             action_description: "run command".into(),
         });
 
-        // Simulate the watchdog check — should NOT fire because
-        // pending_permission is active.
         const STALL_WATCHDOG: Duration = Duration::from_mins(3);
         if let Some(last) = app.last_event_received {
             if app.pending_permission.is_none() && last.elapsed() > STALL_WATCHDOG {
@@ -3581,42 +3444,38 @@ mod tests {
         );
     }
 
+    // -- Multi-paste ordering tests ------------------------------------------
+
     #[test]
-    fn second_paste_appends_to_first() {
+    fn second_paste_inserts_at_cursor() {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
         let first = "a".repeat(200);
         let second = "b".repeat(200);
         app.handle_paste(&first);
-        // Finish animation.
-        app.paste_animating = false;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.refresh_input_cache();
-        }
-        // Second paste appends to the first.
+        app.finish_animation();
+        assert_eq!(app.cursor, 200);
+        // Second paste inserts at cursor, starts new animation.
         app.handle_paste(&second);
-        let submitted = app.submit_text();
-        assert_eq!(submitted, format!("{first}{second}"));
-        // Summary reflects combined counts.
-        let summary = app.paste_summary.as_ref().unwrap();
-        assert!(summary.contains("words"));
+        assert!(app.paste_animating, "second long paste starts new animation");
+        assert_eq!(app.cached_input, format!("{first}{second}"));
+        // First paste span is recorded; second is still animating.
+        assert_eq!(app.paste_spans.len(), 1);
+        assert!(app.anim_range.is_some());
+        // After finishing second animation, both spans recorded.
+        app.finish_animation();
+        assert_eq!(app.paste_spans.len(), 2);
     }
 
     #[test]
-    fn second_short_paste_appends_to_existing() {
+    fn second_short_paste_inserts_at_cursor() {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
         app.handle_paste(&"a".repeat(200));
-        app.paste_animating = false;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.refresh_input_cache();
-        }
-        // Short second paste also appends.
+        app.finish_animation();
+        // Short paste also inserts at cursor.
         app.handle_paste(" more text");
-        assert_eq!(
-            app.submit_text(),
-            format!("{}{}", "a".repeat(200), " more text")
-        );
+        assert_eq!(app.cached_input, format!("{}{}", "a".repeat(200), " more text"));
+        // Only one paste span (the long one); short paste has no span.
+        assert_eq!(app.paste_spans.len(), 1);
     }
 
     #[test]
@@ -3632,187 +3491,132 @@ mod tests {
     }
 
     #[test]
-    fn e2e_paste_paste_type_submit() {
-        // Paste long → paste long again → type " done" → submit
+    fn e2e_type_paste_type_paste_type() {
+        // Type "a" → paste long X → type "b" → paste long Y → type "c"
+        // Result in input_buf: "aXbYc" (everything in order)
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
-        let first = "first paste content ";
-        let second = "second paste content";
-        let long_first = format!("{first}{}", "a".repeat(200));
-        let long_second = format!("{second}{}", "b".repeat(200));
 
-        app.handle_paste(&long_first);
-        app.paste_animating = false;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.refresh_input_cache();
-        }
+        // Type "a".
+        app.input_buf.push('a');
+        app.cursor = 1;
 
-        app.handle_paste(&long_second);
-        app.paste_animating = false;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.refresh_input_cache();
-        }
+        // Paste X at cursor.
+        let x = format!("X{}", "x".repeat(200));
+        app.handle_paste(&x);
+        app.finish_animation();
+        assert_eq!(app.cursor, 1 + x.len());
 
-        // Type " done".
-        for c in " done".chars() {
-            app.paste_suffix.push(c);
-        }
+        // Type "b" at cursor.
+        app.input_buf.insert(app.cursor, 'b');
+        app.cursor += 1;
 
-        let submitted = app.submit_text();
-        assert!(submitted.starts_with(first));
-        assert!(submitted.contains(second));
-        assert!(submitted.ends_with(" done"));
+        // Paste Y at cursor.
+        let y = format!("Y{}", "y".repeat(200));
+        app.handle_paste(&y);
+        app.finish_animation();
+
+        // Type "c" at cursor.
+        app.input_buf.insert(app.cursor, 'c');
+        app.cursor += 1;
+        app.refresh_input_cache();
+
+        let expected = format!("a{x}b{y}c");
+        assert_eq!(app.cached_input, expected);
+
+        // Display should show: a [Pasted...] b [Pasted...] c
+        let display = app.paste_display_text();
+        assert!(display.starts_with('a'));
+        assert!(display.contains("[Pasted"));
+        assert!(display.ends_with('c'));
+        // Two paste spans.
+        assert_eq!(app.paste_spans.len(), 2);
     }
 
     #[test]
-    fn second_paste_during_animation_appends_correctly() {
+    fn second_paste_during_animation_finishes_first() {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
-        let first = format!("first chunk of text {}", "a".repeat(200));
-        let second = format!("second chunk of text {}", "b".repeat(200));
+        let first = format!("first {}", "a".repeat(200));
+        let second = format!("second {}", "b".repeat(200));
 
-        // First paste starts animation.
         app.handle_paste(&first);
         assert!(app.paste_animating);
-        assert_eq!(app.pasted_text.as_deref(), Some(first.as_str()));
 
-        // Animation is still running — paste again.
+        // Second paste finishes the first animation, then starts its own.
         app.handle_paste(&second);
 
-        // Animation should have been cancelled, NOT restarted.
-        assert!(
-            !app.paste_animating,
-            "second paste during animation should cancel animation, not restart it"
-        );
-
-        // pasted_text should contain both pastes concatenated.
+        // Second long paste starts its own animation.
+        assert!(app.paste_animating, "second long paste starts new animation");
+        // First paste span is recorded.
+        assert_eq!(app.paste_spans.len(), 1);
+        // input_buf has both pastes in order.
         let combined = format!("{first}{second}");
-        assert_eq!(app.pasted_text.as_deref(), Some(combined.as_str()));
-
-        // Summary should reflect combined word/line counts.
-        let summary = app.paste_summary.as_ref().unwrap();
-        let words: usize = combined.split_whitespace().count();
-        let lines = combined.lines().count();
-        assert!(
-            summary.contains(&format!("{words} words")),
-            "summary should say '{words} words', got: {summary}"
-        );
-        assert!(
-            summary.contains(&format!("{lines} lines")),
-            "summary should say '{lines} lines', got: {summary}"
-        );
-
-        // Display should show the updated summary (not animation preview).
-        let display = app.paste_display_text();
-        assert!(
-            display.starts_with("[Pasted "),
-            "display should show summary, got: {display}"
-        );
-        assert!(
-            !display.contains(&second[..30]),
-            "display should NOT show raw second paste text"
-        );
-
-        // submit_text() should return the full combined text.
-        let submitted = app.submit_text();
-        assert_eq!(submitted, combined);
+        assert_eq!(app.cached_input, combined);
+        // Finish second animation.
+        app.finish_animation();
+        assert_eq!(app.paste_spans.len(), 2);
     }
 
     #[test]
-    fn third_paste_appends_to_combined() {
+    fn third_paste_inserts_in_order() {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
         let first = format!("aaa {}", "a".repeat(200));
         let second = format!("bbb {}", "b".repeat(200));
         let third = format!("ccc {}", "c".repeat(200));
 
         app.handle_paste(&first);
-        app.paste_animating = false;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.refresh_input_cache();
-        }
-
+        app.finish_animation();
         app.handle_paste(&second);
+        app.finish_animation();
         app.handle_paste(&third);
+        // Third paste is still animating.
+        app.finish_animation();
 
         let combined = format!("{first}{second}{third}");
-        assert_eq!(app.submit_text(), combined);
-        assert_eq!(app.pasted_text.as_deref(), Some(combined.as_str()));
+        assert_eq!(app.cached_input, combined);
+        assert_eq!(app.paste_spans.len(), 3);
     }
 
     #[test]
-    fn second_paste_preserves_existing_suffix() {
+    fn paste_in_middle_of_text() {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
-        let first = format!("first {}", "a".repeat(200));
-        let second = format!("second {}", "b".repeat(200));
-
-        app.handle_paste(&first);
-        app.paste_animating = false;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.refresh_input_cache();
+        // Type "hello world".
+        for c in "hello world".chars() {
+            app.input_buf.push(c);
         }
+        app.cursor = 6; // after "hello "
+        app.refresh_input_cache();
 
-        // User types " typed" after first paste.
-        app.paste_suffix.extend(" typed".chars());
+        // Paste at cursor position (middle of text).
+        app.handle_paste(&"PASTED".repeat(30));
+        app.finish_animation();
 
-        // Now pastes again — suffix should still be there.
-        app.handle_paste(&second);
-        assert_eq!(app.paste_suffix.iter().collect::<String>(), " typed");
-
-        // Submitted text should be first + second + " typed".
-        let submitted = app.submit_text();
-        assert_eq!(submitted, format!("{first}{second} typed"));
+        // Text should be: "hello " + pasted + "world"
+        let flat: String = app.input_buf.iter().collect();
+        assert!(flat.starts_with("hello "));
+        assert!(flat.ends_with("world"));
+        assert!(flat.contains(&"PASTED".repeat(30)));
     }
 
     #[test]
-    fn rapid_buf_short_burst_goes_to_suffix_when_paste_active() {
+    fn display_cursor_offset_accounts_for_summary() {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
-        app.handle_paste(&"a".repeat(200));
-        app.paste_animating = false;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.refresh_input_cache();
-        }
+        // Type "a".
+        app.input_buf.push('a');
+        app.cursor = 1;
+        // Paste long text.
+        app.handle_paste(&"x".repeat(200));
+        app.finish_animation();
+        // Type "b".
+        app.input_buf.insert(app.cursor, 'b');
+        app.cursor += 1;
+        app.refresh_input_cache();
 
-        // Simulate a short rapid burst (5 chars, below RAPID_PASTE_MIN of 10).
-        app.rapid_buf = "hello".to_string();
-        app.flush_rapid_buf();
-
-        // Should go to paste_suffix since it's below the threshold.
-        assert_eq!(app.paste_suffix.iter().collect::<String>(), "hello");
-        assert_eq!(app.pasted_text.as_ref().unwrap().len(), 200);
-    }
-
-    #[test]
-    fn rapid_buf_long_burst_treated_as_paste() {
-        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
-        app.handle_paste(&"a".repeat(200));
-        app.paste_animating = false;
-        if let Some(ref summary) = app.paste_summary {
-            app.input_buf = summary.chars().collect();
-            app.refresh_input_cache();
-        }
-
-        // Simulate a long rapid burst (above RAPID_PASTE_MIN of 10).
-        let burst = "b".repeat(50);
-        app.rapid_buf = burst.clone();
-        app.flush_rapid_buf();
-
-        // Should be appended to pasted_text via handle_paste.
-        let expected = format!("{}{}", "a".repeat(200), burst);
-        assert_eq!(app.pasted_text.as_deref(), Some(expected.as_str()));
-    }
-
-    #[test]
-    fn rapid_buf_no_paste_goes_to_input_buf() {
-        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
-
-        // No paste active — short burst goes to input_buf.
-        app.rapid_buf = "hello".to_string();
-        app.flush_rapid_buf();
-
-        assert_eq!(app.cached_input, "hello");
-        assert!(app.pasted_text.is_none());
+        // Cursor is at position 202 (1 + 200 + 1).
+        assert_eq!(app.cursor, 202);
+        // Display offset should compress the 200-char paste span.
+        let offset = app.display_cursor_offset();
+        let summary_len = app.paste_spans[0].summary.len();
+        // 1 (a) + summary_len + 1 (b) = cursor display position.
+        assert_eq!(offset, 1 + summary_len + 1);
     }
 }
