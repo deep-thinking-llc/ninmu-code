@@ -235,6 +235,10 @@ impl PromptCache {
         }
 
         inner.previous = Some(current);
+
+        lock_exclusive_with_timeout(&inner.lock_file, Duration::from_secs(5));
+        let _guard = FileLockGuard { file: &inner.lock_file };
+
         if let Some(response) = response {
             write_completion_entry(&inner.paths, &request_hash, response);
             inner.stats.completion_cache_writes += 1;
