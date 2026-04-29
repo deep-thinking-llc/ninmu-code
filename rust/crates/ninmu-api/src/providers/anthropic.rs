@@ -124,6 +124,7 @@ pub struct AnthropicClient {
     prompt_cache: Option<PromptCache>,
     last_prompt_cache_record: Arc<Mutex<Option<PromptCacheRecord>>>,
     last_request_time: Arc<Mutex<Option<Instant>>>,
+    cache_ttl: Option<String>,
 }
 
 impl AnthropicClient {
@@ -141,6 +142,7 @@ impl AnthropicClient {
             prompt_cache: None,
             last_prompt_cache_record: Arc::new(Mutex::new(None)),
             last_request_time: Arc::new(Mutex::new(None)),
+            cache_ttl: std::env::var("NINMU_CACHE_TTL").ok(),
         }
     }
 
@@ -158,6 +160,7 @@ impl AnthropicClient {
             prompt_cache: None,
             last_prompt_cache_record: Arc::new(Mutex::new(None)),
             last_request_time: Arc::new(Mutex::new(None)),
+            cache_ttl: std::env::var("NINMU_CACHE_TTL").ok(),
         }
     }
 
@@ -242,6 +245,12 @@ impl AnthropicClient {
     #[must_use]
     pub fn with_prompt_cache(mut self, prompt_cache: PromptCache) -> Self {
         self.prompt_cache = Some(prompt_cache);
+        self
+    }
+
+    #[must_use]
+    pub fn with_cache_ttl(mut self, ttl: Option<String>) -> Self {
+        self.cache_ttl = ttl;
         self
     }
 
@@ -478,7 +487,7 @@ impl AnthropicClient {
         let request_url = format!("{}/v1/messages", self.base_url.trim_end_matches('/'));
         let mut request_body = self.request_profile.render_json_body(request)?;
         strip_unsupported_beta_body_fields(&mut request_body);
-        inject_prompt_cache_control(&mut request_body);
+        inject_prompt_cache_control_with_options(&mut request_body, self.cache_control_options());
         let request_builder = self.build_request(&request_url).json(&request_body);
         request_builder.send().await.map_err(ApiError::from)
     }
@@ -540,7 +549,7 @@ impl AnthropicClient {
         );
         let mut request_body = self.request_profile.render_json_body(request)?;
         strip_unsupported_beta_body_fields(&mut request_body);
-        inject_prompt_cache_control(&mut request_body);
+        inject_prompt_cache_control_with_options(&mut request_body, self.cache_control_options());
         let response = self
             .build_request(&request_url)
             .json(&request_body)
@@ -581,6 +590,46 @@ impl AnthropicClient {
             .last_request_time
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(Instant::now());
+    }
+
+    /// Send a low-cost warmup request that shares the same system prompt and
+    /// tools as `request_template`. This primes the Anthropic prompt cache so
+    /// the subsequent real request can reuse cached context.
+    pub async fn warm_cache(&self, request_template: &MessageRequest) -> Result<(), ApiError> {
+        let warmup = MessageRequest {
+            model: request_template.model.clone(),
+            max_tokens: 1,
+            messages: vec![InputMessage::user_text("warmup")],
+            system: request_template.system.clone(),
+            tools: request_template.tools.clone(),
+            tool_choice: None,
+            stream: false,
+            temperature: None,
+            top_p: None,
+            frequency_penalty: None,
+            presence_penalty: None,
+            stop: None,
+            reasoning_effort: None,
+            thinking_mode: None,
+        };
+        let response = self.send_raw_request(&warmup).await?;
+        let _ = expect_success(response).await?;
+        self.update_last_request_time();
+        Ok(())
+    }
+
+    /// Return the [`CacheControlOptions`] derived from this client's
+    /// configuration.
+    #[must_use]
+    pub fn cache_control_options(&self) -> CacheControlOptions {
+        let enable_scope = self
+            .request_profile
+            .betas
+            .contains(&"prompt-caching-scope-2026-01-05".to_string());
+        CacheControlOptions {
+            enable_scope,
+            ttl: self.cache_ttl.clone(),
+        }
     }
 
     async fn maybe_send_keepalive(&self, request: &MessageRequest) -> Result<(), ApiError> {
@@ -1043,6 +1092,28 @@ fn strip_unsupported_beta_body_fields(body: &mut Value) {
     }
 }
 
+/// Options that control how prompt-cache metadata is injected into the
+/// Anthropic request body.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CacheControlOptions {
+    /// When `true`, add `"scope": "global"` to system+tools and
+    /// `"scope": "turn"` to messages so that Anthropic can differentiate
+    /// long-lived context (system, tools) from per-turn context (messages).
+    pub enable_scope: bool,
+    /// Optional TTL string (e.g. `"1h"`, `"15m"`) forwarded as
+    /// `"ttl": "..."` inside each `cache_control` block.
+    pub ttl: Option<String>,
+}
+
+impl Default for CacheControlOptions {
+    fn default() -> Self {
+        Self {
+            enable_scope: false,
+            ttl: None,
+        }
+    }
+}
+
 /// Inject `cache_control: {type: "ephemeral"}` into the request body for
 /// Anthropic prompt caching. This mutates the JSON value in-place.
 ///
@@ -1051,9 +1122,18 @@ fn strip_unsupported_beta_body_fields(body: &mut Value) {
 /// - Add `cache_control` to all tool definitions.
 /// - Add `cache_control` to all message content blocks except the last 2 messages.
 pub fn inject_prompt_cache_control(body: &mut Value) {
+    inject_prompt_cache_control_with_options(body, CacheControlOptions::default());
+}
+
+/// Same as [`inject_prompt_cache_control`], but with fine-grained control over
+/// cache scope and TTL.
+pub fn inject_prompt_cache_control_with_options(body: &mut Value, options: CacheControlOptions) {
     let Some(object) = body.as_object_mut() else {
         return;
     };
+
+    let global_cc = make_cache_control_value(&options, true);
+    let turn_cc = make_cache_control_value(&options, false);
 
     // 1. System prompt: convert string to array of blocks with cache_control.
     if let Some(system) = object.get_mut("system") {
@@ -1061,7 +1141,7 @@ pub fn inject_prompt_cache_control(body: &mut Value) {
             *system = json!([{
                 "type": "text",
                 "text": text,
-                "cache_control": {"type": "ephemeral"}
+                "cache_control": global_cc.clone()
             }]);
         }
     }
@@ -1071,7 +1151,7 @@ pub fn inject_prompt_cache_control(body: &mut Value) {
         if let Some(array) = tools.as_array_mut() {
             for tool in array {
                 if let Some(tool_obj) = tool.as_object_mut() {
-                    tool_obj.insert("cache_control".to_string(), json!({"type": "ephemeral"}));
+                    tool_obj.insert("cache_control".to_string(), global_cc.clone());
                 }
             }
         }
@@ -1084,7 +1164,7 @@ pub fn inject_prompt_cache_control(body: &mut Value) {
             for msg in array.iter_mut().take(cacheable_count) {
                 if let Some(msg_obj) = msg.as_object_mut() {
                     if let Some(content) = msg_obj.get_mut("content") {
-                        inject_cache_control_into_content(content);
+                        inject_cache_control_into_content_with_options(content, &turn_cc);
                     }
                 }
             }
@@ -1092,13 +1172,32 @@ pub fn inject_prompt_cache_control(body: &mut Value) {
     }
 }
 
+/// Build a `cache_control` JSON value from [`CacheControlOptions`].
+///
+/// `is_global` controls the `"scope"` field: `"global"` for system/tools,
+/// `"turn"` for messages.
+fn make_cache_control_value(options: &CacheControlOptions, is_global: bool) -> Value {
+    let mut obj = serde_json::Map::new();
+    obj.insert("type".to_string(), json!("ephemeral"));
+    if options.enable_scope {
+        obj.insert(
+            "scope".to_string(),
+            json!(if is_global { "global" } else { "turn" }),
+        );
+    }
+    if let Some(ref ttl) = options.ttl {
+        obj.insert("ttl".to_string(), json!(ttl));
+    }
+    Value::Object(obj)
+}
+
 /// Recursively add `cache_control` to all `text`/`tool_use` content blocks.
-fn inject_cache_control_into_content(content: &mut Value) {
+fn inject_cache_control_into_content_with_options(content: &mut Value, cache_control: &Value) {
     if let Some(text) = content.as_str() {
         *content = json!([{
             "type": "text",
             "text": text,
-            "cache_control": {"type": "ephemeral"}
+            "cache_control": cache_control.clone()
         }]);
         return;
     }
@@ -1107,7 +1206,7 @@ fn inject_cache_control_into_content(content: &mut Value) {
             if let Some(obj) = block.as_object_mut() {
                 let block_type = obj.get("type").and_then(|t| t.as_str());
                 if block_type == Some("text") || block_type == Some("tool_use") {
-                    obj.insert("cache_control".to_string(), json!({"type": "ephemeral"}));
+                    obj.insert("cache_control".to_string(), cache_control.clone());
                 }
             }
         }
