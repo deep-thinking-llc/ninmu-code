@@ -429,11 +429,21 @@ impl LiveCli {
         let text = final_assistant_text(&summary);
         self.replace_runtime(runtime)?;
         self.persist_session()?;
+        let mut prefix = String::new();
+        if let Some(event) = summary.prompt_cache_events.first() {
+            prefix.push_str(&format_cache_break_warning(event));
+            prefix.push('\n');
+        }
         if let Some(event) = summary.auto_compaction {
             let notice = format_auto_compaction_notice(event.removed_message_count);
-            return Ok(format!("{notice}\n{text}"));
+            prefix.push_str(&notice);
+            prefix.push('\n');
         }
-        Ok(text)
+        if prefix.is_empty() {
+            Ok(text)
+        } else {
+            Ok(format!("{prefix}{text}"))
+        }
     }
 
     /// Run a turn in TUI mode. Returns a receiver for streaming events
@@ -523,6 +533,9 @@ impl LiveCli {
                     return Err(Box::new(e) as Box<dyn std::error::Error + Send>);
                 }
             };
+            for event in &summary.prompt_cache_events {
+                bridge2.prompt_cache(event.clone());
+            }
             bridge2.turn_complete();
             Ok(final_assistant_text(&summary))
         });
@@ -538,6 +551,9 @@ impl LiveCli {
         let summary = result?;
         self.replace_runtime(runtime)?;
         self.persist_session()?;
+        if let Some(event) = summary.prompt_cache_events.first() {
+            eprintln!("{}", format_cache_break_warning(event));
+        }
         let final_text = final_assistant_text(&summary);
         println!("{final_text}");
         Ok(())
@@ -3757,6 +3773,19 @@ pub(crate) fn prompt_cache_record_to_runtime_event(
     })
 }
 
+/// Format a user-visible warning for a cache break event.
+pub(crate) fn format_cache_break_warning(event: &PromptCacheEvent) -> String {
+    let label = if event.unexpected {
+        "Warning: prompt cache broke unexpectedly"
+    } else {
+        "Notice: prompt cache invalidated"
+    };
+    format!(
+        "{} — {} ({} fewer cached tokens)",
+        label, event.reason, event.token_drop
+    )
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Turn summary helpers
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3846,11 +3875,53 @@ pub(crate) fn collect_prompt_cache_events(
 
 #[cfg(test)]
 mod tests {
-    use super::AnthropicRuntimeClient;
+    use super::{format_cache_break_warning, AnthropicRuntimeClient};
+    use ninmu_runtime::PromptCacheEvent;
 
     #[test]
     fn anthropic_runtime_client_is_send() {
         fn assert_send<T: Send>() {}
         assert_send::<AnthropicRuntimeClient>();
+    }
+
+    #[test]
+    fn format_cache_break_warning_shows_unexpected() {
+        let event = PromptCacheEvent {
+            unexpected: true,
+            reason: "cache read tokens dropped while prompt fingerprint remained stable"
+                .to_string(),
+            previous_cache_read_input_tokens: 6_000,
+            current_cache_read_input_tokens: 1_000,
+            token_drop: 5_000,
+        };
+        let warning = format_cache_break_warning(&event);
+        assert!(
+            warning.starts_with("Warning:"),
+            "unexpected break should start with Warning: {warning}"
+        );
+        assert!(
+            warning.contains("5000 fewer cached tokens"),
+            "should mention token drop: {warning}"
+        );
+    }
+
+    #[test]
+    fn format_cache_break_warning_shows_expected() {
+        let event = PromptCacheEvent {
+            unexpected: false,
+            reason: "model changed".to_string(),
+            previous_cache_read_input_tokens: 6_000,
+            current_cache_read_input_tokens: 3_000,
+            token_drop: 3_000,
+        };
+        let warning = format_cache_break_warning(&event);
+        assert!(
+            warning.starts_with("Notice:"),
+            "expected break should start with Notice: {warning}"
+        );
+        assert!(
+            warning.contains("model changed"),
+            "should include reason: {warning}"
+        );
     }
 }

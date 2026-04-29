@@ -586,6 +586,36 @@ mod tests {
     }
 
     #[test]
+    fn model_change_marks_break_as_expected() {
+        let previous_request = sample_request("same");
+        let mut current_request = previous_request.clone();
+        current_request.model = "different-model".to_string();
+        let previous = TrackedPromptState::from_usage(
+            &previous_request,
+            &Usage {
+                input_tokens: 0,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 6_000,
+                output_tokens: 0,
+            },
+        );
+        let current = TrackedPromptState::from_usage(
+            &current_request,
+            &Usage {
+                input_tokens: 0,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 1_000,
+                output_tokens: 0,
+            },
+        );
+        let event = detect_cache_break(&PromptCacheConfig::default(), Some(&previous), &current)
+            .expect("break should be detected");
+        assert!(!event.unexpected);
+        assert!(event.reason.contains("model changed"));
+        assert_eq!(event.token_drop, 5_000);
+    }
+
+    #[test]
     fn completion_cache_round_trip_persists_recent_response() {
         let _guard = test_env_lock();
         let temp_root = std::env::temp_dir().join(format!(

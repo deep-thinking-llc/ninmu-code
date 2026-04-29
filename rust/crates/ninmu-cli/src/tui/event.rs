@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use ninmu_runtime::{
     ContentBlock, ConversationMessage, MessageRole, PermissionPromptDecision, PermissionRequest,
-    TokenUsage,
+    PromptCacheEvent, TokenUsage,
 };
 
 /// Events that can be emitted during a TUI turn and consumed by the
@@ -71,6 +71,9 @@ pub enum TuiEvent {
 
     /// Model was changed (used by /model).
     ModelUpdate { model: String },
+
+    /// Prompt-cache break event — surfaced when cache tokens drop unexpectedly.
+    PromptCache(PromptCacheEvent),
 }
 
 /// Bridge that lets the streaming / tool layer push events to the TUI.
@@ -180,6 +183,11 @@ impl TuiEventBridge {
     /// Push a model-update event.  The TUI will update its header.
     pub fn model_update(&self, model: String) {
         self.push(TuiEvent::ModelUpdate { model });
+    }
+
+    /// Push a prompt-cache break event.
+    pub fn prompt_cache(&self, event: PromptCacheEvent) {
+        self.push(TuiEvent::PromptCache(event));
     }
 }
 
