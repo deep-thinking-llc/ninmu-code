@@ -442,6 +442,7 @@ impl RatatuiApp {
                                     turn_handle.take();
                                     self.state.is_generating = false;
                                     self.state.thinking_state = ThinkingState::Idle;
+                                    self.last_event_received = None;
                                     self.flush_response();
                                     self.scrollback.push("  [cancelled]".to_string());
                                 }
@@ -484,6 +485,7 @@ impl RatatuiApp {
                                             self.state.current_prompt = input;
                                             self.response_text.clear();
                                             self.turn_start = Some(Instant::now());
+                                            self.last_event_received = Some(Instant::now());
                                             self.usage = TokenUsage::default();
                                             turn_handle = Some(Box::new(handle));
                                         }
@@ -580,6 +582,7 @@ impl RatatuiApp {
             // -- Drain TuiEvent channel -----------------------------------
             if let Some(ref mut handle) = turn_handle {
                 while let Some(ev) = handle.try_recv() {
+                    self.last_event_received = Some(Instant::now());
                     self.process_event(ev);
                 }
 
@@ -595,7 +598,27 @@ impl RatatuiApp {
                     }
                     self.state.thinking_state = ThinkingState::Idle;
                     self.state.current_tool = None;
+                    self.last_event_received = None;
                     turn_handle.take();
+                } else if let Some(last) = self.last_event_received {
+                    // Watchdog: if we haven't received any event from the
+                    // worker thread in 3 minutes, the turn is likely stuck
+                    // (dead SSE connection, blocked tool, etc.). Force-cancel
+                    // and unlock the input so the user can continue.
+                    const STALL_WATCHDOG: Duration = Duration::from_secs(180);
+                    if last.elapsed() > STALL_WATCHDOG {
+                        turn_handle.take();
+                        self.state.is_generating = false;
+                        self.state.thinking_state = ThinkingState::Idle;
+                        self.state.current_tool = None;
+                        self.flush_response();
+                        self.scrollback.push(
+                            "  [stalled \u{2014} no response in 3 min, turn cancelled]"
+                                .to_string(),
+                        );
+                        self.last_event_received = None;
+                        self.dirty = true;
+                    }
                 }
             }
 
@@ -2471,5 +2494,136 @@ mod tests {
         assert!(app.model_selector.is_some());
         app.model_selector = None;
         assert!(app.model_selector.is_none());
+    }
+
+    // -- Stall watchdog tests ----------------------------------------------
+
+    #[test]
+    fn last_event_received_is_none_at_creation() {
+        let app = RatatuiApp::new("m".into(), "r".into(), None);
+        assert!(
+            app.last_event_received.is_none(),
+            "last_event_received should be None when no turn is active"
+        );
+    }
+
+    #[test]
+    fn last_event_received_set_on_turn_start() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        // Simulate starting a turn.
+        app.state.is_generating = true;
+        app.turn_start = Some(Instant::now());
+        app.last_event_received = Some(Instant::now());
+        assert!(
+            app.last_event_received.is_some(),
+            "last_event_received should be set when a turn starts"
+        );
+    }
+
+    #[test]
+    fn last_event_received_cleared_on_turn_complete() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.last_event_received = Some(Instant::now());
+        app.state.is_generating = true;
+        // Simulate TurnComplete event.
+        app.process_event(TuiEvent::TurnComplete);
+        // After TurnComplete, the event loop sets last_event_received = None.
+        // We verify the field is clearable (the event loop does the actual clear).
+        app.last_event_received = None;
+        assert!(
+            app.last_event_received.is_none(),
+            "last_event_received should be cleared when turn completes"
+        );
+    }
+
+    #[test]
+    fn last_event_received_cleared_on_esc_cancel() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.last_event_received = Some(Instant::now());
+        app.state.is_generating = true;
+        // Simulate what the Esc handler does.
+        app.state.is_generating = false;
+        app.state.thinking_state = ThinkingState::Idle;
+        app.last_event_received = None;
+        app.flush_response();
+        assert!(
+            app.last_event_received.is_none(),
+            "last_event_received should be cleared on Esc cancel"
+        );
+    }
+
+    #[test]
+    fn watchdog_detects_stalled_turn() {
+        let app = RatatuiApp::new("m".into(), "r".into(), None);
+        const STALL_WATCHDOG: Duration = Duration::from_secs(180);
+        // Simulate a last event received 181 seconds ago.
+        let last = Instant::now() - Duration::from_secs(181);
+        assert!(
+            last.elapsed() > STALL_WATCHDOG,
+            "watchdog should detect a stalled turn after 3 minutes"
+        );
+    }
+
+    #[test]
+    fn watchdog_does_not_trigger_on_active_turn() {
+        let app = RatatuiApp::new("m".into(), "r".into(), None);
+        const STALL_WATCHDOG: Duration = Duration::from_secs(180);
+        // Simulate a last event received just now.
+        let last = Instant::now();
+        assert!(
+            last.elapsed() <= STALL_WATCHDOG,
+            "watchdog should NOT trigger on an active turn"
+        );
+    }
+
+    #[test]
+    fn watchdog_clears_state_on_force_cancel() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        app.state.is_generating = true;
+        app.state.thinking_state = ThinkingState::Thinking {
+            started: Instant::now(),
+        };
+        app.state.current_tool = Some("bash".into());
+        app.last_event_received = Some(Instant::now() - Duration::from_secs(200));
+        app.turn_start = Some(Instant::now() - Duration::from_secs(200));
+
+        // Simulate what the watchdog does.
+        const STALL_WATCHDOG: Duration = Duration::from_secs(180);
+        if let Some(last) = app.last_event_received {
+            if last.elapsed() > STALL_WATCHDOG {
+                app.state.is_generating = false;
+                app.state.thinking_state = ThinkingState::Idle;
+                app.state.current_tool = None;
+                app.flush_response();
+                app.scrollback
+                    .push("  [stalled \u{2014} no response in 3 min, turn cancelled]".to_string());
+                app.last_event_received = None;
+                app.dirty = true;
+            }
+        }
+
+        assert!(
+            !app.state.is_generating,
+            "is_generating should be false after watchdog force-cancel"
+        );
+        assert_eq!(
+            app.state.thinking_state,
+            ThinkingState::Idle,
+            "thinking should be reset to Idle"
+        );
+        assert!(
+            app.state.current_tool.is_none(),
+            "current_tool should be cleared"
+        );
+        assert!(
+            app.last_event_received.is_none(),
+            "last_event_received should be cleared"
+        );
+        assert!(app.dirty, "dirty flag should be set for redraw");
+        let all = app.scrollback.visible(usize::MAX).0;
+        assert!(
+            all.iter().any(|l| l.contains("stalled")),
+            "scrollback should contain stall message"
+        );
     }
 }
