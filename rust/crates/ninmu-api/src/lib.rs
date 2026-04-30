@@ -36,8 +36,9 @@ pub use providers::openai_compat::{
 };
 pub use providers::{
     detect_provider_kind, has_auth_for_provider, list_available_models, max_tokens_for_model,
-    max_tokens_for_model_with_override, metadata_for_model, model_token_limit, prefix_model_for_provider,
-    provider_kind_from_str, resolve_model_alias, ModelEntry, ModelTokenLimit, ProviderKind, ProviderMetadata,
+    max_tokens_for_model_with_override, metadata_for_model, model_token_limit,
+    prefix_model_for_provider, provider_kind_from_str, resolve_model_alias, ModelEntry,
+    ModelTokenLimit, ProviderKind, ProviderMetadata,
 };
 pub use sse::{parse_frame, SseParser};
 pub use types::{

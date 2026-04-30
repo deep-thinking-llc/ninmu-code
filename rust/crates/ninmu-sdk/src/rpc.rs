@@ -713,7 +713,9 @@ mod tests {
         );
 
         let mut session = Session::new();
-        session.push_user_text("hello from persisted session").unwrap();
+        session
+            .push_user_text("hello from persisted session")
+            .unwrap();
         session.save_to_path(&session_path).unwrap();
 
         let input = format!(

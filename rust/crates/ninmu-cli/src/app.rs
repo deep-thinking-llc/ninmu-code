@@ -3105,6 +3105,9 @@ fn run_tui_repl(cli: &mut LiveCli) -> Result<(), Box<dyn std::error::Error>> {
         if trimmed.is_empty() {
             return Err("empty input".into());
         }
+        if std::env::var_os("NINMU_TEST_SCRIPTED_TUI_TURN").is_some() {
+            return Ok(scripted_tui_turn());
+        }
         if matches!(trimmed.as_str(), "/exit" | "/quit") {
             cli.persist_session()?;
             // Signal that we should exit by returning an error that the
@@ -3189,6 +3192,71 @@ fn run_tui_repl(cli: &mut LiveCli) -> Result<(), Box<dyn std::error::Error>> {
 
     cli.persist_session()?;
     Ok(())
+}
+
+fn scripted_tui_turn() -> (
+    std::sync::mpsc::Receiver<crate::tui::TuiEvent>,
+    std::thread::JoinHandle<Result<String, Box<dyn std::error::Error + Send>>>,
+) {
+    let (bridge, rx) = crate::tui::TuiEventBridge::new();
+    let scenario = std::env::var("NINMU_TEST_SCRIPTED_TUI_TURN").unwrap_or_default();
+    let handle = std::thread::spawn(move || {
+        if scenario == "permission" {
+            let request = ninmu_runtime::PermissionRequest {
+                tool_name: "bash".to_string(),
+                input: r#"{"cmd":"cargo test"}"#.to_string(),
+                current_mode: PermissionMode::ReadOnly,
+                required_mode: PermissionMode::WorkspaceWrite,
+                reason: Some("scripted permission e2e".to_string()),
+            };
+            let decision_rx = bridge.permission_prompt(request);
+            let decision = decision_rx.recv().map_err(|error| {
+                Box::new(std::io::Error::other(error.to_string()))
+                    as Box<dyn std::error::Error + Send>
+            })?;
+            match decision {
+                ninmu_runtime::PermissionPromptDecision::Allow => {
+                    bridge.text("Scripted permission allowed.\n");
+                }
+                ninmu_runtime::PermissionPromptDecision::Deny { reason } => {
+                    bridge.text(format!("Scripted permission denied: {reason}\n"));
+                }
+            }
+            bridge.turn_complete();
+            return Ok("Scripted permission complete.".to_string())
+                as Result<String, Box<dyn std::error::Error + Send>>;
+        }
+        if scenario == "tool-error" {
+            bridge.text("Scripted failing turn online.\n");
+            bridge.tool_use("bash", r#"{"cmd":"exit 2"}"#);
+            bridge.tool_progress("bash", Duration::from_millis(25));
+            std::thread::sleep(Duration::from_millis(60));
+            bridge.tool_result(
+                "bash",
+                "\x1b[31mboom\x1b[0m\nstderr line\nstack hint\nretry impossible\nexit code 2",
+                true,
+            );
+            bridge.text("Scripted failure handled.\n");
+            bridge.turn_complete();
+            return Ok("Scripted failure handled.".to_string())
+                as Result<String, Box<dyn std::error::Error + Send>>;
+        }
+
+        bridge.text("Scripted turn online.\n");
+        bridge.tool_use("read_file", r#"{"path":"fixture.txt"}"#);
+        bridge.tool_progress("read_file", Duration::from_millis(25));
+        std::thread::sleep(Duration::from_millis(60));
+        bridge.tool_result(
+            "read_file",
+            "alpha line\nbeta line\ngamma line\ndelta line\nepsilon line",
+            false,
+        );
+        bridge.text("Scripted final response.\n");
+        bridge.turn_complete();
+        Ok("Scripted final response.".to_string())
+            as Result<String, Box<dyn std::error::Error + Send>>
+    });
+    (rx, handle)
 }
 
 /// Standard rustyline-based REPL (the non-TUI path).

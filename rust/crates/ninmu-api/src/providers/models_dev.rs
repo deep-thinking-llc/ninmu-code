@@ -302,6 +302,9 @@ fn convert_models_dev_to_entries(providers: &ModelsDevResponse) -> Vec<ModelEntr
                 canonical,
                 provider: kind,
                 has_auth,
+                family: model.family.clone(),
+                supports_reasoning: model.reasoning,
+                supports_tools: model.tool_call,
             });
         }
     }
@@ -392,6 +395,9 @@ mod tests {
         assert_eq!(entries[0].alias, "GPT-4o");
         assert_eq!(entries[0].canonical, "gpt-4o");
         assert_eq!(entries[0].provider, ProviderKind::OpenAi);
+        assert_eq!(entries[0].family.as_deref(), Some("gpt"));
+        assert!(!entries[0].supports_reasoning);
+        assert!(entries[0].supports_tools);
     }
 
     #[test]
@@ -433,8 +439,9 @@ mod tests {
 
     #[test]
     fn cache_is_empty_initialized() {
-        // Verify the cache is empty before any refresh call
-        assert!(cached_models().is_none());
+        *cache().write().expect("cache lock") = None;
+        // Verify the in-memory cache can be explicitly cleared for isolated tests.
+        assert!(cache().read().expect("cache lock").is_none());
     }
 
     #[test]

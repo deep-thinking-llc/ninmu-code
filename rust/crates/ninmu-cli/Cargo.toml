@@ -40,6 +40,6 @@ workspace = true
 
 [dev-dependencies]
 ninmu-mock-anthropic-service = { path = "../ninmu-mock-anthropic-service" }
+portable-pty = "0.8"
 serde_json.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread"] }
-

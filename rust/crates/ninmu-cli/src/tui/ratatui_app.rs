@@ -1,12 +1,12 @@
-//! Full-screen ratatui TUI -- "Japanese Industrial Precision" aesthetic.
+//! Full-screen ratatui TUI -- modern cyberpunk operations console.
 //!
 //! Entered via the `--tui` flag. Provides a scrollable conversation history
 //! pane, a fixed input area, and a live status bar. Streaming events from
 //! the model are consumed via [`TuiEvent`] channel so the UI updates
 //! incrementally without blocking.
 //!
-//! DESIGN.md colour palette is applied throughout: flat surfaces, no emoji,
-//! em-dash section markers, monospace labels, 4px max border radius.
+//! The semantic theme palette is applied throughout: dense status rails,
+//! neon focus states, flat surfaces, and keyboard-first controls.
 
 use std::io;
 use std::time::{Duration, Instant};
@@ -28,6 +28,7 @@ use ratatui::Terminal;
 use crate::tui::event::{ThinkingState, TuiEvent, TuiSharedState};
 use crate::tui::permission::describe_tool_action;
 use crate::tui::scrollback::Scrollback;
+use crate::tui::theme::Theme;
 use ninmu_api::{model_token_limit, ModelTokenLimit};
 use ninmu_runtime::PromptCacheEvent;
 use ninmu_runtime::{
@@ -35,23 +36,28 @@ use ninmu_runtime::{
     TokenUsage,
 };
 
-// -- DESIGN.md colour palette ------------------------------------------------
-const BG: Color = Color::Rgb(10, 10, 10);
-const SURFACE: Color = Color::Rgb(22, 22, 22);
-const BORDER: Color = Color::Rgb(15, 15, 15);
-const BORDER_BRIGHT: Color = Color::Rgb(31, 31, 31);
-const TEXT: Color = Color::Rgb(232, 232, 232);
-const TEXT_SEC: Color = Color::Rgb(136, 136, 136);
-const MUTED: Color = Color::Rgb(85, 85, 85);
-const ACCENT: Color = Color::Rgb(255, 107, 53);
-const ERROR_COLOR: Color = Color::Rgb(203, 80, 80);
-const SUCCESS: Color = Color::Rgb(70, 180, 70);
-const THINKING_COLOR: Color = Color::Rgb(136, 100, 220);
-const USER_COLOR: Color = Color::Rgb(80, 200, 120);
-const USER_COLOR_DIM: Color = Color::Rgb(40, 100, 60);
-const LLM_COLOR: Color = Color::Rgb(200, 200, 230);
-const CODE_BG: Color = Color::Rgb(28, 28, 36);
-const CODE_FG: Color = Color::Rgb(180, 210, 240);
+// -- Semantic ratatui palette -----------------------------------------------
+const BG: Color = Theme::BG;
+const SURFACE: Color = Theme::SURFACE;
+const BORDER: Color = Theme::BORDER;
+const BORDER_BRIGHT: Color = Theme::BORDER_BRIGHT_COLOR;
+const TEXT: Color = Theme::TEXT_COLOR;
+const TEXT_SEC: Color = Theme::TEXT_SECONDARY_COLOR;
+const MUTED: Color = Theme::MUTED_COLOR;
+const ACCENT: Color = Theme::ACCENT_COLOR;
+const FOCUS: Color = Theme::FOCUS;
+const FOCUS_TEXT: Color = Theme::FOCUS_TEXT;
+const FOCUS_MUTED: Color = Theme::FOCUS_MUTED;
+const WARNING_COLOR: Color = Theme::WARNING_COLOR;
+const WARNING_BG: Color = Theme::WARNING_BG;
+const ERROR_COLOR: Color = Theme::ERROR_COLOR;
+const SUCCESS: Color = Theme::SUCCESS_COLOR;
+const THINKING_COLOR: Color = Theme::THINKING_COLOR;
+const USER_COLOR: Color = Theme::USER_COLOR;
+const USER_COLOR_DIM: Color = Theme::USER_COLOR_DIM;
+const LLM_COLOR: Color = Theme::ASSISTANT_COLOR;
+const CODE_BG: Color = Theme::CODE_BG;
+const CODE_FG: Color = Theme::CODE_FG;
 
 // -- Spinner frames -----------------------------------------------------------
 const SPINNER: &[&str] = &[
@@ -118,6 +124,10 @@ pub struct RatatuiApp {
     last_event_received: Option<Instant>,
     /// Interactive model selector dialog (when open).
     model_selector: Option<ModelSelector>,
+    /// Interactive reasoning/thinking selector dialog (when open).
+    reasoning_selector: Option<ReasoningSelector>,
+    /// Lightweight command palette dialog (when open).
+    command_palette: Option<CommandPalette>,
     /// Selected model callback — set by the TUI to communicate model changes.
     selected_model: Option<String>,
     /// Tracked paste spans within `input_buf`. Each entry records the
@@ -169,10 +179,60 @@ struct ModelSelector {
     scroll_offset: usize,
     /// Maximum visible rows in the dropdown.
     max_visible: usize,
+    /// Optional provider filter selected by Tab.
+    provider_filter: Option<ninmu_api::ProviderKind>,
+    /// Providers present in the current model list, in display order.
+    providers: Vec<ninmu_api::ProviderKind>,
+}
+
+/// Interactive reasoning/thinking selector state.
+struct ReasoningSelector {
+    effort_options: Vec<Option<&'static str>>,
+    thinking_options: Vec<Option<bool>>,
+    effort_index: usize,
+    thinking_index: usize,
+    row: ReasoningSelectorRow,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReasoningSelectorRow {
+    Effort,
+    Thinking,
+}
+
+/// Lightweight command palette state. Entries are intentionally built lazily
+/// when the palette opens so normal TUI startup and pure CLI paths do not pay.
+struct CommandPalette {
+    entries: Vec<CommandPaletteEntry>,
+    filtered: Vec<usize>,
+    filter: Vec<char>,
+    filter_cursor: usize,
+    selected: usize,
+}
+
+#[derive(Clone)]
+struct CommandPaletteEntry {
+    label: &'static str,
+    detail: &'static str,
+    action: CommandPaletteAction,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CommandPaletteAction {
+    Reasoning,
+    ModelSelector,
+    Help,
+    SubmitSlash(&'static str),
+    InsertSlash(&'static str),
+    ClearTranscript,
 }
 
 impl RatatuiApp {
     pub fn new(model: String, permission_mode: String, git_branch: Option<String>) -> Self {
+        assert!(
+            std::env::var_os("NINMU_TEST_PANIC_ON_TUI_INIT").is_none(),
+            "RatatuiApp initialized while NINMU_TEST_PANIC_ON_TUI_INIT is set"
+        );
         let model_pricing = ninmu_runtime::pricing_for_model(&model);
         let mut app = Self {
             scrollback: Scrollback::default(),
@@ -203,6 +263,8 @@ impl RatatuiApp {
             thinking_mode: None,
             last_event_received: None,
             model_selector: None,
+            reasoning_selector: None,
+            command_palette: None,
             selected_model: None,
             paste_spans: Vec::new(),
             paste_animating: false,
@@ -254,8 +316,10 @@ impl RatatuiApp {
         // Collapse providers without auth: keep only one entry per provider
         // (the first model encountered) so the list isn't cluttered with
         // models the user can't actually use.
-        let entries = Self::collapse_no_auth_providers(entries);
+        let entries =
+            Self::pin_current_model(Self::collapse_no_auth_providers(entries), &self.model);
 
+        let providers = ModelSelector::providers_for_entries(&entries);
         let filtered: Vec<usize> = (0..entries.len()).collect();
         self.model_selector = Some(ModelSelector {
             all_entries: entries,
@@ -265,6 +329,8 @@ impl RatatuiApp {
             selected: 0,
             scroll_offset: 0,
             max_visible: 12,
+            provider_filter: None,
+            providers,
         });
         self.dirty = true;
     }
@@ -293,9 +359,60 @@ impl RatatuiApp {
         result
     }
 
+    fn pin_current_model(
+        mut entries: Vec<ninmu_api::ModelEntry>,
+        current_model: &str,
+    ) -> Vec<ninmu_api::ModelEntry> {
+        if let Some(pos) = entries
+            .iter()
+            .position(|entry| entry.canonical == current_model || entry.alias == current_model)
+        {
+            let entry = entries.remove(pos);
+            entries.insert(0, entry);
+        }
+        entries
+    }
+
     /// Take the selected model (if any) — returns `Some(model_name)` once.
     pub fn pop_selected_model(&mut self) -> Option<String> {
         self.selected_model.take()
+    }
+
+    pub fn open_reasoning_selector(&mut self) {
+        self.reasoning_selector = Some(ReasoningSelector::new(
+            self.reasoning_effort.as_deref(),
+            self.thinking_mode,
+        ));
+        self.command_palette = None;
+        self.dirty = true;
+    }
+
+    fn open_command_palette(&mut self) {
+        self.command_palette = Some(CommandPalette::new());
+        self.dirty = true;
+    }
+
+    #[cfg(test)]
+    fn render_to_text(&mut self, width: u16, height: u16) -> String {
+        let buffer = self.render_to_buffer(width, height);
+        let mut output = String::new();
+        for y in 0..height {
+            for x in 0..width {
+                output.push_str(buffer[(x, y)].symbol());
+            }
+            output.push('\n');
+        }
+        output
+    }
+
+    #[cfg(test)]
+    fn render_to_buffer(&mut self, width: u16, height: u16) -> ratatui::buffer::Buffer {
+        let backend = ratatui::backend::TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("test backend should initialize");
+        terminal
+            .draw(|frame| self.draw(frame))
+            .expect("test frame should render");
+        terminal.backend().buffer().clone()
     }
 
     /// Run the ratatui event loop. Blocks until the user exits.
@@ -419,6 +536,18 @@ impl RatatuiApp {
                                         }
                                     }
                                 }
+                                KeyCode::Tab => {
+                                    self.model_selector
+                                        .as_mut()
+                                        .unwrap()
+                                        .cycle_provider_filter();
+                                }
+                                KeyCode::BackTab => {
+                                    self.model_selector
+                                        .as_mut()
+                                        .unwrap()
+                                        .clear_provider_filter();
+                                }
                                 KeyCode::Enter => {
                                     if let Some(sel) = self.model_selector.take() {
                                         if let Some(entry) = sel.selected_entry() {
@@ -444,6 +573,151 @@ impl RatatuiApp {
                                 }
                                 KeyCode::Esc => {
                                     self.model_selector = None;
+                                }
+                                _ => {}
+                            }
+                            self.dirty = true;
+                            continue;
+                        }
+
+                        // Reasoning selector mode — intercept all keypresses.
+                        if self.reasoning_selector.is_some() {
+                            match key.code {
+                                KeyCode::Up | KeyCode::Down => {
+                                    let sel = self.reasoning_selector.as_mut().unwrap();
+                                    sel.toggle_row();
+                                }
+                                KeyCode::Left => {
+                                    self.reasoning_selector.as_mut().unwrap().move_left();
+                                }
+                                KeyCode::Right => {
+                                    self.reasoning_selector.as_mut().unwrap().move_right();
+                                }
+                                KeyCode::Char('1'..='5') if key.modifiers.is_empty() => {
+                                    let digit = match key.code {
+                                        KeyCode::Char(c) => c,
+                                        _ => unreachable!(),
+                                    };
+                                    self.reasoning_selector
+                                        .as_mut()
+                                        .unwrap()
+                                        .select_effort_digit(digit);
+                                }
+                                KeyCode::Char('a') if key.modifiers.is_empty() => {
+                                    self.reasoning_selector.as_mut().unwrap().thinking_index = 0;
+                                }
+                                KeyCode::Char('o') if key.modifiers.is_empty() => {
+                                    self.reasoning_selector.as_mut().unwrap().thinking_index = 1;
+                                }
+                                KeyCode::Char('f') if key.modifiers.is_empty() => {
+                                    self.reasoning_selector.as_mut().unwrap().thinking_index = 2;
+                                }
+                                KeyCode::Enter => {
+                                    if let Some(sel) = self.reasoning_selector.take() {
+                                        let cmd = sel.command_for_current_row();
+                                        match sel.row {
+                                            ReasoningSelectorRow::Effort => {
+                                                self.reasoning_effort =
+                                                    sel.selected_effort_string();
+                                            }
+                                            ReasoningSelectorRow::Thinking => {
+                                                self.thinking_mode = sel.selected_thinking();
+                                            }
+                                        }
+                                        self.rebuild_header();
+                                        self.scrollback.push(format!("  {cmd}"));
+                                        match start_turn(&cmd) {
+                                            Ok(handle) => {
+                                                self.state.is_generating = true;
+                                                self.state.current_prompt = cmd;
+                                                self.response_text.clear();
+                                                self.turn_start = Some(Instant::now());
+                                                self.usage = TokenUsage::default();
+                                                turn_handle = Some(Box::new(handle));
+                                            }
+                                            Err(e) => {
+                                                self.scrollback.push(format!("  error: {e}"));
+                                            }
+                                        }
+                                    }
+                                }
+                                KeyCode::Esc => {
+                                    self.reasoning_selector = None;
+                                }
+                                _ => {}
+                            }
+                            self.dirty = true;
+                            continue;
+                        }
+
+                        // Command palette mode — intercept all keypresses.
+                        if self.command_palette.is_some() {
+                            match key.code {
+                                KeyCode::Char(c)
+                                    if key.modifiers.is_empty()
+                                        || key.modifiers == KeyModifiers::SHIFT =>
+                                {
+                                    let palette = self.command_palette.as_mut().unwrap();
+                                    palette.filter.insert(palette.filter_cursor, c);
+                                    palette.filter_cursor += 1;
+                                    palette.apply_filter();
+                                }
+                                KeyCode::Backspace => {
+                                    let palette = self.command_palette.as_mut().unwrap();
+                                    if palette.filter_cursor > 0 {
+                                        palette.filter_cursor -= 1;
+                                        palette.filter.remove(palette.filter_cursor);
+                                        palette.apply_filter();
+                                    }
+                                }
+                                KeyCode::Up => self.command_palette.as_mut().unwrap().move_up(),
+                                KeyCode::Down => self.command_palette.as_mut().unwrap().move_down(),
+                                KeyCode::Enter => {
+                                    let action = self
+                                        .command_palette
+                                        .as_ref()
+                                        .and_then(CommandPalette::selected_action);
+                                    self.command_palette = None;
+                                    match action {
+                                        Some(CommandPaletteAction::Reasoning) => {
+                                            self.open_reasoning_selector();
+                                        }
+                                        Some(CommandPaletteAction::ModelSelector) => {
+                                            self.open_model_selector();
+                                        }
+                                        Some(CommandPaletteAction::Help) => {
+                                            self.help_visible = true;
+                                        }
+                                        Some(CommandPaletteAction::SubmitSlash(command)) => {
+                                            self.scrollback.push(format!("  {command}"));
+                                            match start_turn(command) {
+                                                Ok(handle) => {
+                                                    self.state.is_generating = true;
+                                                    self.state.current_prompt = command.to_string();
+                                                    self.response_text.clear();
+                                                    self.turn_start = Some(Instant::now());
+                                                    self.last_event_received = Some(Instant::now());
+                                                    self.usage = TokenUsage::default();
+                                                    turn_handle = Some(Box::new(handle));
+                                                }
+                                                Err(e) => {
+                                                    self.scrollback.push(format!("  error: {e}"));
+                                                }
+                                            }
+                                        }
+                                        Some(CommandPaletteAction::InsertSlash(command)) => {
+                                            self.set_input_text(command);
+                                        }
+                                        Some(CommandPaletteAction::ClearTranscript) => {
+                                            self.scrollback.clear();
+                                            self.scrollback
+                                                .push("  transcript cleared".to_string());
+                                        }
+                                        None => {}
+                                    }
+                                }
+                                KeyCode::Esc => {
+                                    self.command_palette = None;
                                 }
                                 _ => {}
                             }
@@ -570,6 +844,9 @@ impl RatatuiApp {
                                     }
                                 }
                             }
+                            KeyCode::Char('?') if key.modifiers.is_empty() => {
+                                self.help_visible = !self.help_visible;
+                            }
                             KeyCode::Char(c)
                                 if key.modifiers.is_empty()
                                     || key.modifiers == KeyModifiers::SHIFT =>
@@ -641,13 +918,21 @@ impl RatatuiApp {
                             KeyCode::PageDown => {
                                 self.scrollback.scroll_down(20);
                             }
-                            KeyCode::Tab => {
+                            KeyCode::Tab if !self.complete_slash_input() => {
                                 let (_, start, _) = self.scrollback.visible(self.last_conv_height);
-                                self.scrollback.toggle_expand_at(start);
+                                if !self.scrollback.toggle_expand_at(start) {
+                                    self.scrollback.toggle_latest_collapsible();
+                                }
                             }
                             KeyCode::F(1) => self.help_visible = !self.help_visible,
-                            KeyCode::Char('?') if key.modifiers.is_empty() => {
-                                self.help_visible = !self.help_visible;
+                            KeyCode::Char('r') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                self.open_reasoning_selector();
+                            }
+                            KeyCode::Char('k') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                self.open_command_palette();
+                            }
+                            KeyCode::Char('o') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                                self.open_model_selector();
                             }
                             _ => {}
                         }
@@ -741,6 +1026,62 @@ impl RatatuiApp {
 
     fn refresh_input_cache(&mut self) {
         self.cached_input = self.input_buf.iter().collect();
+    }
+
+    fn set_input_text(&mut self, text: &str) {
+        self.input_buf = text.chars().collect();
+        self.cursor = self.input_buf.len();
+        self.clear_paste_state();
+        self.refresh_input_cache();
+    }
+
+    fn input_panel_height(&self, width: u16) -> u16 {
+        let content_width = width.saturating_sub(4).max(20) as usize;
+        let text = self.cached_input.clone();
+        let rows = text
+            .split('\n')
+            .map(|line| (line.chars().count() / content_width).saturating_add(1))
+            .sum::<usize>()
+            .clamp(1, 6);
+        rows as u16 + 2
+    }
+
+    fn complete_slash_input(&mut self) -> bool {
+        let current = self.cached_input.clone();
+        if !current.starts_with('/') || self.cursor != self.input_buf.len() {
+            return false;
+        }
+
+        let candidates = crate::format::slash_command_completion_candidates_with_sessions(
+            &self.model,
+            None,
+            Vec::new(),
+        );
+        let matches = candidates
+            .into_iter()
+            .filter(|candidate| candidate.starts_with(&current) && candidate != &current)
+            .collect::<Vec<_>>();
+
+        match matches.as_slice() {
+            [only] => {
+                self.set_input_text(only);
+                true
+            }
+            [] => false,
+            many => {
+                if let Some(common) = common_prefix(many) {
+                    if common.len() > current.len() {
+                        self.set_input_text(&common);
+                        return true;
+                    }
+                }
+                self.scrollback.push("  completions:".to_string());
+                for candidate in many.iter().take(8) {
+                    self.scrollback.push(format!("    {candidate}"));
+                }
+                true
+            }
+        }
     }
 
     fn refresh_status_cache(&mut self) {
@@ -864,9 +1205,8 @@ impl RatatuiApp {
                 let total_beyond = len.saturating_sub(Self::PASTE_PREVIEW_LEN);
                 let tick_rate = Duration::from_millis(120);
                 let elapsed_ticks = self.paste_anim_frame;
-                let max_ticks = (Self::PASTE_ANIM_DURATION.as_millis()
-                    / tick_rate.as_millis())
-                .max(1) as usize;
+                let max_ticks =
+                    (Self::PASTE_ANIM_DURATION.as_millis() / tick_rate.as_millis()).max(1) as usize;
                 let eaten = if max_ticks > 0 && total_beyond > 0 {
                     (total_beyond * elapsed_ticks / max_ticks).min(total_beyond)
                 } else {
@@ -957,8 +1297,18 @@ impl RatatuiApp {
                 self.state.current_tool = None;
                 let icon = if is_error { "fail" } else { "ok" };
                 let lines = output.lines().count();
-                self.scrollback
-                    .push(format!("  {icon} {name} ({lines} lines)"));
+                let mut full_lines = vec![format!("  {icon} {name} ({lines} lines)")];
+                for line in output.lines().take(200) {
+                    full_lines.push(format!("    {line}"));
+                }
+                if lines > 200 {
+                    full_lines.push(format!(
+                        "    … output truncated for TUI display ({} more lines)",
+                        lines - 200
+                    ));
+                }
+                let visible = if output.is_empty() { 1 } else { 3 };
+                self.scrollback.push_collapsible(&full_lines, visible);
             }
             TuiEvent::Usage(u) => {
                 self.usage = u;
@@ -1002,8 +1352,8 @@ impl RatatuiApp {
                     action_description,
                 });
             }
-            TuiEvent::ToolProgress { .. } => {
-                // Not yet wired up.
+            TuiEvent::ToolProgress { name, elapsed } => {
+                self.state.current_tool = Some(format!("{} {}s", name, elapsed.as_secs()));
             }
             TuiEvent::LoadHistory { messages } => {
                 self.scrollback.clear();
@@ -1114,18 +1464,28 @@ impl RatatuiApp {
         let layout = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(1), // header
-                Constraint::Min(5),    // conversation
-                Constraint::Length(3), // input box
-                Constraint::Length(1), // metadata bar
-                Constraint::Length(1), // status bar
+                Constraint::Length(1),                                   // header
+                Constraint::Min(5),                                      // conversation
+                Constraint::Length(self.input_panel_height(area.width)), // input box
+                Constraint::Length(1),                                   // metadata bar
+                Constraint::Length(1),                                   // status bar
             ])
             .split(area);
 
         self.draw_header(frame, layout[0]);
-        // Record viewport height for Tab toggle and scroll calculations.
-        self.last_conv_height = layout[1].height as usize;
-        self.draw_conversation(frame, layout[1]);
+        if area.width >= 120 {
+            let middle = Layout::default()
+                .direction(Direction::Horizontal)
+                .constraints([Constraint::Min(60), Constraint::Length(30)])
+                .split(layout[1]);
+            self.last_conv_height = middle[0].height as usize;
+            self.draw_conversation(frame, middle[0]);
+            self.draw_instruments(frame, middle[1]);
+        } else {
+            // Record viewport height for Tab toggle and scroll calculations.
+            self.last_conv_height = layout[1].height as usize;
+            self.draw_conversation(frame, layout[1]);
+        }
         self.draw_input(frame, layout[2]);
         self.draw_metadata(frame, layout[3]);
         self.draw_status(frame, layout[4]);
@@ -1140,6 +1500,14 @@ impl RatatuiApp {
 
         if self.model_selector.is_some() {
             self.draw_model_selector(frame, area);
+        }
+
+        if self.reasoning_selector.is_some() {
+            self.draw_reasoning_selector(frame, area);
+        }
+
+        if self.command_palette.is_some() {
+            self.draw_command_palette(frame, area);
         }
     }
 
@@ -1159,7 +1527,7 @@ impl RatatuiApp {
 
         let mut spans = vec![
             Span::styled(
-                "  ninmu ",
+                "  NINMU ",
                 Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
             ),
             Span::styled(
@@ -1167,14 +1535,23 @@ impl RatatuiApp {
                 Style::default().fg(MUTED),
             ),
             Span::raw("  "),
-            Span::styled("model ", Style::default().fg(MUTED)),
+            Span::styled("MODEL ", Style::default().fg(MUTED)),
+            Span::styled("[", Style::default().fg(BORDER_BRIGHT)),
             Span::styled(model.to_string(), Style::default().fg(TEXT_SEC)),
+            Span::styled("]", Style::default().fg(BORDER_BRIGHT)),
             Span::raw("  "),
-            Span::styled("perm ", Style::default().fg(MUTED)),
-            Span::styled(perm_short.to_string(), Style::default().fg(TEXT_SEC)),
+            Span::styled("PERM ", Style::default().fg(MUTED)),
+            Span::styled("[", Style::default().fg(BORDER_BRIGHT)),
+            Span::styled(
+                perm_short.to_ascii_uppercase(),
+                Style::default().fg(TEXT_SEC),
+            ),
+            Span::styled("]", Style::default().fg(BORDER_BRIGHT)),
             Span::raw("  "),
-            Span::styled("branch ", Style::default().fg(MUTED)),
+            Span::styled("BRANCH ", Style::default().fg(MUTED)),
+            Span::styled("[", Style::default().fg(BORDER_BRIGHT)),
             Span::styled(git.to_string(), Style::default().fg(TEXT_SEC)),
+            Span::styled("]", Style::default().fg(BORDER_BRIGHT)),
         ];
 
         // Show reasoning effort/thinking state if set.
@@ -1185,20 +1562,25 @@ impl RatatuiApp {
             None => "auto",
         };
         spans.push(Span::raw("  "));
-        spans.push(Span::styled("think ", Style::default().fg(MUTED)));
+        spans.push(Span::styled("THINK ", Style::default().fg(MUTED)));
+        spans.push(Span::styled("[", Style::default().fg(BORDER_BRIGHT)));
         spans.push(Span::styled(
-            thinking_label.to_string(),
+            thinking_label.to_ascii_uppercase(),
             Style::default().fg(if thinking_mode == Some(false) {
                 MUTED
             } else {
                 ACCENT
             }),
         ));
-        spans.push(Span::raw(" "));
+        spans.push(Span::styled("]", Style::default().fg(BORDER_BRIGHT)));
+        spans.push(Span::raw("  "));
+        spans.push(Span::styled("EFFORT ", Style::default().fg(MUTED)));
+        spans.push(Span::styled("[", Style::default().fg(BORDER_BRIGHT)));
         spans.push(Span::styled(
-            effort_label.to_string(),
+            effort_label.to_ascii_uppercase(),
             Style::default().fg(TEXT_SEC),
         ));
+        spans.push(Span::styled("]", Style::default().fg(BORDER_BRIGHT)));
 
         Line::from(spans)
     }
@@ -1225,6 +1607,7 @@ impl RatatuiApp {
             .map(|(i, _)| i);
 
         let mut in_code_block = false;
+        let mut code_lang = String::new();
         let mut lines: Vec<Line> = visible
             .iter()
             .enumerate()
@@ -1265,22 +1648,22 @@ impl RatatuiApp {
                 if trimmed.starts_with("```") {
                     in_code_block = !in_code_block;
                     if in_code_block {
-                        let lang = trimmed.strip_prefix("`").unwrap_or("");
+                        let lang = trimmed.trim_start_matches('`').trim();
+                        code_lang.clear();
+                        code_lang.push_str(lang);
                         return Line::from(Span::styled(
                             format!("  {lang}"),
                             Style::default().fg(MUTED).bg(CODE_BG),
                         ));
                     }
+                    code_lang.clear();
                     return Line::from(Span::styled(
                         "  ```".to_string(),
                         Style::default().fg(MUTED).bg(CODE_BG),
                     ));
                 }
                 if in_code_block {
-                    return Line::from(Span::styled(
-                        format!("  {s}"),
-                        Style::default().fg(CODE_FG).bg(CODE_BG),
-                    ));
+                    return Line::from(code_spans(&code_lang, s));
                 }
                 // -- Error --
                 if let Some(rest) = s.strip_prefix("  error:") {
@@ -1309,18 +1692,21 @@ impl RatatuiApp {
                 // -- Tool result --
                 if let Some(rest) = s.strip_prefix("  ok ") {
                     return Line::from(vec![
-                        Span::styled("  ok", Style::default().fg(SUCCESS)),
+                        Span::styled("  ok ", Style::default().fg(SUCCESS)),
                         Span::styled(rest.to_string(), Style::default().fg(TEXT_SEC)),
                     ]);
                 }
                 if let Some(rest) = s.strip_prefix("  fail ") {
                     return Line::from(vec![
-                        Span::styled("  fail", Style::default().fg(ERROR_COLOR)),
+                        Span::styled("  fail ", Style::default().fg(ERROR_COLOR)),
                         Span::styled(rest.to_string(), Style::default().fg(TEXT_SEC)),
                     ]);
                 }
                 if s.starts_with("  [cancelled]") {
                     return Line::from(Span::styled(s.to_string(), Style::default().fg(MUTED)));
+                }
+                if s.contains("\x1b[") {
+                    return Line::from(ansi_spans(s, Style::default().fg(TEXT)));
                 }
                 // -- Fallback: plain text with markdown --
                 Line::from(markdown_spans(s))
@@ -1386,11 +1772,39 @@ impl RatatuiApp {
 
         let flat: String = self.input_buf.iter().collect();
 
+        if self.paste_spans.is_empty() && !self.paste_animating && flat.contains('\n') {
+            let lines = flat
+                .split('\n')
+                .enumerate()
+                .map(|(idx, line)| {
+                    let prompt = if idx == 0 { "> " } else { "  " };
+                    Line::from(vec![
+                        Span::styled(prompt, Style::default().fg(ACCENT)),
+                        Span::styled(line.to_string(), Style::default().fg(TEXT)),
+                    ])
+                })
+                .collect::<Vec<_>>();
+            frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+
+            if !self.state.is_generating {
+                let before_cursor = self.input_buf.iter().take(self.cursor).collect::<String>();
+                let cursor_row = before_cursor.matches('\n').count() as u16;
+                let cursor_col = before_cursor
+                    .rsplit('\n')
+                    .next()
+                    .map_or(0, |line| line.chars().count()) as u16;
+                let cursor_x = inner.x + 2 + cursor_col;
+                let cursor_y = inner.y + cursor_row.min(inner.height.saturating_sub(1));
+                frame.set_cursor_position((cursor_x, cursor_y));
+            }
+            return;
+        }
+
         let spans = if self.paste_animating {
             let orange = if self.paste_anim_frame.is_multiple_of(2) {
-                Color::Rgb(255, 160, 40)
+                Theme::PASTE_FLASH_A
             } else {
-                Color::Rgb(255, 120, 20)
+                Theme::PASTE_FLASH_B
             };
             vec![
                 Span::styled("> ", Style::default().fg(ACCENT)),
@@ -1453,7 +1867,9 @@ impl RatatuiApp {
         for span in &self.paste_spans {
             if self.cursor > span.start + span.len {
                 // Cursor is past this span — subtract the compression.
-                offset = offset.saturating_sub(span.len).saturating_add(span.summary.len());
+                offset = offset
+                    .saturating_sub(span.len)
+                    .saturating_add(span.summary.len());
             } else if self.cursor > span.start {
                 // Cursor is inside this span — clamp to span start + summary len.
                 offset = span.start + span.summary.len();
@@ -1478,8 +1894,8 @@ impl RatatuiApp {
         if let Some(pricing) = self.model_pricing {
             let in_cost =
                 (self.usage.input_tokens as f64 / 1_000_000.0) * pricing.input_cost_per_million;
-            let out_cost = (self.usage.output_tokens as f64 / 1_000_000.0)
-                * pricing.output_cost_per_million;
+            let out_cost =
+                (self.usage.output_tokens as f64 / 1_000_000.0) * pricing.output_cost_per_million;
             let cache_create_cost = (self.usage.cache_creation_input_tokens as f64 / 1_000_000.0)
                 * pricing.cache_creation_cost_per_million;
             let cache_read_cost = (self.usage.cache_read_input_tokens as f64 / 1_000_000.0)
@@ -1502,7 +1918,7 @@ impl RatatuiApp {
             let pct_color = if pct >= 90.0 {
                 ERROR_COLOR
             } else if pct >= 70.0 {
-                Color::Rgb(255, 180, 60)
+                WARNING_COLOR
             } else {
                 MUTED
             };
@@ -1513,6 +1929,64 @@ impl RatatuiApp {
 
         let meta = Paragraph::new(Line::from(spans)).style(Style::default().bg(SURFACE));
         frame.render_widget(meta, area);
+    }
+
+    fn draw_instruments(&self, frame: &mut ratatui::Frame, area: Rect) {
+        let in_tok = format_tokens(self.usage.input_tokens);
+        let out_tok = format_tokens(self.usage.output_tokens);
+        let context = if let Some(limit) = model_token_limit(&self.model) {
+            let total = self.usage.input_tokens + self.usage.output_tokens;
+            format!(
+                "{:.0}% / {}",
+                (total as f64 / limit.context_window_tokens as f64) * 100.0,
+                format_tokens(limit.context_window_tokens)
+            )
+        } else {
+            "unknown".to_string()
+        };
+        let cost = if let Some(pricing) = self.model_pricing {
+            let total = (self.usage.input_tokens as f64 / 1_000_000.0)
+                * pricing.input_cost_per_million
+                + (self.usage.output_tokens as f64 / 1_000_000.0) * pricing.output_cost_per_million
+                + (self.usage.cache_creation_input_tokens as f64 / 1_000_000.0)
+                    * pricing.cache_creation_cost_per_million
+                + (self.usage.cache_read_input_tokens as f64 / 1_000_000.0)
+                    * pricing.cache_read_cost_per_million;
+            format!("${total:.4}")
+        } else {
+            "n/a".to_string()
+        };
+        let tool = self.state.current_tool.as_deref().unwrap_or("idle");
+        let effort = self.reasoning_effort.as_deref().unwrap_or("default");
+        let thinking = match self.thinking_mode {
+            Some(true) => "on",
+            Some(false) => "off",
+            None => "auto",
+        };
+
+        let lines = vec![
+            Line::from(vec![
+                Span::styled(
+                    " OPS",
+                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" PANEL", Style::default().fg(MUTED)),
+            ]),
+            instrument_line("MODEL", truncate(&self.model, 18)),
+            instrument_line("TOOL", truncate(tool, 18)),
+            instrument_line("TOKENS", format!("{in_tok} in / {out_tok} out")),
+            instrument_line("CTX", context),
+            instrument_line("COST", cost),
+            instrument_line("THINK", thinking.to_ascii_uppercase()),
+            instrument_line("EFFORT", effort.to_ascii_uppercase()),
+            instrument_line("PERM", self.permission_mode.clone()),
+        ];
+
+        let block = Block::default()
+            .borders(Borders::LEFT)
+            .border_style(Style::default().fg(BORDER_BRIGHT))
+            .style(Style::default().bg(SURFACE));
+        frame.render_widget(Paragraph::new(lines).block(block), area);
     }
 
     fn draw_status(&self, frame: &mut ratatui::Frame, area: Rect) {
@@ -1541,7 +2015,19 @@ impl RatatuiApp {
         }
 
         spans.push(Span::raw("  "));
-        spans.push(Span::styled("/help", Style::default().fg(MUTED)));
+        if self.state.is_generating {
+            spans.push(Span::styled("Esc cancel", Style::default().fg(MUTED)));
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled("PgUp review", Style::default().fg(MUTED)));
+        } else {
+            spans.push(Span::styled("Ctrl+K command", Style::default().fg(MUTED)));
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled("Ctrl+R reasoning", Style::default().fg(MUTED)));
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled("Ctrl+O model", Style::default().fg(MUTED)));
+            spans.push(Span::raw("  "));
+            spans.push(Span::styled("? help", Style::default().fg(MUTED)));
+        }
 
         let status = Paragraph::new(Line::from(spans)).style(Style::default().bg(SURFACE));
 
@@ -1557,6 +2043,9 @@ impl RatatuiApp {
             Line::from(""),
             help_line("Enter", "submit input"),
             help_line("Ctrl+Enter", "insert newline"),
+            help_line("Ctrl+K", "command palette"),
+            help_line("Ctrl+R", "reasoning controls"),
+            help_line("Ctrl+O", "model selector"),
             help_line("Esc", "cancel generation"),
             help_line("PgUp/PgDn", "scroll conversation"),
             help_line("Home/End", "top / bottom"),
@@ -1565,12 +2054,26 @@ impl RatatuiApp {
             help_line("?", "toggle this help"),
             Line::from(""),
             Line::from(Span::styled(
+                "  \u{2500}\u{2500} useful commands \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
+                Style::default().fg(BORDER_BRIGHT),
+            )),
+            Line::from(""),
+            help_line("/model", "inspect or switch model"),
+            help_line("/effort", "low medium high max off"),
+            help_line("/think", "auto on off"),
+            help_line("/permissions", "inspect permission mode"),
+            help_line("/resume", "resume a session"),
+            help_line("/history", "show prompt history"),
+            help_line("/stats", "show usage and cost"),
+            help_line("/doctor", "diagnose local setup"),
+            Line::from(""),
+            Line::from(Span::styled(
                 "  \u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}\u{2500}",
                 Style::default().fg(BORDER_BRIGHT),
             )),
         ];
 
-        let popup_w = 42.min(area.width.saturating_sub(4));
+        let popup_w = 50.min(area.width.saturating_sub(4));
         let popup_h = (u16::try_from(help_text.len()).unwrap_or(u16::MAX) + 2)
             .min(area.height.saturating_sub(2));
         let popup_x = (area.width.saturating_sub(popup_w)) / 2;
@@ -1595,6 +2098,7 @@ impl RatatuiApp {
 
         let required_str = format!("{:?}", perm.request.required_mode);
         let current_str = format!("{:?}", perm.request.current_mode);
+        let risk = permission_risk_label(&perm.request);
 
         let mut lines = vec![
             Line::from(Span::styled(
@@ -1606,6 +2110,13 @@ impl RatatuiApp {
                 Style::default().fg(BORDER_BRIGHT),
             )),
             Line::from(""),
+            Line::from(vec![
+                Span::styled("  risk     ", Style::default().fg(MUTED)),
+                Span::styled(
+                    risk,
+                    Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+                ),
+            ]),
             Line::from(vec![
                 Span::styled("  tool     ", Style::default().fg(MUTED)),
                 Span::styled(
@@ -1685,10 +2196,10 @@ impl RatatuiApp {
             None => return,
         };
 
-        let popup_w = 52.min(area.width.saturating_sub(4));
+        let popup_w = 82.min(area.width.saturating_sub(4));
         let list_h = sel.max_visible.min(sel.filtered.len());
-        // filter prompt (1) + separator (1) + list + keybinds (1) + border (2)
-        let popup_h = (3 + list_h as u16 + 2).min(area.height.saturating_sub(2));
+        // filter prompt + provider chips + separator + list + keybinds + border.
+        let popup_h = (4 + list_h as u16 + 2).min(area.height.saturating_sub(2));
         let popup_x = (area.width.saturating_sub(popup_w)) / 2;
         let popup_y = (area.height.saturating_sub(popup_h)) / 2;
         let popup_area = Rect::new(popup_x, popup_y, popup_w, popup_h);
@@ -1722,6 +2233,36 @@ impl RatatuiApp {
             Span::styled("▏", Style::default().fg(ACCENT)),
         ])];
 
+        let mut provider_spans = vec![
+            Span::styled(" provider ", Style::default().fg(MUTED)),
+            Span::styled(
+                if sel.provider_filter.is_none() {
+                    "[all]"
+                } else {
+                    " all "
+                },
+                Style::default().fg(if sel.provider_filter.is_none() {
+                    TEXT
+                } else {
+                    TEXT_SEC
+                }),
+            ),
+        ];
+        for provider in &sel.providers {
+            let label = ModelSelector::provider_label(*provider);
+            let active = sel.provider_filter == Some(*provider);
+            provider_spans.push(Span::raw(" "));
+            provider_spans.push(Span::styled(
+                if active {
+                    format!("[{label}]")
+                } else {
+                    label.to_string()
+                },
+                Style::default().fg(if active { ACCENT } else { TEXT_SEC }),
+            ));
+        }
+        lines.push(Line::from(provider_spans));
+
         lines.push(Line::from(Span::styled(
             " ".repeat(popup_w as usize - 4),
             Style::default().fg(BORDER_BRIGHT),
@@ -1749,18 +2290,18 @@ impl RatatuiApp {
             };
             let highlight = if is_selected {
                 if no_auth {
-                    Style::default().fg(MUTED).bg(Color::Rgb(80, 50, 50))
+                    Style::default().fg(WARNING_COLOR).bg(WARNING_BG)
                 } else {
-                    Style::default().fg(TEXT).bg(ACCENT)
+                    Style::default().fg(FOCUS_TEXT).bg(FOCUS)
                 }
             } else {
                 Style::default().fg(text_color)
             };
             let prov_style = if is_selected {
                 if no_auth {
-                    Style::default().fg(MUTED).bg(Color::Rgb(80, 50, 50))
+                    Style::default().fg(WARNING_COLOR).bg(WARNING_BG)
                 } else {
-                    Style::default().fg(Color::Rgb(255, 200, 170)).bg(ACCENT)
+                    Style::default().fg(FOCUS_MUTED).bg(FOCUS)
                 }
             } else {
                 Style::default().fg(MUTED)
@@ -1776,22 +2317,39 @@ impl RatatuiApp {
                 format!("{} → {}", entry.alias, entry.canonical)
             };
             let no_key = if no_auth && is_selected {
-                "  key required"
+                "  KEY REQUIRED"
             } else if no_auth {
-                "  key?"
+                "  KEY REQUIRED"
+            } else if entry.canonical == self.model || entry.alias == self.model {
+                "  CURRENT"
             } else {
-                ""
+                "  READY"
             };
+            let context = model_token_limit(&entry.canonical).map_or_else(
+                || "  CTX ?".to_string(),
+                |limit| format!("  CTX {}", format_tokens(limit.context_window_tokens)),
+            );
+            let family = format!("  FAMILY {}", model_family_label(entry));
+            let price = format!("  {}", model_price_label(&entry.canonical));
+            let capability = format!("  CAP {}", model_capability_label(entry));
 
             lines.push(Line::from(vec![
                 Span::styled(if is_selected { " > " } else { "   " }, highlight),
-                Span::styled(label, highlight),
+                Span::styled(truncate(&label, 18), highlight),
                 Span::styled(format!("  {prov}"), prov_style),
+                Span::styled(context, Style::default().fg(TEXT_SEC)),
+                Span::styled(family, Style::default().fg(TEXT_SEC)),
+                Span::styled(price, Style::default().fg(TEXT_SEC)),
+                Span::styled(capability, Style::default().fg(TEXT_SEC)),
                 Span::styled(
                     no_key,
-                    Style::default()
-                        .fg(ERROR_COLOR)
-                        .add_modifier(Modifier::BOLD),
+                    Style::default().fg(if no_auth {
+                        ERROR_COLOR
+                    } else if entry.canonical == self.model || entry.alias == self.model {
+                        ACCENT
+                    } else {
+                        SUCCESS
+                    }),
                 ),
             ]));
         }
@@ -1809,12 +2367,170 @@ impl RatatuiApp {
             Span::styled(" select  ", Style::default().fg(TEXT_SEC)),
             Span::styled("↑↓", Style::default().fg(TEXT_SEC)),
             Span::styled(" nav  ", Style::default().fg(TEXT_SEC)),
+            Span::styled("Tab", Style::default().fg(TEXT_SEC)),
+            Span::styled(" provider  ", Style::default().fg(TEXT_SEC)),
             Span::styled("Esc", Style::default().fg(MUTED)),
             Span::styled(" cancel", Style::default().fg(TEXT_SEC)),
         ]));
 
         let paragraph = Paragraph::new(lines);
         frame.render_widget(paragraph, inner);
+    }
+
+    fn draw_reasoning_selector(&self, frame: &mut ratatui::Frame, area: Rect) {
+        let Some(sel) = &self.reasoning_selector else {
+            return;
+        };
+
+        let popup_w = 64.min(area.width.saturating_sub(4));
+        let popup_h = 12.min(area.height.saturating_sub(2));
+        let popup_x = (area.width.saturating_sub(popup_w)) / 2;
+        let popup_y = (area.height.saturating_sub(popup_h)) / 2;
+        let popup_area = Rect::new(popup_x, popup_y, popup_w, popup_h);
+
+        frame.render_widget(Clear, popup_area);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(THINKING_COLOR))
+            .style(Style::default().bg(SURFACE))
+            .title(Span::styled(
+                " reasoning control ",
+                Style::default()
+                    .fg(THINKING_COLOR)
+                    .add_modifier(Modifier::BOLD),
+            ))
+            .title_alignment(ratatui::layout::Alignment::Center);
+
+        let inner = block.inner(popup_area);
+        frame.render_widget(block, popup_area);
+
+        let mut lines = vec![
+            Line::from(""),
+            selector_option_line(
+                "EFFORT",
+                &["default", "low", "medium", "high", "max"],
+                sel.effort_index,
+                sel.row == ReasoningSelectorRow::Effort,
+            ),
+            selector_option_line(
+                "THINK",
+                &["auto", "on", "off"],
+                sel.thinking_index,
+                sel.row == ReasoningSelectorRow::Thinking,
+            ),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(" OpenAI", Style::default().fg(MUTED)),
+                Span::styled(" effort", Style::default().fg(TEXT_SEC)),
+                Span::styled("  DeepSeek/Qwen", Style::default().fg(MUTED)),
+                Span::styled(" thinking", Style::default().fg(TEXT_SEC)),
+            ]),
+            Line::from(""),
+            Line::from(vec![
+                Span::styled(
+                    " Enter",
+                    Style::default().fg(SUCCESS).add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" apply selected row  ", Style::default().fg(TEXT_SEC)),
+                Span::styled("↑↓", Style::default().fg(TEXT_SEC)),
+                Span::styled(" row  ", Style::default().fg(TEXT_SEC)),
+                Span::styled("←→", Style::default().fg(TEXT_SEC)),
+                Span::styled(" value  ", Style::default().fg(TEXT_SEC)),
+                Span::styled("Esc", Style::default().fg(MUTED)),
+                Span::styled(" cancel", Style::default().fg(TEXT_SEC)),
+            ]),
+        ];
+
+        while lines.len() < inner.height as usize {
+            lines.push(Line::from(""));
+        }
+
+        frame.render_widget(Paragraph::new(lines), inner);
+    }
+
+    fn draw_command_palette(&self, frame: &mut ratatui::Frame, area: Rect) {
+        let Some(palette) = &self.command_palette else {
+            return;
+        };
+
+        let popup_w = 58.min(area.width.saturating_sub(4));
+        let max_rows = 7usize;
+        let list_rows = max_rows.min(palette.filtered.len()).max(1);
+        let popup_h = (list_rows as u16 + 5).min(area.height.saturating_sub(2));
+        let popup_x = (area.width.saturating_sub(popup_w)) / 2;
+        let popup_y = (area.height.saturating_sub(popup_h)) / 3;
+        let popup_area = Rect::new(popup_x, popup_y, popup_w, popup_h);
+
+        frame.render_widget(Clear, popup_area);
+
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(ACCENT))
+            .style(Style::default().bg(SURFACE))
+            .title(Span::styled(
+                " command palette ",
+                Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+            ))
+            .title_alignment(ratatui::layout::Alignment::Center);
+
+        let inner = block.inner(popup_area);
+        frame.render_widget(block, popup_area);
+
+        let filter = palette.filter_text();
+        let mut lines = vec![Line::from(vec![
+            Span::styled(" search ", Style::default().fg(MUTED)),
+            Span::styled(
+                if filter.is_empty() {
+                    "type an action...".to_string()
+                } else {
+                    filter
+                },
+                Style::default().fg(TEXT),
+            ),
+            Span::styled("▏", Style::default().fg(ACCENT)),
+        ])];
+        lines.push(Line::from(""));
+
+        for (visible_idx, entry_idx) in palette.filtered.iter().take(max_rows).enumerate() {
+            let entry = &palette.entries[*entry_idx];
+            let selected = visible_idx == palette.selected;
+            let style = if selected {
+                Style::default().fg(FOCUS_TEXT).bg(FOCUS)
+            } else {
+                Style::default().fg(TEXT)
+            };
+            let detail_style = if selected {
+                Style::default().fg(FOCUS_MUTED).bg(FOCUS)
+            } else {
+                Style::default().fg(TEXT_SEC)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(if selected { " > " } else { "   " }, style),
+                Span::styled(entry.label, style.add_modifier(Modifier::BOLD)),
+                Span::styled("  ", style),
+                Span::styled(entry.detail, detail_style),
+            ]));
+        }
+        if palette.filtered.is_empty() {
+            lines.push(Line::from(Span::styled(
+                "   no actions",
+                Style::default().fg(MUTED),
+            )));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled(
+                " Enter",
+                Style::default().fg(SUCCESS).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(" run  ", Style::default().fg(TEXT_SEC)),
+            Span::styled("Esc", Style::default().fg(MUTED)),
+            Span::styled(" cancel", Style::default().fg(TEXT_SEC)),
+        ]));
+
+        frame.render_widget(Paragraph::new(lines), inner);
     }
 }
 
@@ -1857,6 +2573,16 @@ impl TurnHandle
 }
 
 impl ModelSelector {
+    fn providers_for_entries(entries: &[ninmu_api::ModelEntry]) -> Vec<ninmu_api::ProviderKind> {
+        let mut providers = Vec::new();
+        for entry in entries {
+            if !providers.contains(&entry.provider) {
+                providers.push(entry.provider);
+            }
+        }
+        providers
+    }
+
     fn provider_label(provider: ninmu_api::ProviderKind) -> &'static str {
         match provider {
             ninmu_api::ProviderKind::Anthropic => "anthropic",
@@ -1881,6 +2607,12 @@ impl ModelSelector {
         self.filtered = (0..self.all_entries.len())
             .filter(|&i| {
                 let e = &self.all_entries[i];
+                if self
+                    .provider_filter
+                    .is_some_and(|provider| e.provider != provider)
+                {
+                    return false;
+                }
                 let query_empty = query.is_empty();
                 let alias_match = e.alias.to_ascii_lowercase().contains(&query);
                 let canon_match = e.canonical.to_ascii_lowercase().contains(&query);
@@ -1891,6 +2623,31 @@ impl ModelSelector {
         if self.selected >= self.filtered.len() {
             self.selected = self.filtered.len().saturating_sub(1);
         }
+        self.scroll_offset = self.scroll_offset.min(self.selected);
+    }
+
+    fn cycle_provider_filter(&mut self) {
+        self.provider_filter = match self.provider_filter {
+            None => self.providers.first().copied(),
+            Some(current) => {
+                let next = self
+                    .providers
+                    .iter()
+                    .position(|provider| *provider == current)
+                    .and_then(|idx| self.providers.get(idx + 1).copied());
+                next
+            }
+        };
+        self.selected = 0;
+        self.scroll_offset = 0;
+        self.apply_filter();
+    }
+
+    fn clear_provider_filter(&mut self) {
+        self.provider_filter = None;
+        self.selected = 0;
+        self.scroll_offset = 0;
+        self.apply_filter();
     }
 
     fn selected_entry(&self) -> Option<&ninmu_api::ModelEntry> {
@@ -1900,7 +2657,700 @@ impl ModelSelector {
     }
 }
 
+impl ReasoningSelector {
+    fn new(current_effort: Option<&str>, current_thinking: Option<bool>) -> Self {
+        let effort_options = vec![None, Some("low"), Some("medium"), Some("high"), Some("max")];
+        let thinking_options = vec![None, Some(true), Some(false)];
+        let effort_index = effort_options
+            .iter()
+            .position(|value| *value == current_effort)
+            .unwrap_or(0);
+        let thinking_index = thinking_options
+            .iter()
+            .position(|value| *value == current_thinking)
+            .unwrap_or(0);
+        Self {
+            effort_options,
+            thinking_options,
+            effort_index,
+            thinking_index,
+            row: ReasoningSelectorRow::Effort,
+        }
+    }
+
+    fn toggle_row(&mut self) {
+        self.row = match self.row {
+            ReasoningSelectorRow::Effort => ReasoningSelectorRow::Thinking,
+            ReasoningSelectorRow::Thinking => ReasoningSelectorRow::Effort,
+        };
+    }
+
+    fn move_left(&mut self) {
+        match self.row {
+            ReasoningSelectorRow::Effort => {
+                self.effort_index = self.effort_index.saturating_sub(1);
+            }
+            ReasoningSelectorRow::Thinking => {
+                self.thinking_index = self.thinking_index.saturating_sub(1);
+            }
+        }
+    }
+
+    fn move_right(&mut self) {
+        match self.row {
+            ReasoningSelectorRow::Effort => {
+                if self.effort_index + 1 < self.effort_options.len() {
+                    self.effort_index += 1;
+                }
+            }
+            ReasoningSelectorRow::Thinking => {
+                if self.thinking_index + 1 < self.thinking_options.len() {
+                    self.thinking_index += 1;
+                }
+            }
+        }
+    }
+
+    fn select_effort_digit(&mut self, digit: char) {
+        let Some(value) = digit.to_digit(10) else {
+            return;
+        };
+        let index = value.saturating_sub(1) as usize;
+        if index < self.effort_options.len() {
+            self.effort_index = index;
+            self.row = ReasoningSelectorRow::Effort;
+        }
+    }
+
+    fn selected_effort(&self) -> Option<&'static str> {
+        self.effort_options[self.effort_index]
+    }
+
+    fn selected_effort_string(&self) -> Option<String> {
+        self.selected_effort().map(str::to_string)
+    }
+
+    fn selected_thinking(&self) -> Option<bool> {
+        self.thinking_options[self.thinking_index]
+    }
+
+    fn command_for_current_row(&self) -> String {
+        match self.row {
+            ReasoningSelectorRow::Effort => match self.selected_effort() {
+                Some(level) => format!("/effort {level}"),
+                None => "/effort off".to_string(),
+            },
+            ReasoningSelectorRow::Thinking => match self.selected_thinking() {
+                Some(true) => "/think on".to_string(),
+                Some(false) => "/think off".to_string(),
+                None => "/think auto".to_string(),
+            },
+        }
+    }
+}
+
+impl CommandPalette {
+    fn new() -> Self {
+        let entries = vec![
+            CommandPaletteEntry {
+                label: "Reasoning",
+                detail: "set effort and thinking",
+                action: CommandPaletteAction::Reasoning,
+            },
+            CommandPaletteEntry {
+                label: "Model",
+                detail: "switch model",
+                action: CommandPaletteAction::ModelSelector,
+            },
+            CommandPaletteEntry {
+                label: "Help",
+                detail: "show keys and commands",
+                action: CommandPaletteAction::Help,
+            },
+            CommandPaletteEntry {
+                label: "Stats",
+                detail: "show token and cost totals",
+                action: CommandPaletteAction::SubmitSlash("/stats"),
+            },
+            CommandPaletteEntry {
+                label: "Permissions",
+                detail: "inspect current mode",
+                action: CommandPaletteAction::SubmitSlash("/permissions"),
+            },
+            CommandPaletteEntry {
+                label: "Permission Mode",
+                detail: "choose read/write/full",
+                action: CommandPaletteAction::InsertSlash("/permissions "),
+            },
+            CommandPaletteEntry {
+                label: "Sessions",
+                detail: "list saved sessions",
+                action: CommandPaletteAction::SubmitSlash("/session list"),
+            },
+            CommandPaletteEntry {
+                label: "Resume",
+                detail: "resume latest or a session id",
+                action: CommandPaletteAction::InsertSlash("/resume latest"),
+            },
+            CommandPaletteEntry {
+                label: "History",
+                detail: "show recent prompts",
+                action: CommandPaletteAction::SubmitSlash("/history"),
+            },
+            CommandPaletteEntry {
+                label: "Export",
+                detail: "write transcript to a file",
+                action: CommandPaletteAction::InsertSlash("/export "),
+            },
+            CommandPaletteEntry {
+                label: "Clear Transcript",
+                detail: "clear this TUI view only",
+                action: CommandPaletteAction::ClearTranscript,
+            },
+            CommandPaletteEntry {
+                label: "Fresh Session",
+                detail: "insert destructive clear command",
+                action: CommandPaletteAction::InsertSlash("/clear --confirm"),
+            },
+        ];
+        let filtered = (0..entries.len()).collect();
+        Self {
+            entries,
+            filtered,
+            filter: Vec::new(),
+            filter_cursor: 0,
+            selected: 0,
+        }
+    }
+
+    fn filter_text(&self) -> String {
+        self.filter.iter().collect()
+    }
+
+    fn apply_filter(&mut self) {
+        let query = self.filter_text().to_ascii_lowercase();
+        self.filtered = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, entry)| {
+                let haystack = format!("{} {}", entry.label, entry.detail).to_ascii_lowercase();
+                (query.is_empty() || haystack.contains(&query)).then_some(idx)
+            })
+            .collect();
+        if self.selected >= self.filtered.len() {
+            self.selected = self.filtered.len().saturating_sub(1);
+        }
+    }
+
+    fn move_up(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
+
+    fn move_down(&mut self) {
+        if self.selected + 1 < self.filtered.len() {
+            self.selected += 1;
+        }
+    }
+
+    fn selected_action(&self) -> Option<CommandPaletteAction> {
+        self.filtered
+            .get(self.selected)
+            .map(|idx| self.entries[*idx].action)
+    }
+}
+
 // -- Helpers ------------------------------------------------------------------
+
+fn selector_option_line<'a>(
+    label: &'static str,
+    options: &[&'static str],
+    selected: usize,
+    focused: bool,
+) -> Line<'a> {
+    let mut spans = vec![
+        Span::styled(
+            if focused { " > " } else { "   " },
+            Style::default().fg(if focused { ACCENT } else { MUTED }),
+        ),
+        Span::styled(
+            label,
+            Style::default().fg(MUTED).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
+    ];
+    for (idx, option) in options.iter().enumerate() {
+        let is_selected = idx == selected;
+        let style = if is_selected {
+            Style::default()
+                .fg(if focused { BG } else { TEXT })
+                .bg(if focused {
+                    THINKING_COLOR
+                } else {
+                    BORDER_BRIGHT
+                })
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(TEXT_SEC)
+        };
+        spans.push(Span::styled(format!(" {option} "), style));
+        spans.push(Span::raw(" "));
+    }
+    Line::from(spans)
+}
+
+fn instrument_line<'a>(label: &'static str, value: String) -> Line<'a> {
+    Line::from(vec![
+        Span::styled(" ", Style::default().fg(MUTED)),
+        Span::styled(format!("{label:<7}"), Style::default().fg(MUTED)),
+        Span::styled(value, Style::default().fg(TEXT_SEC)),
+    ])
+}
+
+fn permission_risk_label(request: &PermissionRequest) -> &'static str {
+    let tool = request.tool_name.to_ascii_lowercase();
+    if tool.contains("bash") || tool.contains("exec") || tool.contains("shell") {
+        "EXEC"
+    } else if tool.contains("write") || tool.contains("edit") || tool.contains("patch") {
+        "WRITE"
+    } else if tool.contains("web") || tool.contains("http") || tool.contains("fetch") {
+        "NETWORK"
+    } else {
+        match format!("{:?}", request.required_mode).as_str() {
+            "DangerFullAccess" => "BROAD CWD",
+            "WorkspaceWrite" => "WRITE",
+            _ => "READ",
+        }
+    }
+}
+
+fn model_family_label(entry: &ninmu_api::ModelEntry) -> &'static str {
+    if let Some(family) = entry.family.as_deref().and_then(catalog_family_label) {
+        return family;
+    }
+
+    let name = format!("{} {}", entry.alias, entry.canonical).to_ascii_lowercase();
+    if name.contains("reason")
+        || name.contains("r1")
+        || name.contains("o1")
+        || name.contains("o3")
+        || name.contains("o4")
+    {
+        "reasoning"
+    } else if matches!(
+        entry.provider,
+        ninmu_api::ProviderKind::Ollama | ninmu_api::ProviderKind::Vllm
+    ) {
+        "local"
+    } else if name.contains("coder") || name.contains("code") {
+        "coding"
+    } else if name.contains("flash") || name.contains("haiku") || name.contains("small") {
+        "fast"
+    } else if name.contains("opus") || name.contains("pro") || name.contains("large") {
+        "frontier"
+    } else {
+        "general"
+    }
+}
+
+fn catalog_family_label(family: &str) -> Option<&'static str> {
+    let family = family.to_ascii_lowercase();
+    if family.contains("reason") || family.contains("r1") {
+        Some("reasoning")
+    } else if family.contains("code") || family.contains("coder") {
+        Some("coding")
+    } else if family.contains("flash")
+        || family.contains("haiku")
+        || family.contains("mini")
+        || family.contains("small")
+    {
+        Some("fast")
+    } else if family.contains("opus") || family.contains("pro") || family.contains("large") {
+        Some("frontier")
+    } else if family.trim().is_empty() {
+        None
+    } else {
+        Some("general")
+    }
+}
+
+fn model_price_label(model: &str) -> String {
+    ninmu_runtime::pricing_for_model(model).map_or_else(
+        || "PRICE ?".to_string(),
+        |pricing| {
+            if pricing.input_cost_per_million == 0.0 && pricing.output_cost_per_million == 0.0 {
+                "PRICE local".to_string()
+            } else {
+                format!(
+                    "PRICE {}/{}",
+                    compact_price(pricing.input_cost_per_million),
+                    compact_price(pricing.output_cost_per_million)
+                )
+            }
+        },
+    )
+}
+
+fn compact_price(value: f64) -> String {
+    if value.fract().abs() < f64::EPSILON {
+        format!("${value:.0}")
+    } else {
+        let trimmed = format!("{value:.2}")
+            .trim_end_matches('0')
+            .trim_end_matches('.')
+            .to_string();
+        format!("${trimmed}")
+    }
+}
+
+fn model_capability_label(entry: &ninmu_api::ModelEntry) -> &'static str {
+    if entry.supports_reasoning {
+        return "thinking";
+    }
+    if entry.supports_tools {
+        return "tools";
+    }
+
+    let name = format!("{} {}", entry.alias, entry.canonical).to_ascii_lowercase();
+    if matches!(
+        entry.provider,
+        ninmu_api::ProviderKind::Ollama | ninmu_api::ProviderKind::Vllm
+    ) {
+        "local"
+    } else if name.contains("reason")
+        || name.contains("r1")
+        || name.contains("o1")
+        || name.contains("o3")
+        || name.contains("o4")
+    {
+        "thinking"
+    } else if matches!(
+        entry.provider,
+        ninmu_api::ProviderKind::Anthropic
+            | ninmu_api::ProviderKind::OpenAi
+            | ninmu_api::ProviderKind::DeepSeek
+            | ninmu_api::ProviderKind::Qwen
+            | ninmu_api::ProviderKind::Gemini
+    ) {
+        "tools"
+    } else {
+        "chat"
+    }
+}
+
+fn ansi_spans(text: &str, base_style: Style) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let mut current = String::new();
+    let mut style = base_style;
+    let mut chars = text.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch != '\x1b' || chars.peek() != Some(&'[') {
+            current.push(ch);
+            continue;
+        }
+
+        chars.next();
+        let mut sequence = String::new();
+        for seq_ch in chars.by_ref() {
+            if seq_ch.is_ascii_alphabetic() {
+                if seq_ch == 'm' {
+                    flush_ansi_span(&mut spans, &mut current, style);
+                    style = apply_sgr_sequence(&sequence, base_style, style);
+                }
+                break;
+            }
+            sequence.push(seq_ch);
+        }
+    }
+
+    flush_ansi_span(&mut spans, &mut current, style);
+    if spans.is_empty() {
+        vec![Span::styled(String::new(), base_style)]
+    } else {
+        spans
+    }
+}
+
+fn flush_ansi_span(spans: &mut Vec<Span<'static>>, current: &mut String, style: Style) {
+    if !current.is_empty() {
+        spans.push(Span::styled(std::mem::take(current), style));
+    }
+}
+
+fn apply_sgr_sequence(sequence: &str, base_style: Style, mut style: Style) -> Style {
+    let codes = parse_sgr_codes(sequence);
+    let mut i = 0;
+    while i < codes.len() {
+        match codes[i] {
+            0 => style = base_style,
+            1 => style = style.add_modifier(Modifier::BOLD),
+            2 => style = style.add_modifier(Modifier::DIM),
+            3 => style = style.add_modifier(Modifier::ITALIC),
+            22 => {
+                style = style.remove_modifier(Modifier::BOLD);
+                style = style.remove_modifier(Modifier::DIM);
+            }
+            23 => style = style.remove_modifier(Modifier::ITALIC),
+            30..=37 | 90..=97 => {
+                style = style.fg(ansi_basic_color(codes[i]));
+            }
+            39 => style = style.fg(base_style.fg.unwrap_or(TEXT)),
+            38 => {
+                if let Some((color, consumed)) = parse_extended_ansi_color(&codes[i + 1..]) {
+                    style = style.fg(color);
+                    i += consumed;
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    style
+}
+
+fn parse_sgr_codes(sequence: &str) -> Vec<u16> {
+    if sequence.is_empty() {
+        return vec![0];
+    }
+    sequence
+        .split(';')
+        .map(|part| part.parse::<u16>().unwrap_or(0))
+        .collect()
+}
+
+fn parse_extended_ansi_color(codes: &[u16]) -> Option<(Color, usize)> {
+    match codes {
+        [2, r, g, b, ..] => Some((
+            Color::Rgb(
+                u8::try_from(*r).unwrap_or(u8::MAX),
+                u8::try_from(*g).unwrap_or(u8::MAX),
+                u8::try_from(*b).unwrap_or(u8::MAX),
+            ),
+            4,
+        )),
+        [5, idx, ..] => Some((ansi_256_color(*idx), 2)),
+        _ => None,
+    }
+}
+
+fn ansi_basic_color(code: u16) -> Color {
+    match code {
+        30 => Color::Rgb(32, 36, 46),
+        31 => ERROR_COLOR,
+        32 => SUCCESS,
+        33 => WARNING_COLOR,
+        34 => Color::Rgb(91, 156, 255),
+        35 => THINKING_COLOR,
+        36 => FOCUS,
+        37 => TEXT_SEC,
+        90 => MUTED,
+        91 => Color::Rgb(255, 105, 105),
+        92 => Color::Rgb(110, 255, 160),
+        93 => Color::Rgb(255, 215, 110),
+        94 => Color::Rgb(130, 185, 255),
+        95 => Color::Rgb(230, 130, 255),
+        96 => Color::Rgb(120, 235, 255),
+        97 => TEXT,
+        _ => TEXT,
+    }
+}
+
+fn ansi_256_color(index: u16) -> Color {
+    match index {
+        0..=15 => ansi_basic_color(match index {
+            0 => 30,
+            1 => 31,
+            2 => 32,
+            3 => 33,
+            4 => 34,
+            5 => 35,
+            6 => 36,
+            7 => 37,
+            8 => 90,
+            9 => 91,
+            10 => 92,
+            11 => 93,
+            12 => 94,
+            13 => 95,
+            14 => 96,
+            _ => 97,
+        }),
+        16..=231 => {
+            let n = index - 16;
+            let r = (n / 36) % 6;
+            let g = (n / 6) % 6;
+            let b = n % 6;
+            Color::Rgb(
+                ansi_6cube_component(r),
+                ansi_6cube_component(g),
+                ansi_6cube_component(b),
+            )
+        }
+        232..=255 => {
+            let level = 8 + ((index - 232) * 10);
+            let value = u8::try_from(level).unwrap_or(u8::MAX);
+            Color::Rgb(value, value, value)
+        }
+        _ => TEXT,
+    }
+}
+
+fn ansi_6cube_component(value: u16) -> u8 {
+    if value == 0 {
+        0
+    } else {
+        u8::try_from(55 + value * 40).unwrap_or(u8::MAX)
+    }
+}
+
+fn code_spans(lang: &str, line: &str) -> Vec<Span<'static>> {
+    let mut spans = vec![Span::styled("  ".to_string(), Style::default().bg(CODE_BG))];
+    let lang = lang.to_ascii_lowercase();
+    let comment_marker = if matches!(
+        lang.as_str(),
+        "rust"
+            | "rs"
+            | "javascript"
+            | "js"
+            | "typescript"
+            | "ts"
+            | "tsx"
+            | "jsx"
+            | "go"
+            | "java"
+            | "c"
+            | "cpp"
+            | "c++"
+            | "swift"
+            | "kotlin"
+    ) {
+        Some("//")
+    } else if matches!(
+        lang.as_str(),
+        "python" | "py" | "ruby" | "rb" | "bash" | "sh" | "zsh" | "toml" | "yaml" | "yml"
+    ) {
+        Some("#")
+    } else {
+        None
+    };
+
+    spans.extend(code_syntax_spans(&lang, line, comment_marker));
+    spans
+}
+
+fn code_syntax_spans(
+    lang: &str,
+    line: &str,
+    comment_marker: Option<&'static str>,
+) -> Vec<Span<'static>> {
+    let keywords = code_keywords(lang);
+    let mut spans = Vec::new();
+    let mut token = String::new();
+    let mut in_string: Option<char> = None;
+    let mut remaining = line;
+
+    while let Some(ch) = remaining.chars().next() {
+        if let Some(quote) = in_string {
+            token.push(ch);
+            if ch == quote {
+                spans.push(Span::styled(
+                    std::mem::take(&mut token),
+                    Style::default().fg(SUCCESS).bg(CODE_BG),
+                ));
+                in_string = None;
+            }
+            remaining = &remaining[ch.len_utf8()..];
+            continue;
+        }
+
+        if let Some(marker) = comment_marker {
+            if remaining.starts_with(marker) {
+                flush_code_token(&mut spans, &mut token, keywords);
+                spans.push(Span::styled(
+                    remaining.to_string(),
+                    Style::default()
+                        .fg(MUTED)
+                        .bg(CODE_BG)
+                        .add_modifier(Modifier::ITALIC),
+                ));
+                return spans;
+            }
+        }
+
+        if ch == '"' || ch == '\'' {
+            flush_code_token(&mut spans, &mut token, keywords);
+            token.push(ch);
+            in_string = Some(ch);
+        } else if ch.is_alphanumeric() || ch == '_' {
+            token.push(ch);
+        } else {
+            flush_code_token(&mut spans, &mut token, keywords);
+            spans.push(Span::styled(
+                ch.to_string(),
+                Style::default().fg(CODE_FG).bg(CODE_BG),
+            ));
+        }
+        remaining = &remaining[ch.len_utf8()..];
+    }
+
+    if in_string.is_some() && !token.is_empty() {
+        spans.push(Span::styled(
+            std::mem::take(&mut token),
+            Style::default().fg(SUCCESS).bg(CODE_BG),
+        ));
+    } else {
+        flush_code_token(&mut spans, &mut token, keywords);
+    }
+
+    spans
+}
+
+fn flush_code_token(
+    spans: &mut Vec<Span<'static>>,
+    token: &mut String,
+    keywords: &'static [&'static str],
+) {
+    if token.is_empty() {
+        return;
+    }
+    let is_keyword = keywords.contains(&token.as_str());
+    let color = if is_keyword { FOCUS } else { CODE_FG };
+    let style = if is_keyword {
+        Style::default()
+            .fg(color)
+            .bg(CODE_BG)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(color).bg(CODE_BG)
+    };
+    spans.push(Span::styled(std::mem::take(token), style));
+}
+
+fn code_keywords(lang: &str) -> &'static [&'static str] {
+    match lang {
+        "rust" | "rs" => &[
+            "as", "async", "await", "const", "crate", "else", "enum", "fn", "for", "if", "impl",
+            "let", "match", "mod", "move", "mut", "pub", "ref", "return", "self", "Self", "static",
+            "struct", "trait", "type", "use", "where", "while",
+        ],
+        "python" | "py" => &[
+            "and", "as", "async", "await", "class", "def", "elif", "else", "except", "False",
+            "for", "from", "if", "import", "in", "is", "lambda", "None", "not", "or", "pass",
+            "return", "True", "try", "while", "with", "yield",
+        ],
+        "javascript" | "js" | "typescript" | "ts" | "tsx" | "jsx" => &[
+            "async", "await", "break", "case", "catch", "class", "const", "continue", "default",
+            "else", "export", "extends", "finally", "for", "from", "function", "if", "import",
+            "let", "new", "return", "switch", "throw", "try", "type", "var", "while",
+        ],
+        "bash" | "sh" | "zsh" => &[
+            "case", "do", "done", "elif", "else", "esac", "fi", "for", "function", "if", "in",
+            "then", "while",
+        ],
+        _ => &[],
+    }
+}
 
 /// Render a line of text with inline markdown formatting as ratatui Spans.
 ///
@@ -1923,7 +3373,7 @@ fn markdown_spans(text: &str) -> Vec<Span<'static>> {
             let code: String = chars.by_ref().take_while(|&ch| ch != '`').collect();
             spans.push(Span::styled(
                 code,
-                Style::default().fg(ACCENT).bg(Color::Rgb(30, 30, 30)),
+                Style::default().fg(ACCENT).bg(Theme::INLINE_CODE_BG),
             ));
         } else if c == '*' && chars.peek() == Some(&'*') {
             chars.next(); // skip second *
@@ -1994,6 +3444,17 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
+fn common_prefix(values: &[String]) -> Option<String> {
+    let first = values.first()?;
+    let mut prefix = first.clone();
+    for value in &values[1..] {
+        while !value.starts_with(&prefix) {
+            prefix.pop()?;
+        }
+    }
+    Some(prefix)
+}
+
 fn format_tokens(count: u32) -> String {
     if count >= 1_000_000 {
         format!("{:.1}M", f64::from(count) / 1_000_000.0)
@@ -2049,6 +3510,41 @@ fn help_line<'a>(key: &str, desc: &str) -> Line<'a> {
 mod tests {
     use super::*;
 
+    fn model_entry(
+        alias: &str,
+        canonical: &str,
+        provider: ninmu_api::ProviderKind,
+        has_auth: bool,
+    ) -> ninmu_api::ModelEntry {
+        ninmu_api::ModelEntry {
+            alias: alias.to_string(),
+            canonical: canonical.to_string(),
+            provider,
+            has_auth,
+            family: None,
+            supports_reasoning: false,
+            supports_tools: false,
+        }
+    }
+
+    fn find_text_position(
+        buffer: &ratatui::buffer::Buffer,
+        width: u16,
+        height: u16,
+        needle: &str,
+    ) -> Option<(u16, u16)> {
+        for y in 0..height {
+            let mut line = String::new();
+            for x in 0..width {
+                line.push_str(buffer[(x, y)].symbol());
+            }
+            if let Some(idx) = line.find(needle) {
+                return Some((idx as u16, y));
+            }
+        }
+        None
+    }
+
     #[test]
     fn app_initialises_cleanly() {
         let app = RatatuiApp::new(
@@ -2059,6 +3555,161 @@ mod tests {
         assert!(!app.help_visible);
         assert!(!app.state.is_generating);
         assert_eq!(app.spinner_frame, 0);
+    }
+
+    #[test]
+    fn render_help_contains_reasoning_and_model_shortcuts() {
+        let mut app = RatatuiApp::new("gpt-4o".into(), "write".into(), Some("main".into()));
+        app.help_visible = true;
+
+        let rendered = app.render_to_text(100, 32);
+
+        assert!(rendered.contains("Ctrl+R"));
+        assert!(rendered.contains("Ctrl+O"));
+        assert!(rendered.contains("/effort"));
+        assert!(rendered.contains("/think"));
+        assert!(rendered.contains("/model"));
+    }
+
+    #[test]
+    fn header_buffer_renders_core_state_chips() {
+        let mut app = RatatuiApp::new(
+            "claude-sonnet-4-5".into(),
+            "read-only".into(),
+            Some("main".into()),
+        );
+        app.set_reasoning_effort(Some("high".to_string()));
+        app.set_thinking_mode(Some(false));
+
+        let rendered = app.render_to_text(100, 24);
+
+        assert!(rendered.contains("MODEL"));
+        assert!(rendered.contains("PERM"));
+        assert!(rendered.contains("BRANCH"));
+        assert!(rendered.contains("THINK"));
+        assert!(rendered.contains("EFFORT"));
+    }
+
+    #[test]
+    fn model_selector_selected_row_uses_focus_style() {
+        use ninmu_api::ProviderKind;
+
+        let mut app = RatatuiApp::new("claude-opus-4-6".into(), "write".into(), None);
+        app.model_selector = Some(ModelSelector {
+            all_entries: vec![
+                model_entry("opus", "claude-opus-4-6", ProviderKind::Anthropic, true),
+                model_entry("gpt", "gpt-4o", ProviderKind::OpenAi, true),
+            ],
+            filtered: vec![0, 1],
+            filter: Vec::new(),
+            filter_cursor: 0,
+            selected: 0,
+            scroll_offset: 0,
+            max_visible: 2,
+            provider_filter: None,
+            providers: vec![ProviderKind::Anthropic, ProviderKind::OpenAi],
+        });
+
+        let buffer = app.render_to_buffer(100, 30);
+        let (x, y) = find_text_position(&buffer, 100, 30, " > ").expect("selected model row");
+
+        assert_eq!(buffer[(x + 1, y)].bg, FOCUS);
+        assert_eq!(buffer[(x + 1, y)].fg, FOCUS_TEXT);
+    }
+
+    #[test]
+    fn reasoning_selector_renders_current_values() {
+        let mut app = RatatuiApp::new("gpt-4o".into(), "write".into(), Some("main".into()));
+        app.set_reasoning_effort(Some("high".to_string()));
+        app.set_thinking_mode(Some(true));
+        app.open_reasoning_selector();
+
+        let rendered = app.render_to_text(100, 30);
+
+        assert!(rendered.contains("reasoning control"));
+        assert!(rendered.contains("EFFORT"));
+        assert!(rendered.contains("high"));
+        assert!(rendered.contains("THINK"));
+        assert!(rendered.contains("on"));
+    }
+
+    #[test]
+    fn wide_layout_renders_instrument_panel() {
+        let mut app = RatatuiApp::new("gpt-4o".into(), "write".into(), Some("main".into()));
+        app.usage = TokenUsage {
+            input_tokens: 1200,
+            output_tokens: 300,
+            ..Default::default()
+        };
+
+        let rendered = app.render_to_text(140, 32);
+
+        assert!(rendered.contains("OPS"));
+        assert!(rendered.contains("PANEL"));
+        assert!(rendered.contains("TOKENS"));
+        assert!(rendered.contains("CTX"));
+    }
+
+    #[test]
+    fn command_palette_filters_to_reasoning() {
+        let mut palette = CommandPalette::new();
+        palette.filter = "reason".chars().collect();
+        palette.filter_cursor = palette.filter.len();
+        palette.apply_filter();
+
+        assert_eq!(palette.filtered.len(), 1);
+        assert_eq!(
+            palette.selected_action(),
+            Some(CommandPaletteAction::Reasoning)
+        );
+    }
+
+    #[test]
+    fn command_palette_includes_session_and_stats_actions() {
+        let palette = CommandPalette::new();
+        let labels = palette
+            .entries
+            .iter()
+            .map(|entry| entry.label)
+            .collect::<Vec<_>>();
+
+        assert!(labels.contains(&"Stats"));
+        assert!(labels.contains(&"Sessions"));
+        assert!(labels.contains(&"Export"));
+        assert!(labels.contains(&"Clear Transcript"));
+    }
+
+    #[test]
+    fn slash_completion_extends_unique_prefix() {
+        let mut app = RatatuiApp::new("sonnet".into(), "write".into(), None);
+        app.set_input_text("/permissi");
+
+        assert!(app.complete_slash_input());
+        assert_eq!(app.cached_input, "/permissions");
+    }
+
+    #[test]
+    fn multiline_input_panel_grows_to_six_lines() {
+        let mut app = RatatuiApp::new("sonnet".into(), "write".into(), None);
+        app.set_input_text("one\ntwo\nthree\nfour\nfive\nsix\nseven");
+
+        assert_eq!(app.input_panel_height(100), 8);
+    }
+
+    #[test]
+    fn tool_result_renders_collapsible_preview() {
+        let mut app = RatatuiApp::new("gpt-4o".into(), "write".into(), None);
+        app.process_event(TuiEvent::ToolResult {
+            name: "bash".to_string(),
+            output: "line one\nline two\nline three\nline four".to_string(),
+            is_error: false,
+        });
+
+        let rendered = app.scrollback.visible(usize::MAX).0.join("\n");
+
+        assert!(rendered.contains("ok bash"));
+        assert!(rendered.contains("line one"));
+        assert!(rendered.contains("Tab to expand"));
     }
 
     #[test]
@@ -2076,6 +3727,92 @@ mod tests {
     fn strip_ansi_multi_sequence() {
         let input = "\x1b[1;31mERROR\x1b[0m: \x1b[33mwarn\x1b[0m";
         assert_eq!(strip_ansi(input), "ERROR: warn");
+    }
+
+    #[test]
+    fn ansi_spans_preserve_text_and_common_sgr_styles() {
+        let spans = ansi_spans(
+            "plain \x1b[31;1merror\x1b[0m \x1b[38;2;1;2;3mtrue\x1b[0m",
+            Style::default().fg(TEXT),
+        );
+
+        let text = spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>();
+        assert_eq!(text, "plain error true");
+        assert!(spans.iter().any(|span| {
+            span.content == "error"
+                && span.style.fg == Some(ERROR_COLOR)
+                && span.style.add_modifier.contains(Modifier::BOLD)
+        }));
+        assert!(spans
+            .iter()
+            .any(|span| span.content == "true" && span.style.fg == Some(Color::Rgb(1, 2, 3))));
+    }
+
+    #[test]
+    fn code_spans_highlight_keywords_strings_and_comments_lazily() {
+        let spans = code_spans("rust", r#"let value = "ok"; // comment"#);
+
+        assert!(spans.iter().any(|span| {
+            span.content == "let"
+                && span.style.fg == Some(FOCUS)
+                && span.style.add_modifier.contains(Modifier::BOLD)
+        }));
+        assert!(spans
+            .iter()
+            .any(|span| span.content == r#""ok""# && span.style.fg == Some(SUCCESS)));
+        assert!(spans.iter().any(|span| {
+            span.content == "// comment"
+                && span.style.fg == Some(MUTED)
+                && span.style.add_modifier.contains(Modifier::ITALIC)
+        }));
+    }
+
+    #[test]
+    fn code_spans_ignore_comment_markers_inside_strings() {
+        let spans = code_spans("rust", r#"let url = "https://example.test"; // comment"#);
+
+        assert!(spans
+            .iter()
+            .any(|span| span.content == r#""https://example.test""#
+                && span.style.fg == Some(SUCCESS)));
+        assert!(spans
+            .iter()
+            .any(|span| span.content == "// comment" && span.style.fg == Some(MUTED)));
+    }
+
+    #[test]
+    fn fenced_code_block_renders_language_aware_styles() {
+        let mut app = RatatuiApp::new("m".into(), "write".into(), None);
+        app.scrollback.push("```rust".to_string());
+        app.scrollback
+            .push(r#"let value = "ok"; // comment"#.to_string());
+        app.scrollback.push("```".to_string());
+
+        let buffer = app.render_to_buffer(100, 30);
+        let (x, y) = find_text_position(&buffer, 100, 30, "let").expect("rust keyword");
+
+        assert_eq!(buffer[(x, y)].fg, FOCUS);
+        assert!(buffer[(x, y)].modifier.contains(Modifier::BOLD));
+    }
+
+    #[test]
+    fn tool_result_renders_ansi_output_without_escape_text() {
+        let mut app = RatatuiApp::new("m".into(), "write".into(), None);
+        app.process_event(TuiEvent::ToolResult {
+            name: "bash".into(),
+            output: "\x1b[32mgreen\x1b[0m\nplain".into(),
+            is_error: false,
+        });
+
+        let buffer = app.render_to_buffer(100, 30);
+        let rendered = app.render_to_text(100, 30);
+        let (x, y) = find_text_position(&buffer, 100, 30, "green").expect("green output");
+
+        assert!(!rendered.contains("\x1b[32m"));
+        assert_eq!(buffer[(x, y)].fg, SUCCESS);
     }
 
     #[test]
@@ -2348,7 +4085,7 @@ mod tests {
             .map(|s| s.content.as_ref())
             .collect();
         assert!(joined.contains("claude-sonnet"));
-        assert!(joined.contains("write"));
+        assert!(joined.contains("WRITE"));
         assert!(joined.contains("main"));
     }
 
@@ -2428,6 +4165,53 @@ mod tests {
     }
 
     #[test]
+    fn permission_modal_renders_risk_label() {
+        let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+        let (tx, _rx) = std::sync::mpsc::channel();
+        app.process_event(TuiEvent::PermissionPrompt {
+            request: ninmu_runtime::PermissionRequest {
+                tool_name: "bash".into(),
+                input: r#"{"cmd":"cargo test"}"#.into(),
+                required_mode: ninmu_runtime::PermissionMode::WorkspaceWrite,
+                current_mode: ninmu_runtime::PermissionMode::ReadOnly,
+                reason: None,
+            },
+            response_tx: tx,
+        });
+
+        let rendered = app.render_to_text(100, 30);
+
+        assert!(rendered.contains("risk"));
+        assert!(rendered.contains("EXEC"));
+    }
+
+    #[test]
+    fn permission_modal_fits_common_viewports() {
+        for (width, height) in [(80, 24), (100, 30)] {
+            let mut app = RatatuiApp::new("m".into(), "r".into(), None);
+            let (tx, _rx) = std::sync::mpsc::channel();
+            app.process_event(TuiEvent::PermissionPrompt {
+                request: ninmu_runtime::PermissionRequest {
+                    tool_name: "bash".into(),
+                    input: r#"{"cmd":"cargo test --workspace"}"#.into(),
+                    required_mode: ninmu_runtime::PermissionMode::WorkspaceWrite,
+                    current_mode: ninmu_runtime::PermissionMode::ReadOnly,
+                    reason: Some("viewport fit test".into()),
+                },
+                response_tx: tx,
+            });
+
+            let rendered = app.render_to_text(width, height);
+
+            assert!(rendered.contains("permission required"));
+            assert!(rendered.contains("risk"));
+            assert!(rendered.contains("action"));
+            assert!(rendered.contains("allow"));
+            assert!(rendered.contains("deny"));
+        }
+    }
+
+    #[test]
     fn process_error_sets_dirty() {
         let mut app = RatatuiApp::new("m".into(), "r".into(), None);
         app.dirty = false;
@@ -2493,15 +4277,14 @@ mod tests {
         };
         app.response_text = "hello".into();
         app.flush_response();
-        let all = app.scrollback.visible(usize::MAX).0;
-        let usage_line = all.last().expect("usage line should exist");
-        assert!(usage_line.contains('$'), "expected cost: {usage_line}");
+        let rendered = app.render_to_text(100, 24);
+        assert!(rendered.contains('$'), "expected cost: {rendered}");
         // Cost should be higher than just 100+50 tokens — cache tokens add to it.
         // With sonnet pricing: 100 in + 50 out + 1000 cache_create + 5000 cache_read
         // = $0.0015 + $0.00375 + $0.01875 + $0.0075 ≈ $0.0315
         assert!(
-            usage_line.contains("0.03"),
-            "expected cache-aware cost: {usage_line}"
+            rendered.contains("0.03"),
+            "expected cache-aware cost: {rendered}"
         );
     }
 
@@ -2579,11 +4362,11 @@ mod tests {
         assert!(app.dirty, "ReasoningUpdate must set dirty flag");
         let header_text = format!("{:?}", app.cached_header);
         assert!(
-            header_text.contains("max"),
+            header_text.contains("MAX"),
             "header must show effort level: {header_text}"
         );
         assert!(
-            header_text.contains("off"),
+            header_text.contains("OFF"),
             "header must show thinking=off: {header_text}"
         );
     }
@@ -2604,7 +4387,7 @@ mod tests {
         assert!(app.thinking_mode.is_none());
         let header_text = format!("{:?}", app.cached_header);
         assert!(
-            header_text.contains("auto"),
+            header_text.contains("AUTO"),
             "header must show default thinking=auto: {header_text}"
         );
     }
@@ -2711,12 +4494,12 @@ mod tests {
         let header = RatatuiApp::build_header_line("gpt-4o", "write", Some("main"), None, None);
         let text = format!("{header:?}");
         assert!(
-            text.contains("think"),
-            "header must contain 'think': {text}"
+            text.contains("THINK"),
+            "header must contain 'THINK': {text}"
         );
         assert!(
-            text.contains("auto"),
-            "header must contain 'auto' for default thinking: {text}"
+            text.contains("AUTO"),
+            "header must contain 'AUTO' for default thinking: {text}"
         );
     }
 
@@ -2731,11 +4514,11 @@ mod tests {
         );
         let text = format!("{header:?}");
         assert!(
-            text.contains("think"),
-            "header must contain 'think': {text}"
+            text.contains("THINK"),
+            "header must contain 'THINK': {text}"
         );
-        assert!(text.contains("on"), "header must show thinking=on: {text}");
-        assert!(text.contains("high"), "header must show effort: {text}");
+        assert!(text.contains("ON"), "header must show thinking=on: {text}");
+        assert!(text.contains("HIGH"), "header must show effort: {text}");
     }
 
     #[test]
@@ -2749,10 +4532,10 @@ mod tests {
         );
         let text = format!("{header:?}");
         assert!(
-            text.contains("off"),
+            text.contains("OFF"),
             "header must show thinking=off: {text}"
         );
-        assert!(text.contains("max"), "header must show effort=max: {text}");
+        assert!(text.contains("MAX"), "header must show effort=max: {text}");
     }
 
     // -- Double-flush guard tests -------------------------------------------
@@ -2927,6 +4710,75 @@ mod tests {
     }
 
     #[test]
+    fn model_selector_provider_filter_limits_entries() {
+        let mut app = RatatuiApp::new("gpt-4o".into(), "write".into(), None);
+        app.open_model_selector();
+        let sel = app.model_selector.as_mut().unwrap();
+        if sel.providers.is_empty() {
+            return;
+        }
+
+        sel.cycle_provider_filter();
+        let provider = sel.provider_filter.expect("provider filter should be set");
+
+        assert!(!sel.filtered.is_empty());
+        for &idx in &sel.filtered {
+            assert_eq!(sel.all_entries[idx].provider, provider);
+        }
+    }
+
+    #[test]
+    fn model_selector_render_shows_provider_and_context_controls() {
+        let mut app = RatatuiApp::new("gpt-4o".into(), "write".into(), None);
+        app.open_model_selector();
+
+        let rendered = app.render_to_text(120, 32);
+
+        assert!(rendered.contains("provider"));
+        assert!(rendered.contains("CTX"));
+        assert!(rendered.contains("FAMILY"));
+        assert!(rendered.contains("PRICE"));
+        assert!(rendered.contains("CAP"));
+        assert!(rendered.contains("Tab"));
+    }
+
+    #[test]
+    fn model_metadata_labels_are_compact_and_informative() {
+        use ninmu_api::{ModelEntry, ProviderKind};
+
+        let local = model_entry("local", "ollama/llama3.1:8b", ProviderKind::Ollama, true);
+        let reasoning = model_entry(
+            "deepseek-r1",
+            "deepseek-reasoner",
+            ProviderKind::DeepSeek,
+            true,
+        );
+        let frontier = model_entry("opus", "claude-opus-4-6", ProviderKind::Anthropic, true);
+
+        assert_eq!(model_family_label(&local), "local");
+        assert_eq!(model_family_label(&reasoning), "reasoning");
+        assert_eq!(model_family_label(&frontier), "frontier");
+        assert_eq!(model_price_label("ollama/llama3.1:8b"), "PRICE local");
+        assert_eq!(model_price_label("claude-opus-4-6"), "PRICE $15/$75");
+        assert_eq!(model_price_label("unknown-model"), "PRICE ?");
+        assert_eq!(model_capability_label(&local), "local");
+        assert_eq!(model_capability_label(&reasoning), "thinking");
+        assert_eq!(model_capability_label(&frontier), "tools");
+
+        let sourced = ModelEntry {
+            alias: "catalog".to_string(),
+            canonical: "catalog-model".to_string(),
+            provider: ProviderKind::Mistral,
+            has_auth: true,
+            family: Some("codestral".to_string()),
+            supports_reasoning: false,
+            supports_tools: true,
+        };
+        assert_eq!(model_family_label(&sourced), "coding");
+        assert_eq!(model_capability_label(&sourced), "tools");
+    }
+
+    #[test]
     fn model_selector_esc_closes() {
         let mut app = RatatuiApp::new("gpt-4o".into(), "write".into(), None);
         app.open_model_selector();
@@ -2940,36 +4792,26 @@ mod tests {
         use ninmu_api::{ModelEntry, ProviderKind};
 
         let entries = vec![
-            ModelEntry {
-                alias: "gpt-4o".into(),
-                canonical: "gpt-4o".into(),
-                provider: ProviderKind::OpenAi,
-                has_auth: true,
-            },
-            ModelEntry {
-                alias: "gpt-4-turbo".into(),
-                canonical: "gpt-4-turbo".into(),
-                provider: ProviderKind::OpenAi,
-                has_auth: true,
-            },
-            ModelEntry {
-                alias: "claude-sonnet".into(),
-                canonical: "claude-sonnet".into(),
-                provider: ProviderKind::Anthropic,
-                has_auth: false,
-            },
-            ModelEntry {
-                alias: "claude-haiku".into(),
-                canonical: "claude-haiku".into(),
-                provider: ProviderKind::Anthropic,
-                has_auth: false,
-            },
-            ModelEntry {
-                alias: "deepseek-chat".into(),
-                canonical: "deepseek-chat".into(),
-                provider: ProviderKind::DeepSeek,
-                has_auth: false,
-            },
+            model_entry("gpt-4o", "gpt-4o", ProviderKind::OpenAi, true),
+            model_entry("gpt-4-turbo", "gpt-4-turbo", ProviderKind::OpenAi, true),
+            model_entry(
+                "claude-sonnet",
+                "claude-sonnet",
+                ProviderKind::Anthropic,
+                false,
+            ),
+            model_entry(
+                "claude-haiku",
+                "claude-haiku",
+                ProviderKind::Anthropic,
+                false,
+            ),
+            model_entry(
+                "deepseek-chat",
+                "deepseek-chat",
+                ProviderKind::DeepSeek,
+                false,
+            ),
         ];
 
         let collapsed = RatatuiApp::collapse_no_auth_providers(entries);
@@ -3000,6 +4842,20 @@ mod tests {
         );
         // Total: 2 + 1 + 1 = 4
         assert_eq!(collapsed.len(), 4);
+    }
+
+    #[test]
+    fn pin_current_model_moves_matching_entry_to_top() {
+        use ninmu_api::ProviderKind;
+
+        let entries = vec![
+            model_entry("sonnet", "claude-sonnet", ProviderKind::Anthropic, true),
+            model_entry("gpt", "gpt-4o", ProviderKind::OpenAi, true),
+        ];
+
+        let pinned = RatatuiApp::pin_current_model(entries, "gpt-4o");
+
+        assert_eq!(pinned[0].canonical, "gpt-4o");
     }
 
     // -- Stall watchdog tests ----------------------------------------------
@@ -3456,7 +5312,10 @@ mod tests {
         assert_eq!(app.cursor, 200);
         // Second paste inserts at cursor, starts new animation.
         app.handle_paste(&second);
-        assert!(app.paste_animating, "second long paste starts new animation");
+        assert!(
+            app.paste_animating,
+            "second long paste starts new animation"
+        );
         assert_eq!(app.cached_input, format!("{first}{second}"));
         // First paste span is recorded; second is still animating.
         assert_eq!(app.paste_spans.len(), 1);
@@ -3473,7 +5332,10 @@ mod tests {
         app.finish_animation();
         // Short paste also inserts at cursor.
         app.handle_paste(" more text");
-        assert_eq!(app.cached_input, format!("{}{}", "a".repeat(200), " more text"));
+        assert_eq!(
+            app.cached_input,
+            format!("{}{}", "a".repeat(200), " more text")
+        );
         // Only one paste span (the long one); short paste has no span.
         assert_eq!(app.paste_spans.len(), 1);
     }
@@ -3545,7 +5407,10 @@ mod tests {
         app.handle_paste(&second);
 
         // Second long paste starts its own animation.
-        assert!(app.paste_animating, "second long paste starts new animation");
+        assert!(
+            app.paste_animating,
+            "second long paste starts new animation"
+        );
         // First paste span is recorded.
         assert_eq!(app.paste_spans.len(), 1);
         // input_buf has both pastes in order.

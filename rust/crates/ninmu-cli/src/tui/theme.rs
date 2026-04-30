@@ -1,12 +1,43 @@
 /// Named semantic color tokens for the TUI.
 ///
 /// All TUI modules should reference these constants instead of
-/// hard-coding ANSI escape sequences. This makes theme switching
+/// hard-coding color values. This makes theme switching
 /// a single-point change.
+use ratatui::style::Color;
+
 pub struct Theme;
 
 /// ── Base palette ──────────────────────────────────────────────────────────
 impl Theme {
+    /// ── Ratatui semantic tokens ────────────────────────────────────────────
+
+    pub const BG: Color = Color::Rgb(7, 8, 13);
+    pub const SURFACE: Color = Color::Rgb(16, 19, 28);
+    pub const SURFACE_RAISED: Color = Color::Rgb(22, 26, 37);
+    pub const BORDER: Color = Color::Rgb(38, 48, 66);
+    pub const BORDER_BRIGHT_COLOR: Color = Color::Rgb(67, 82, 112);
+    pub const TEXT_COLOR: Color = Color::Rgb(231, 237, 247);
+    pub const TEXT_SECONDARY_COLOR: Color = Color::Rgb(154, 166, 184);
+    pub const MUTED_COLOR: Color = Color::Rgb(88, 99, 119);
+    pub const ACCENT_COLOR: Color = Color::Rgb(255, 107, 53);
+    pub const FOCUS: Color = Color::Rgb(0, 217, 255);
+    pub const FOCUS_TEXT: Color = Color::Rgb(2, 16, 24);
+    pub const FOCUS_MUTED: Color = Color::Rgb(61, 91, 103);
+    pub const WARNING_COLOR: Color = Color::Rgb(255, 184, 77);
+    pub const WARNING_BG: Color = Color::Rgb(80, 52, 34);
+    pub const ERROR_COLOR: Color = Color::Rgb(203, 80, 80);
+    pub const SUCCESS_COLOR: Color = Color::Rgb(70, 205, 120);
+    pub const THINKING_COLOR: Color = Color::Rgb(210, 92, 255);
+    pub const USER_COLOR: Color = Color::Rgb(90, 235, 145);
+    pub const USER_COLOR_DIM: Color = Color::Rgb(38, 107, 70);
+    pub const ASSISTANT_COLOR: Color = Color::Rgb(204, 222, 255);
+    pub const CODE_BG: Color = Color::Rgb(20, 24, 36);
+    pub const CODE_FG: Color = Color::Rgb(184, 224, 255);
+    pub const INLINE_CODE_BG: Color = Color::Rgb(30, 35, 49);
+    pub const PASTE_FLASH_A: Color = Color::Rgb(255, 160, 40);
+    pub const PASTE_FLASH_B: Color = Color::Rgb(255, 120, 20);
+    pub const ACCENT_ON_COLOR: Color = Color::Rgb(255, 218, 190);
+
     /// Dark grey/dim for secondary info (status bar, truncation notices).
     pub const DIM: &'static str = "\x1b[2m";
     /// Reset all attributes.
@@ -90,6 +121,14 @@ mod tests {
         assert!(!Theme::TEXT.is_empty());
         assert!(!Theme::TEXT_SECONDARY.is_empty());
         assert!(!Theme::BORDER_BRIGHT.is_empty());
+    }
+
+    #[test]
+    fn ratatui_palette_has_distinct_neon_roles() {
+        assert_ne!(Theme::FOCUS, Theme::ACCENT_COLOR);
+        assert_ne!(Theme::THINKING_COLOR, Theme::ACCENT_COLOR);
+        assert_ne!(Theme::WARNING_COLOR, Theme::ERROR_COLOR);
+        assert_ne!(Theme::BG, Theme::SURFACE);
     }
 
     #[test]

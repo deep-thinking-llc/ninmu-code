@@ -38,6 +38,26 @@ fn status_command_applies_model_and_permission_mode_flags() {
 }
 
 #[test]
+fn non_tui_status_does_not_initialize_tui() {
+    let temp_dir = unique_temp_dir("non-tui-no-init");
+    fs::create_dir_all(&temp_dir).expect("temp dir should exist");
+
+    let output = Command::new(env!("CARGO_BIN_EXE_ninmu"))
+        .current_dir(&temp_dir)
+        .env("NINMU_TEST_PANIC_ON_TUI_INIT", "1")
+        .args(["--output-format", "json", "status"])
+        .output()
+        .expect("ninmu should launch");
+
+    assert_success(&output);
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
+    assert!(!stdout.contains("\x1b[?1049h"));
+    assert!(!stdout.contains("\x1b[?1049l"));
+
+    fs::remove_dir_all(temp_dir).expect("cleanup temp dir");
+}
+
+#[test]
 fn resume_flag_loads_a_saved_session_and_dispatches_status() {
     // given
     let temp_dir = unique_temp_dir("resume-status");

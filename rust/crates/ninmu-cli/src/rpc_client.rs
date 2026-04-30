@@ -30,8 +30,7 @@ impl RpcApiClient {
         let client = runtime.block_on(async {
             match ninmu_api::detect_provider_kind(&resolved_model) {
                 ninmu_api::ProviderKind::Anthropic => {
-                    let auth =
-                        ninmu_api::resolve_startup_auth_source(|| Ok(None))?;
+                    let auth = ninmu_api::resolve_startup_auth_source(|| Ok(None))?;
                     let inner = ninmu_api::AnthropicClient::from_auth(auth)
                         .with_base_url(ninmu_api::read_base_url());
                     Ok::<_, Box<dyn std::error::Error>>(ProviderClient::Anthropic(inner))
@@ -99,10 +98,13 @@ fn conversation_message_to_input_message(
         .map(|b| match b {
             ContentBlock::Text { text } => Ok(ninmu_api::InputContentBlock::Text { text }),
             ContentBlock::ToolUse { id, name, input } => {
-                let value = serde_json::from_str(&input).map_err(|e| {
-                    RuntimeError::new(format!("invalid tool input JSON: {e}"))
-                })?;
-                Ok(ninmu_api::InputContentBlock::ToolUse { id, name, input: value })
+                let value = serde_json::from_str(&input)
+                    .map_err(|e| RuntimeError::new(format!("invalid tool input JSON: {e}")))?;
+                Ok(ninmu_api::InputContentBlock::ToolUse {
+                    id,
+                    name,
+                    input: value,
+                })
             }
             ContentBlock::ToolResult {
                 tool_use_id,
@@ -168,10 +170,7 @@ fn usage_to_token_usage(usage: &Usage) -> TokenUsage {
     }
 }
 
-fn push_prompt_cache_record(
-    client: &ProviderClient,
-    events: &mut Vec<AssistantEvent>,
-) {
+fn push_prompt_cache_record(client: &ProviderClient, events: &mut Vec<AssistantEvent>) {
     if let Some(record) = client.take_last_prompt_cache_record() {
         if let Some(event) = prompt_cache_record_to_runtime_event(record) {
             events.push(AssistantEvent::PromptCache(event));

@@ -218,6 +218,12 @@ pub struct ModelEntry {
     pub provider: ProviderKind,
     /// Whether the required API key env var is set.
     pub has_auth: bool,
+    /// Optional provider/catalog family label.
+    pub family: Option<String>,
+    /// Whether provider/catalog metadata says this model supports reasoning.
+    pub supports_reasoning: bool,
+    /// Whether provider/catalog metadata says this model supports tool calls.
+    pub supports_tools: bool,
 }
 
 /// Check whether any model in the registry for the given provider has its
@@ -241,6 +247,12 @@ pub fn list_available_models() -> Vec<ModelEntry> {
             canonical: resolve_model_alias(alias),
             provider: metadata.provider,
             has_auth: std::env::var(metadata.auth_env).is_ok(),
+            family: None,
+            supports_reasoning: matches!(
+                *alias,
+                "deepseek-reasoner" | "deepseek-r1" | "grok-mini" | "grok-3-mini" | "grok-4-mini"
+            ),
+            supports_tools: true,
         })
         .collect();
     // Deduplicate: skip entries whose canonical name is already present.
@@ -262,6 +274,9 @@ pub fn list_available_models() -> Vec<ModelEntry> {
                     canonical: model.model_id,
                     provider,
                     has_auth,
+                    family: None,
+                    supports_reasoning: false,
+                    supports_tools: true,
                 });
             }
         }

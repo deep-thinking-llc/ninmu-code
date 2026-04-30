@@ -173,6 +173,15 @@ impl Scrollback {
         true
     }
 
+    /// Toggle the most recently added collapsible entry. Useful for keyboard
+    /// flows that do not yet track a dedicated scrollback focus cursor.
+    pub fn toggle_latest_collapsible(&mut self) -> bool {
+        let Some((start, _, _, _)) = self.collapsible_entries.last().cloned() else {
+            return false;
+        };
+        self.toggle_expand_at(start)
+    }
+
     /// Whether the given line index is the start of a collapsible entry.
     pub fn is_collapsible_start(&self, line_index: usize) -> bool {
         self.collapsible_entries
@@ -448,6 +457,23 @@ mod tests {
         let (visible, _, _) = sb.visible(20);
         assert!(visible[0].contains("line 1"));
         assert!(visible[9].contains("line 10"));
+    }
+
+    #[test]
+    fn toggle_latest_collapsible_reveals_recent_entry() {
+        let mut sb = Scrollback::new(100);
+        sb.push("intro".to_string());
+        let full = vec![
+            "tool header".to_string(),
+            "line one".to_string(),
+            "line two".to_string(),
+            "line three".to_string(),
+        ];
+        sb.push_collapsible(&full, 2);
+
+        assert!(sb.toggle_latest_collapsible());
+        let rendered = sb.visible(10).0.join("\n");
+        assert!(rendered.contains("line three"));
     }
 
     #[test]
