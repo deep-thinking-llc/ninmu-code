@@ -630,6 +630,8 @@ struct StreamState {
     stop_reason: Option<String>,
     usage: Option<Usage>,
     tool_calls: BTreeMap<u32, ToolCallState>,
+    qwen_think_tag_state: QwenThinkTagState,
+    qwen_think_tag_buffer: String,
 }
 
 impl StreamState {
@@ -665,6 +667,8 @@ impl StreamState {
             stop_reason: None,
             usage: None,
             tool_calls: BTreeMap::new(),
+            qwen_think_tag_state: QwenThinkTagState::Detecting,
+            qwen_think_tag_buffer: String::new(),
         }
     }
 
@@ -707,49 +711,14 @@ impl StreamState {
             // Emitted before the final text content and surfaced as Thinking blocks.
             if let Some(reasoning) = choice
                 .delta
-                .reasoning_content
+                .thinking_content()
                 .filter(|value| !value.is_empty())
             {
-                if !self.thinking_started {
-                    self.thinking_started = true;
-                    events.push(StreamEvent::ContentBlockStart(ContentBlockStartEvent {
-                        index: 0,
-                        content_block: OutputContentBlock::Thinking {
-                            thinking: String::new(),
-                            signature: None,
-                        },
-                    }));
-                }
-                events.push(StreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
-                    index: 0,
-                    delta: ContentBlockDelta::ThinkingDelta {
-                        thinking: reasoning,
-                    },
-                }));
+                self.emit_thinking_delta(reasoning, &mut events);
             }
 
             if let Some(content) = choice.delta.content.filter(|value| !value.is_empty()) {
-                // Transition from thinking → text: close the thinking block first.
-                if self.thinking_started && !self.thinking_stopped {
-                    self.thinking_stopped = true;
-                    events.push(StreamEvent::ContentBlockStop(ContentBlockStopEvent {
-                        index: 0,
-                    }));
-                }
-                if !self.text_started {
-                    self.text_started = true;
-                    let text_idx = self.text_index();
-                    events.push(StreamEvent::ContentBlockStart(ContentBlockStartEvent {
-                        index: text_idx,
-                        content_block: OutputContentBlock::Text {
-                            text: String::new(),
-                        },
-                    }));
-                }
-                events.push(StreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
-                    index: self.text_index(),
-                    delta: ContentBlockDelta::TextDelta { text: content },
-                }));
+                self.emit_content_delta(content, &mut events);
             }
 
             for tool_call in choice.delta.tool_calls {
@@ -803,6 +772,7 @@ impl StreamState {
         self.finished = true;
 
         let mut events = Vec::new();
+        self.flush_qwen_think_tag_buffer(&mut events);
 
         // Close thinking block if it was started but never stopped.
         if self.thinking_started && !self.thinking_stopped {
@@ -862,6 +832,157 @@ impl StreamState {
         }
         Ok(events)
     }
+
+    fn emit_content_delta(&mut self, content: String, events: &mut Vec<StreamEvent>) {
+        if self.should_parse_qwen_think_tags(&content) {
+            self.emit_qwen_tagged_content(&content, events);
+        } else {
+            self.emit_text_delta(content, events);
+        }
+    }
+
+    fn should_parse_qwen_think_tags(&self, content: &str) -> bool {
+        is_qwen_think_tag_model(&self.model)
+            || self.qwen_think_tag_state != QwenThinkTagState::Detecting
+            || !self.qwen_think_tag_buffer.is_empty()
+            || content.starts_with("<think>")
+            || content.starts_with("</think>")
+    }
+
+    fn emit_qwen_tagged_content(&mut self, content: &str, events: &mut Vec<StreamEvent>) {
+        self.qwen_think_tag_buffer.push_str(content);
+        loop {
+            match self.qwen_think_tag_state {
+                QwenThinkTagState::Detecting => {
+                    if self.qwen_think_tag_buffer.is_empty() {
+                        break;
+                    }
+                    if self.qwen_think_tag_buffer == "<"
+                        || "<think>".starts_with(&self.qwen_think_tag_buffer)
+                    {
+                        break;
+                    }
+                    if self.qwen_think_tag_buffer.starts_with("<think>") {
+                        self.qwen_think_tag_buffer.drain(.."<think>".len());
+                        self.qwen_think_tag_state = QwenThinkTagState::Thinking;
+                        continue;
+                    }
+                    if let Some(close_index) = self.qwen_think_tag_buffer.find("</think>") {
+                        let thinking = self.qwen_think_tag_buffer[..close_index].to_string();
+                        let text = self.qwen_think_tag_buffer[close_index + "</think>".len()..]
+                            .to_string();
+                        self.qwen_think_tag_buffer.clear();
+                        if !thinking.is_empty() {
+                            self.emit_thinking_delta(thinking, events);
+                        }
+                        self.stop_thinking_if_open(events);
+                        self.qwen_think_tag_state = QwenThinkTagState::Text;
+                        if !text.is_empty() {
+                            self.emit_text_delta(text, events);
+                        }
+                        break;
+                    }
+                    let text = std::mem::take(&mut self.qwen_think_tag_buffer);
+                    self.qwen_think_tag_state = QwenThinkTagState::Text;
+                    self.emit_text_delta(text, events);
+                    break;
+                }
+                QwenThinkTagState::Thinking => {
+                    if let Some(close_index) = self.qwen_think_tag_buffer.find("</think>") {
+                        let thinking = self.qwen_think_tag_buffer[..close_index].to_string();
+                        let text = self.qwen_think_tag_buffer[close_index + "</think>".len()..]
+                            .to_string();
+                        self.qwen_think_tag_buffer.clear();
+                        if !thinking.is_empty() {
+                            self.emit_thinking_delta(thinking, events);
+                        }
+                        self.stop_thinking_if_open(events);
+                        self.qwen_think_tag_state = QwenThinkTagState::Text;
+                        if !text.is_empty() {
+                            self.emit_text_delta(text, events);
+                        }
+                        break;
+                    }
+                    let thinking = std::mem::take(&mut self.qwen_think_tag_buffer);
+                    if !thinking.is_empty() {
+                        self.emit_thinking_delta(thinking, events);
+                    }
+                    break;
+                }
+                QwenThinkTagState::Text => {
+                    let text = std::mem::take(&mut self.qwen_think_tag_buffer);
+                    if !text.is_empty() {
+                        self.emit_text_delta(text, events);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    fn flush_qwen_think_tag_buffer(&mut self, events: &mut Vec<StreamEvent>) {
+        if self.qwen_think_tag_buffer.is_empty() {
+            return;
+        }
+        let pending = std::mem::take(&mut self.qwen_think_tag_buffer);
+        match self.qwen_think_tag_state {
+            QwenThinkTagState::Thinking => self.emit_thinking_delta(pending, events),
+            QwenThinkTagState::Detecting | QwenThinkTagState::Text => {
+                self.emit_text_delta(pending, events);
+            }
+        }
+    }
+
+    fn emit_thinking_delta(&mut self, thinking: String, events: &mut Vec<StreamEvent>) {
+        if !self.thinking_started {
+            self.thinking_started = true;
+            events.push(StreamEvent::ContentBlockStart(ContentBlockStartEvent {
+                index: 0,
+                content_block: OutputContentBlock::Thinking {
+                    thinking: String::new(),
+                    signature: None,
+                },
+            }));
+        }
+        events.push(StreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
+            index: 0,
+            delta: ContentBlockDelta::ThinkingDelta { thinking },
+        }));
+    }
+
+    fn stop_thinking_if_open(&mut self, events: &mut Vec<StreamEvent>) {
+        if self.thinking_started && !self.thinking_stopped {
+            self.thinking_stopped = true;
+            events.push(StreamEvent::ContentBlockStop(ContentBlockStopEvent {
+                index: 0,
+            }));
+        }
+    }
+
+    fn emit_text_delta(&mut self, text: String, events: &mut Vec<StreamEvent>) {
+        self.stop_thinking_if_open(events);
+        if !self.text_started {
+            self.text_started = true;
+            let text_idx = self.text_index();
+            events.push(StreamEvent::ContentBlockStart(ContentBlockStartEvent {
+                index: text_idx,
+                content_block: OutputContentBlock::Text {
+                    text: String::new(),
+                },
+            }));
+        }
+        events.push(StreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
+            index: self.text_index(),
+            delta: ContentBlockDelta::TextDelta { text },
+        }));
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QwenThinkTagState {
+    Detecting,
+    Thinking,
+    Text,
 }
 
 #[derive(Debug, Default)]
@@ -948,6 +1069,13 @@ struct ChatMessage {
     role: String,
     #[serde(default)]
     content: Option<String>,
+    #[serde(
+        default,
+        rename = "reasoning_content",
+        alias = "thinking",
+        alias = "thinking_content"
+    )]
+    reasoning_content: Option<String>,
     #[serde(default)]
     tool_calls: Vec<ResponseToolCall>,
 }
@@ -1011,10 +1139,21 @@ struct ChunkDelta {
     content: Option<String>,
     /// Reasoning/thinking content emitted by models like `deepseek-reasoner`
     /// and Qwen thinking variants before the final `content` text.
-    #[serde(default, rename = "reasoning_content")]
+    #[serde(
+        default,
+        rename = "reasoning_content",
+        alias = "thinking",
+        alias = "thinking_content"
+    )]
     reasoning_content: Option<String>,
     #[serde(default, deserialize_with = "deserialize_null_as_empty_vec")]
     tool_calls: Vec<DeltaToolCall>,
+}
+
+impl ChunkDelta {
+    fn thinking_content(&self) -> Option<String> {
+        self.reasoning_content.clone()
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -1090,6 +1229,30 @@ pub fn is_deepseek_reasoning_model(model: &str) -> bool {
         || canonical.starts_with("qwq")
         || canonical.starts_with("qwen-qwq")
         || canonical.starts_with("mimo")
+}
+
+fn is_qwen_think_tag_model(model: &str) -> bool {
+    let lowered = model.to_ascii_lowercase();
+    let canonical = lowered.rsplit('/').next().unwrap_or(lowered.as_str());
+    canonical.starts_with("qwen") || canonical.starts_with("qwq")
+}
+
+fn split_qwen_think_tagged_content(model: &str, content: &str) -> Option<(String, String)> {
+    if let Some(rest) = content.strip_prefix("<think>") {
+        let close_index = rest.find("</think>")?;
+        let thinking = rest[..close_index].to_string();
+        let text = rest[close_index + "</think>".len()..].to_string();
+        return Some((thinking, text));
+    }
+
+    if !is_qwen_think_tag_model(model) {
+        return None;
+    }
+
+    let close_index = content.find("</think>")?;
+    let thinking = content[..close_index].to_string();
+    let text = content[close_index + "</think>".len()..].to_string();
+    Some((thinking, text))
 }
 
 /// Strip routing prefix (e.g., "openai/gpt-4" → "gpt-4") for the wire.
@@ -1505,8 +1668,33 @@ fn normalize_response(
             "chat completion response missing choices",
         ))?;
     let mut content = Vec::new();
+    let had_explicit_reasoning = choice.message.reasoning_content.is_some();
+    if let Some(thinking) = choice
+        .message
+        .reasoning_content
+        .filter(|value| !value.is_empty())
+    {
+        content.push(OutputContentBlock::Thinking {
+            thinking,
+            signature: None,
+        });
+    }
     if let Some(text) = choice.message.content.filter(|value| !value.is_empty()) {
-        content.push(OutputContentBlock::Text { text });
+        if had_explicit_reasoning {
+            content.push(OutputContentBlock::Text { text });
+        } else if let Some((thinking, answer)) = split_qwen_think_tagged_content(model, &text) {
+            if !thinking.is_empty() {
+                content.push(OutputContentBlock::Thinking {
+                    thinking,
+                    signature: None,
+                });
+            }
+            if !answer.is_empty() {
+                content.push(OutputContentBlock::Text { text: answer });
+            }
+        } else {
+            content.push(OutputContentBlock::Text { text });
+        }
     }
     for tool_call in choice.message.tool_calls {
         content.push(OutputContentBlock::ToolUse {
@@ -1756,8 +1944,8 @@ mod tests {
     };
     use crate::error::ApiError;
     use crate::types::{
-        InputContentBlock, InputMessage, MessageRequest, ToolChoice, ToolDefinition,
-        ToolResultContentBlock,
+        ContentBlockDelta, ContentBlockDeltaEvent, InputContentBlock, InputMessage, MessageRequest,
+        OutputContentBlock, StreamEvent, ToolChoice, ToolDefinition, ToolResultContentBlock,
     };
     use serde_json::json;
     use std::sync::{Mutex, OnceLock};
@@ -2139,6 +2327,192 @@ mod tests {
             serde_json::from_str(json).expect("should parse without reasoning_content");
         assert_eq!(delta.content.as_deref(), Some("hello"));
         assert!(delta.reasoning_content.is_none());
+    }
+
+    #[test]
+    fn chat_message_parses_reasoning_content() {
+        let json = r#"{"role":"assistant","content":"answer","reasoning_content":"thinking"}"#;
+        let message: super::ChatMessage =
+            serde_json::from_str(json).expect("should parse reasoning_content");
+        assert_eq!(message.reasoning_content.as_deref(), Some("thinking"));
+    }
+
+    #[test]
+    fn chat_message_parses_qwen_thinking_content_alias() {
+        let json = r#"{"role":"assistant","content":"answer","thinking_content":"thinking"}"#;
+        let message: super::ChatMessage =
+            serde_json::from_str(json).expect("should parse thinking_content");
+        assert_eq!(message.reasoning_content.as_deref(), Some("thinking"));
+    }
+
+    #[test]
+    fn chunk_delta_parses_qwen_thinking_alias() {
+        let json = r#"{"content":"answer","thinking":"thinking"}"#;
+        let delta: super::ChunkDelta = serde_json::from_str(json).expect("should parse thinking");
+        assert_eq!(delta.thinking_content().as_deref(), Some("thinking"));
+    }
+
+    #[test]
+    fn normalize_response_preserves_reasoning_content_before_tool_calls() {
+        let response = super::ChatCompletionResponse {
+            id: "chatcmpl-1".to_string(),
+            model: "deepseek-reasoner".to_string(),
+            choices: vec![super::ChatChoice {
+                message: super::ChatMessage {
+                    role: "assistant".to_string(),
+                    content: None,
+                    reasoning_content: Some("need a file lookup".to_string()),
+                    tool_calls: vec![super::ResponseToolCall {
+                        id: "call_1".to_string(),
+                        function: super::ResponseToolFunction {
+                            name: "read_file".to_string(),
+                            arguments: r#"{"path":"Cargo.toml"}"#.to_string(),
+                        },
+                    }],
+                },
+                finish_reason: Some("tool_calls".to_string()),
+            }],
+            usage: None,
+        };
+
+        let normalized = super::normalize_response("deepseek-reasoner", response)
+            .expect("response should normalize");
+
+        assert!(matches!(
+            &normalized.content[0],
+            OutputContentBlock::Thinking { thinking, .. } if thinking == "need a file lookup"
+        ));
+        assert!(matches!(
+            &normalized.content[1],
+            OutputContentBlock::ToolUse { id, name, .. } if id == "call_1" && name == "read_file"
+        ));
+    }
+
+    #[test]
+    fn normalize_response_extracts_qwen_think_tags_from_content() {
+        let response = super::ChatCompletionResponse {
+            id: "chatcmpl-qwen".to_string(),
+            model: "qwen3-30b-a3b-thinking".to_string(),
+            choices: vec![super::ChatChoice {
+                message: super::ChatMessage {
+                    role: "assistant".to_string(),
+                    content: Some("<think>inspect first</think>answer".to_string()),
+                    reasoning_content: None,
+                    tool_calls: Vec::new(),
+                },
+                finish_reason: Some("stop".to_string()),
+            }],
+            usage: None,
+        };
+
+        let normalized = super::normalize_response("qwen3-30b-a3b-thinking", response)
+            .expect("response should normalize");
+
+        assert_eq!(
+            normalized.content,
+            vec![
+                OutputContentBlock::Thinking {
+                    thinking: "inspect first".to_string(),
+                    signature: None,
+                },
+                OutputContentBlock::Text {
+                    text: "answer".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn normalize_response_extracts_qwen_think_tags_without_opening_tag() {
+        let response = super::ChatCompletionResponse {
+            id: "chatcmpl-qwen".to_string(),
+            model: "qwen3-30b-a3b-thinking".to_string(),
+            choices: vec![super::ChatChoice {
+                message: super::ChatMessage {
+                    role: "assistant".to_string(),
+                    content: Some("inspect first</think>answer".to_string()),
+                    reasoning_content: None,
+                    tool_calls: Vec::new(),
+                },
+                finish_reason: Some("stop".to_string()),
+            }],
+            usage: None,
+        };
+
+        let normalized = super::normalize_response("qwen3-30b-a3b-thinking", response)
+            .expect("response should normalize");
+
+        assert_eq!(
+            normalized.content,
+            vec![
+                OutputContentBlock::Thinking {
+                    thinking: "inspect first".to_string(),
+                    signature: None,
+                },
+                OutputContentBlock::Text {
+                    text: "answer".to_string(),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn stream_state_extracts_qwen_think_tags_split_across_chunks() {
+        let mut state = super::StreamState::new("qwen3-30b-a3b-thinking".to_string());
+        let first = super::ChatCompletionChunk {
+            id: "chatcmpl-qwen".to_string(),
+            model: Some("qwen3-30b-a3b-thinking".to_string()),
+            choices: vec![super::ChunkChoice {
+                delta: super::ChunkDelta {
+                    content: Some("<think>inspect".to_string()),
+                    reasoning_content: None,
+                    tool_calls: Vec::new(),
+                },
+                finish_reason: None,
+            }],
+            usage: None,
+        };
+        let second = super::ChatCompletionChunk {
+            id: "chatcmpl-qwen".to_string(),
+            model: None,
+            choices: vec![super::ChunkChoice {
+                delta: super::ChunkDelta {
+                    content: Some(" first</think>answer".to_string()),
+                    reasoning_content: None,
+                    tool_calls: Vec::new(),
+                },
+                finish_reason: Some("stop".to_string()),
+            }],
+            usage: None,
+        };
+
+        let mut events = state.ingest_chunk(first).expect("first chunk");
+        events.extend(state.ingest_chunk(second).expect("second chunk"));
+        events.extend(state.finish().expect("finish"));
+
+        let thinking = events.iter().fold(String::new(), |mut acc, event| {
+            if let StreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
+                delta: ContentBlockDelta::ThinkingDelta { thinking },
+                ..
+            }) = event
+            {
+                acc.push_str(thinking);
+            }
+            acc
+        });
+        let text = events.iter().fold(String::new(), |mut acc, event| {
+            if let StreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
+                delta: ContentBlockDelta::TextDelta { text },
+                ..
+            }) = event
+            {
+                acc.push_str(text);
+            }
+            acc
+        });
+
+        assert_eq!(thinking, "inspect first");
+        assert_eq!(text, "answer");
     }
 
     #[test]
@@ -2988,6 +3362,55 @@ mod tests {
             json!("let me reason step by step"),
             "thinking block must serialize to reasoning_content"
         );
+    }
+
+    #[test]
+    fn assistant_tool_call_with_thinking_replays_reasoning_content() {
+        use crate::types::{InputContentBlock, InputMessage, ToolResultContentBlock};
+
+        let request = MessageRequest {
+            model: "deepseek-reasoner".to_string(),
+            max_tokens: 100,
+            messages: vec![
+                InputMessage {
+                    role: "assistant".to_string(),
+                    content: vec![
+                        InputContentBlock::Thinking {
+                            thinking: "I need to inspect the file first".to_string(),
+                        },
+                        InputContentBlock::ToolUse {
+                            id: "call_1".to_string(),
+                            name: "read_file".to_string(),
+                            input: serde_json::json!({"path": "Cargo.toml"}),
+                        },
+                    ],
+                },
+                InputMessage {
+                    role: "user".to_string(),
+                    content: vec![InputContentBlock::ToolResult {
+                        tool_use_id: "call_1".to_string(),
+                        content: vec![ToolResultContentBlock::Text {
+                            text: "[package]".to_string(),
+                        }],
+                        is_error: false,
+                    }],
+                },
+            ],
+            stream: false,
+            ..Default::default()
+        };
+
+        let payload = build_chat_completion_request(&request, OpenAiCompatConfig::deepseek());
+        let messages = payload["messages"].as_array().unwrap();
+        let assistant = &messages[0];
+
+        assert_eq!(
+            assistant["reasoning_content"],
+            json!("I need to inspect the file first"),
+            "DeepSeek thinking tool loops must replay assistant reasoning_content"
+        );
+        assert_eq!(assistant["tool_calls"][0]["id"], json!("call_1"));
+        assert_eq!(messages[1]["role"], json!("tool"));
     }
 
     #[test]

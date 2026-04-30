@@ -3783,6 +3783,9 @@ pub(crate) fn push_output_block(
         }
         OutputContentBlock::Thinking { thinking, .. } => {
             render_thinking_block_summary(out, Some(thinking.chars().count()), false)?;
+            if !thinking.is_empty() {
+                events.push(AssistantEvent::ThinkingDelta(thinking));
+            }
             *block_has_thinking_summary = true;
         }
         OutputContentBlock::RedactedThinking { .. } => {

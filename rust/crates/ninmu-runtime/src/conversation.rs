@@ -1756,6 +1756,31 @@ mod tests {
     }
 
     #[test]
+    fn build_assistant_message_preserves_thinking_before_tool_use() {
+        let events = vec![
+            AssistantEvent::ThinkingDelta("I need to inspect the file first".to_string()),
+            AssistantEvent::ToolUse {
+                id: "tool-1".to_string(),
+                name: "read_file".to_string(),
+                input: r#"{"path":"Cargo.toml"}"#.to_string(),
+            },
+            AssistantEvent::MessageStop,
+        ];
+
+        let (message, _, _) =
+            build_assistant_message(events).expect("assistant message should build");
+
+        assert!(matches!(
+            &message.blocks[0],
+            ContentBlock::Thinking { thinking } if thinking == "I need to inspect the file first"
+        ));
+        assert!(matches!(
+            &message.blocks[1],
+            ContentBlock::ToolUse { id, name, .. } if id == "tool-1" && name == "read_file"
+        ));
+    }
+
+    #[test]
     fn static_tool_executor_rejects_unknown_tools() {
         // given
         let mut executor = StaticToolExecutor::new();
