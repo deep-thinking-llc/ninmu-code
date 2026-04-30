@@ -128,6 +128,10 @@ pub struct RatatuiApp {
     reasoning_selector: Option<ReasoningSelector>,
     /// Lightweight command palette dialog (when open).
     command_palette: Option<CommandPalette>,
+    /// Inline slash-command completions for the main input.
+    slash_completion: Option<SlashCompletionState>,
+    /// Cached slash-command candidates so keystrokes don't rebuild the registry.
+    slash_completion_candidates: Option<Vec<String>>,
     /// Selected model callback — set by the TUI to communicate model changes.
     selected_model: Option<String>,
     /// Tracked paste spans within `input_buf`. Each entry records the
@@ -227,6 +231,15 @@ enum CommandPaletteAction {
     ClearTranscript,
 }
 
+/// Inline slash-command completion state. `query` is the user-typed prefix
+/// that produced `matches`; it is kept stable while Tab cycles candidates.
+struct SlashCompletionState {
+    query: String,
+    matches: Vec<String>,
+    selected: usize,
+    inserted_once: bool,
+}
+
 impl RatatuiApp {
     pub fn new(model: String, permission_mode: String, git_branch: Option<String>) -> Self {
         assert!(
@@ -265,6 +278,8 @@ impl RatatuiApp {
             model_selector: None,
             reasoning_selector: None,
             command_palette: None,
+            slash_completion: None,
+            slash_completion_candidates: None,
             selected_model: None,
             paste_spans: Vec::new(),
             paste_animating: false,
@@ -869,12 +884,22 @@ impl RatatuiApp {
                                 self.input_buf.remove(self.cursor);
                                 self.refresh_input_cache();
                             }
-                            KeyCode::Left if self.cursor > 0 => self.cursor -= 1,
+                            KeyCode::Left if self.cursor > 0 => {
+                                self.cursor -= 1;
+                                self.refresh_slash_completion();
+                            }
                             KeyCode::Right if self.cursor < self.input_buf.len() => {
                                 self.cursor += 1;
+                                self.refresh_slash_completion();
                             }
-                            KeyCode::Home => self.cursor = 0,
-                            KeyCode::End => self.cursor = self.input_buf.len(),
+                            KeyCode::Home => {
+                                self.cursor = 0;
+                                self.refresh_slash_completion();
+                            }
+                            KeyCode::End => {
+                                self.cursor = self.input_buf.len();
+                                self.refresh_slash_completion();
+                            }
                             KeyCode::Up => {
                                 if self.input_history.is_empty() {
                                     self.dirty = true;
@@ -1026,6 +1051,104 @@ impl RatatuiApp {
 
     fn refresh_input_cache(&mut self) {
         self.cached_input = self.input_buf.iter().collect();
+        if self.cached_input.starts_with('/') || self.slash_completion.is_some() {
+            self.refresh_slash_completion();
+        }
+    }
+
+    fn complete_slash_input(&mut self) -> bool {
+        if !self.input_is_slash_completion_eligible() {
+            self.slash_completion = None;
+            return false;
+        }
+
+        self.refresh_slash_completion();
+        let Some(mut state) = self.slash_completion.take() else {
+            return false;
+        };
+        if state.matches.is_empty() {
+            return false;
+        }
+
+        if state.inserted_once && self.cached_input == state.matches[state.selected] {
+            state.selected = (state.selected + 1) % state.matches.len();
+        }
+        let completion = state.matches[state.selected].clone();
+        state.inserted_once = true;
+        self.slash_completion = Some(state);
+        self.set_input_text(&completion);
+        true
+    }
+
+    fn input_is_slash_completion_eligible(&self) -> bool {
+        self.cached_input.starts_with('/') && self.cursor == self.input_buf.len()
+    }
+
+    fn refresh_slash_completion(&mut self) {
+        if !self.input_is_slash_completion_eligible() {
+            self.slash_completion = None;
+            return;
+        }
+
+        let current = self.cached_input.clone();
+        if current.trim().contains('\n') {
+            self.slash_completion = None;
+            return;
+        }
+
+        let keep_existing_query = self
+            .slash_completion
+            .as_ref()
+            .is_some_and(|state| state.matches.iter().any(|candidate| candidate == &current));
+        let query = if keep_existing_query {
+            self.slash_completion
+                .as_ref()
+                .map_or_else(|| current.clone(), |state| state.query.clone())
+        } else {
+            current.clone()
+        };
+
+        let mut matches = slash_completion_matches(self.slash_completion_candidates(), &query)
+            .into_iter()
+            .filter(|candidate| candidate != &query)
+            .collect::<Vec<_>>();
+        matches.truncate(12);
+
+        if matches.is_empty() {
+            self.slash_completion = None;
+            return;
+        }
+
+        let (selected, inserted_once) = if let Some(previous) =
+            self.slash_completion.as_ref().filter(|state| {
+                state.query == query && state.matches.iter().any(|candidate| candidate == &current)
+            }) {
+            let selected = previous
+                .matches
+                .get(previous.selected)
+                .and_then(|selected| matches.iter().position(|candidate| candidate == selected))
+                .unwrap_or(previous.selected.min(matches.len().saturating_sub(1)));
+            (selected, previous.inserted_once)
+        } else {
+            (0, false)
+        };
+
+        self.slash_completion = Some(SlashCompletionState {
+            query,
+            matches,
+            selected,
+            inserted_once,
+        });
+    }
+
+    fn slash_completion_candidates(&mut self) -> &[String] {
+        self.slash_completion_candidates.get_or_insert_with(|| {
+            crate::format::slash_command_completion_candidates_with_sessions(
+                &self.model,
+                None,
+                Vec::new(),
+            )
+        })
     }
 
     fn set_input_text(&mut self, text: &str) {
@@ -1033,6 +1156,59 @@ impl RatatuiApp {
         self.cursor = self.input_buf.len();
         self.clear_paste_state();
         self.refresh_input_cache();
+    }
+
+    fn slash_completion_preview(&self) -> Option<(&SlashCompletionState, usize)> {
+        let state = self.slash_completion.as_ref()?;
+        if state.matches.is_empty() {
+            return None;
+        }
+        let visible = state.matches.len().min(6);
+        Some((state, visible))
+    }
+
+    fn draw_slash_completion(&self, frame: &mut ratatui::Frame, input_area: Rect) {
+        let Some((state, visible)) = self.slash_completion_preview() else {
+            return;
+        };
+        if input_area.y <= 1 || input_area.width < 24 {
+            return;
+        }
+
+        let width = input_area.width.min(60).saturating_sub(2);
+        let height = (visible as u16 + 2).min(input_area.y);
+        let x = input_area.x.saturating_add(1);
+        let y = input_area.y.saturating_sub(height);
+        let area = Rect::new(x, y, width, height);
+
+        frame.render_widget(Clear, area);
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(ACCENT))
+            .style(Style::default().bg(SURFACE));
+        let inner = block.inner(area);
+        frame.render_widget(block, area);
+
+        let mut lines = Vec::with_capacity(visible + 1);
+        lines.push(Line::from(vec![
+            Span::styled(" slash ", Style::default().fg(MUTED)),
+            Span::styled(state.query.clone(), Style::default().fg(TEXT_SEC)),
+            Span::styled("  Tab cycles", Style::default().fg(MUTED)),
+        ]));
+        for (idx, candidate) in state.matches.iter().take(visible).enumerate() {
+            let selected = idx == state.selected;
+            let style = if selected {
+                Style::default().fg(BG).bg(ACCENT)
+            } else {
+                Style::default().fg(TEXT)
+            };
+            lines.push(Line::from(vec![
+                Span::styled(if selected { " > " } else { "   " }, style),
+                Span::styled(candidate.clone(), style),
+            ]));
+        }
+
+        frame.render_widget(Paragraph::new(lines), inner);
     }
 
     fn input_panel_height(&self, width: u16) -> u16 {
@@ -1044,44 +1220,6 @@ impl RatatuiApp {
             .sum::<usize>()
             .clamp(1, 6);
         rows as u16 + 2
-    }
-
-    fn complete_slash_input(&mut self) -> bool {
-        let current = self.cached_input.clone();
-        if !current.starts_with('/') || self.cursor != self.input_buf.len() {
-            return false;
-        }
-
-        let candidates = crate::format::slash_command_completion_candidates_with_sessions(
-            &self.model,
-            None,
-            Vec::new(),
-        );
-        let matches = candidates
-            .into_iter()
-            .filter(|candidate| candidate.starts_with(&current) && candidate != &current)
-            .collect::<Vec<_>>();
-
-        match matches.as_slice() {
-            [only] => {
-                self.set_input_text(only);
-                true
-            }
-            [] => false,
-            many => {
-                if let Some(common) = common_prefix(many) {
-                    if common.len() > current.len() {
-                        self.set_input_text(&common);
-                        return true;
-                    }
-                }
-                self.scrollback.push("  completions:".to_string());
-                for candidate in many.iter().take(8) {
-                    self.scrollback.push(format!("    {candidate}"));
-                }
-                true
-            }
-        }
     }
 
     fn refresh_status_cache(&mut self) {
@@ -1487,6 +1625,7 @@ impl RatatuiApp {
             self.draw_conversation(frame, layout[1]);
         }
         self.draw_input(frame, layout[2]);
+        self.draw_slash_completion(frame, layout[2]);
         self.draw_metadata(frame, layout[3]);
         self.draw_status(frame, layout[4]);
 
@@ -3444,15 +3583,63 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-fn common_prefix(values: &[String]) -> Option<String> {
-    let first = values.first()?;
-    let mut prefix = first.clone();
-    for value in &values[1..] {
-        while !value.starts_with(&prefix) {
-            prefix.pop()?;
+fn slash_completion_matches(candidates: &[String], query: &str) -> Vec<String> {
+    let query_lower = query.to_ascii_lowercase();
+    let query_words = query_lower.trim_start_matches('/').replace(' ', "");
+    let mut scored = candidates
+        .iter()
+        .filter_map(|candidate| {
+            slash_completion_score(candidate, &query_lower, &query_words)
+                .map(|score| (score, candidate.clone()))
+        })
+        .collect::<Vec<_>>();
+
+    scored.sort_by(|(left_score, left), (right_score, right)| {
+        left_score.cmp(right_score).then_with(|| left.cmp(right))
+    });
+    scored.into_iter().map(|(_, candidate)| candidate).collect()
+}
+
+fn slash_completion_score(candidate: &str, query_lower: &str, query_words: &str) -> Option<usize> {
+    let candidate_lower = candidate.to_ascii_lowercase();
+    if candidate_lower.starts_with(query_lower) {
+        return Some(candidate_lower.len().saturating_sub(query_lower.len()));
+    }
+
+    let candidate_text = candidate_lower.trim_start_matches('/');
+    let candidate_words = if query_lower.contains(' ') {
+        candidate_text.replace(' ', "")
+    } else {
+        candidate_text.split_whitespace().next()?.to_string()
+    };
+    if candidate_words.contains(query_words) {
+        return Some(1_000 + candidate_words.len().saturating_sub(query_words.len()));
+    }
+
+    fuzzy_subsequence_score(&candidate_words, query_words).map(|score| 2_000 + score)
+}
+
+fn fuzzy_subsequence_score(candidate: &str, query: &str) -> Option<usize> {
+    if query.is_empty() {
+        return Some(candidate.len());
+    }
+
+    let mut score = 0usize;
+    let mut last_match: Option<usize> = None;
+    let mut query_chars = query.chars();
+    let mut wanted = query_chars.next()?;
+    for (idx, candidate_char) in candidate.chars().enumerate() {
+        if candidate_char == wanted {
+            score += last_match.map_or(idx, |last| idx.saturating_sub(last + 1));
+            last_match = Some(idx);
+            if let Some(next) = query_chars.next() {
+                wanted = next;
+            } else {
+                return Some(score + candidate.len().saturating_sub(idx + 1));
+            }
         }
     }
-    Some(prefix)
+    None
 }
 
 fn format_tokens(count: u32) -> String {
@@ -3686,6 +3873,56 @@ mod tests {
 
         assert!(app.complete_slash_input());
         assert_eq!(app.cached_input, "/permissions");
+    }
+
+    #[test]
+    fn slash_completion_shows_fuzzy_matches_while_typing() {
+        let mut app = RatatuiApp::new("sonnet".into(), "write".into(), None);
+        app.set_input_text("/ps");
+
+        let completions = app
+            .slash_completion
+            .as_ref()
+            .expect("slash completion should be active");
+        assert!(completions
+            .matches
+            .iter()
+            .any(|candidate| candidate == "/permissions"));
+    }
+
+    #[test]
+    fn slash_completion_renders_suggestion_overlay() {
+        let mut app = RatatuiApp::new("sonnet".into(), "write".into(), None);
+        app.set_input_text("/ps");
+
+        let rendered = app.render_to_text(100, 30);
+
+        assert!(rendered.contains("slash"));
+        assert!(
+            rendered.contains("/permissions"),
+            "rendered frame:\n{rendered}"
+        );
+        assert!(rendered.contains("Tab cycles"));
+    }
+
+    #[test]
+    fn slash_completion_tab_cycles_candidates_from_original_query() {
+        let mut app = RatatuiApp::new("sonnet".into(), "write".into(), None);
+        app.set_input_text("/p");
+
+        assert!(app.complete_slash_input());
+        let first = app.cached_input.clone();
+        assert!(first.starts_with("/p"));
+
+        assert!(app.complete_slash_input());
+        let second = app.cached_input.clone();
+        assert_ne!(first, second);
+        assert_eq!(
+            app.slash_completion
+                .as_ref()
+                .map(|completion| completion.query.as_str()),
+            Some("/p")
+        );
     }
 
     #[test]
