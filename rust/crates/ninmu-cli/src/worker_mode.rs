@@ -1,3 +1,5 @@
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -112,6 +114,13 @@ fn connect(project: &str, server: &str, output_format: CliOutputFormat) -> Resul
         .error_for_status()
         .map_err(to_process)?;
 
+    let lease_store = LeaseStore::new(project)?;
+    let mut recovered_leases = 0_u64;
+    for lease in lease_store.load_all()? {
+        process_lease(&client, server, project, &lease_store, lease, false)?;
+        recovered_leases += 1;
+    }
+
     let mut processed_leases = 0_u64;
     loop {
         let response = client
@@ -124,33 +133,7 @@ fn connect(project: &str, server: &str, output_format: CliOutputFormat) -> Resul
             break;
         }
         let lease: TaskLease = response.json().map_err(to_process)?;
-        lease.validate().map_err(to_contract)?;
-        let policy = policy_decision(project, &lease);
-        policy.validate().map_err(to_contract)?;
-        let result = if !policy.accepted {
-            blocked_result(
-                &lease.task_request,
-                policy.reason.as_deref().unwrap_or("policy rejected lease"),
-            )
-        } else if lease.cancelled {
-            cancelled_result(&lease.task_request)
-        } else {
-            run_task::execute_task_request(&lease.task_request).map_err(run_task_error)?
-        };
-        post_event(&client, server, &lease, &result)?;
-        let lease_result = TaskLeaseResult {
-            protocol: HarnessProtocolVersion::V1Alpha1,
-            lease_id: lease.lease_id.clone(),
-            idempotency_key: lease.idempotency_key.clone(),
-            result,
-        };
-        client
-            .post(format!("{server}/leases/{}/complete", lease.lease_id))
-            .json(&lease_result)
-            .send()
-            .map_err(to_process)?
-            .error_for_status()
-            .map_err(to_process)?;
+        process_lease(&client, server, project, &lease_store, lease, true)?;
         processed_leases += 1;
     }
 
@@ -162,6 +145,7 @@ fn connect(project: &str, server: &str, output_format: CliOutputFormat) -> Resul
                     "protocol": HarnessProtocolVersion::V1Alpha1,
                     "status": "idle",
                     "processed_leases": processed_leases,
+                    "recovered_leases": recovered_leases,
                 }))
                 .map_err(to_process)?
             );
@@ -171,33 +155,174 @@ fn connect(project: &str, server: &str, output_format: CliOutputFormat) -> Resul
     Ok(())
 }
 
-fn post_event(
+fn process_lease(
+    client: &reqwest::blocking::Client,
+    server: &str,
+    project: &str,
+    lease_store: &LeaseStore,
+    lease: TaskLease,
+    persist: bool,
+) -> Result<(), WorkerError> {
+    lease.validate().map_err(to_contract)?;
+    if persist {
+        lease_store.save(&lease)?;
+    }
+    let policy = policy_decision(project, &lease);
+    policy.validate().map_err(to_contract)?;
+    let result = if !policy.accepted {
+        blocked_result(
+            &lease.task_request,
+            policy.reason.as_deref().unwrap_or("policy rejected lease"),
+        )
+    } else if lease.cancelled {
+        cancelled_result(&lease.task_request)
+    } else {
+        run_task::execute_task_request(&lease.task_request).map_err(run_task_error)?
+    };
+    post_events(client, server, &lease, &result)?;
+    let lease_result = TaskLeaseResult {
+        protocol: HarnessProtocolVersion::V1Alpha1,
+        lease_id: lease.lease_id.clone(),
+        idempotency_key: lease.idempotency_key.clone(),
+        result,
+    };
+    client
+        .post(format!("{server}/leases/{}/complete", lease.lease_id))
+        .json(&lease_result)
+        .send()
+        .map_err(to_process)?
+        .error_for_status()
+        .map_err(to_process)?;
+    lease_store.remove(&lease.lease_id)?;
+    Ok(())
+}
+
+fn post_events(
     client: &reqwest::blocking::Client,
     server: &str,
     lease: &TaskLease,
     result: &HarnessTaskResult,
 ) -> Result<(), WorkerError> {
+    for event in build_events(lease, result) {
+        event.validate().map_err(to_contract)?;
+        client
+            .post(format!("{server}/leases/{}/events", lease.lease_id))
+            .json(&event)
+            .send()
+            .map_err(to_process)?
+            .error_for_status()
+            .map_err(to_process)?;
+    }
+    Ok(())
+}
+
+fn build_events(lease: &TaskLease, result: &HarnessTaskResult) -> Vec<HarnessEvent> {
+    let mut events = Vec::new();
+    push_event(
+        &mut events,
+        lease,
+        "task.started",
+        json!({
+            "lease_id": lease.lease_id,
+            "objective": lease.task_request.objective,
+        }),
+    );
+    push_event(
+        &mut events,
+        lease,
+        "turn.started",
+        json!({
+            "lease_id": lease.lease_id,
+            "model": lease.task_request.model,
+            "workdir": lease.task_request.workdir,
+        }),
+    );
+    for tool_use in &result.tool_uses {
+        push_event(
+            &mut events,
+            lease,
+            "tool.started",
+            with_lease_id(tool_use.clone(), &lease.lease_id),
+        );
+    }
+    for tool_result in &result.tool_results {
+        push_event(
+            &mut events,
+            lease,
+            "tool.completed",
+            with_lease_id(tool_result.clone(), &lease.lease_id),
+        );
+    }
+    for changed_file in &result.changed_files {
+        push_event(
+            &mut events,
+            lease,
+            "file.changed",
+            json!({"lease_id": lease.lease_id, "path": changed_file}),
+        );
+    }
+    for test in &result.tests {
+        push_event(
+            &mut events,
+            lease,
+            "test.started",
+            json!({"lease_id": lease.lease_id, "command": test.command}),
+        );
+        push_event(
+            &mut events,
+            lease,
+            "test.completed",
+            json!({
+                "lease_id": lease.lease_id,
+                "command": test.command,
+                "status": test.status,
+                "exit_code": test.exit_code,
+            }),
+        );
+    }
+    let terminal_kind = match result.status {
+        HarnessTaskStatus::Completed => "task.completed",
+        HarnessTaskStatus::Failed => "task.failed",
+        HarnessTaskStatus::Blocked => "task.blocked",
+        HarnessTaskStatus::Cancelled => "task.cancelled",
+    };
+    push_event(
+        &mut events,
+        lease,
+        terminal_kind,
+        json!({
+            "lease_id": lease.lease_id,
+            "status": result.status,
+            "summary": result.summary,
+        }),
+    );
+    events
+}
+
+fn push_event(events: &mut Vec<HarnessEvent>, lease: &TaskLease, kind: &str, payload: Value) {
+    let sequence = u64::try_from(events.len()).unwrap_or(u64::MAX) + 1;
     let event = HarnessEvent {
         protocol: HarnessProtocolVersion::V1Alpha1,
         mission_id: lease.task_request.mission_id.clone(),
         task_id: lease.task_request.task_id.clone(),
         event_id: idempotency_key("event"),
-        sequence: 1,
+        sequence,
         timestamp: timestamp(),
         kind: HarnessEventKind::new("task.started".to_string()),
-        payload: json!({
-            "lease_id": lease.lease_id,
-            "status": result.status,
-        }),
+        payload,
     };
-    client
-        .post(format!("{server}/leases/{}/events", lease.lease_id))
-        .json(&event)
-        .send()
-        .map_err(to_process)?
-        .error_for_status()
-        .map_err(to_process)?;
-    Ok(())
+    let mut event = event;
+    event.kind = HarnessEventKind::new(kind.to_string());
+    events.push(event);
+}
+
+fn with_lease_id(mut value: Value, lease_id: &str) -> Value {
+    if let Value::Object(object) = &mut value {
+        object.insert("lease_id".to_string(), json!(lease_id));
+        value
+    } else {
+        json!({"lease_id": lease_id, "value": value})
+    }
 }
 
 fn policy_decision(project: &str, lease: &TaskLease) -> WorkerPolicyDecision {
@@ -378,6 +503,76 @@ fn to_process(error: impl std::fmt::Display) -> WorkerError {
 
 fn to_contract(error: impl std::fmt::Display) -> WorkerError {
     WorkerError::Contract(error.to_string())
+}
+
+struct LeaseStore {
+    root: PathBuf,
+}
+
+impl LeaseStore {
+    fn new(project: &str) -> Result<Self, WorkerError> {
+        let root = config_home()
+            .join("worker-leases")
+            .join(safe_path_segment(project));
+        fs::create_dir_all(&root).map_err(to_process)?;
+        Ok(Self { root })
+    }
+
+    fn save(&self, lease: &TaskLease) -> Result<(), WorkerError> {
+        let path = self.path_for(&lease.lease_id);
+        let tmp = path.with_extension("json.tmp");
+        fs::write(&tmp, serde_json::to_vec_pretty(lease).map_err(to_process)?)
+            .map_err(to_process)?;
+        fs::rename(tmp, path).map_err(to_process)
+    }
+
+    fn load_all(&self) -> Result<Vec<TaskLease>, WorkerError> {
+        let mut leases = Vec::new();
+        for entry in fs::read_dir(&self.root).map_err(to_process)? {
+            let path = entry.map_err(to_process)?.path();
+            if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+                continue;
+            }
+            let raw = fs::read_to_string(path).map_err(to_process)?;
+            leases.push(serde_json::from_str(&raw).map_err(to_process)?);
+        }
+        leases.sort_by(|left: &TaskLease, right: &TaskLease| left.lease_id.cmp(&right.lease_id));
+        Ok(leases)
+    }
+
+    fn remove(&self, lease_id: &str) -> Result<(), WorkerError> {
+        let path = self.path_for(lease_id);
+        match fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(error) => Err(to_process(error)),
+        }
+    }
+
+    fn path_for(&self, lease_id: &str) -> PathBuf {
+        self.root
+            .join(format!("{}.json", safe_path_segment(lease_id)))
+    }
+}
+
+fn config_home() -> PathBuf {
+    std::env::var_os("NINMU_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".ninmu")))
+        .unwrap_or_else(|| PathBuf::from(".ninmu"))
+}
+
+fn safe_path_segment(value: &str) -> String {
+    value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() || matches!(character, '-' | '_') {
+                character
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

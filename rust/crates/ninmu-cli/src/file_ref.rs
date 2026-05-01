@@ -241,7 +241,9 @@ fn list_dir_entries_matching(
 mod tests {
     use super::*;
     use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Mutex;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     /// Mutex to serialize CWD-dependent tests (parallel tests share process CWD).
     static CWD_LOCK: Mutex<()> = Mutex::new(());
@@ -251,8 +253,23 @@ mod tests {
     where
         F: FnOnce(),
     {
-        let _guard = CWD_LOCK.lock().unwrap();
+        let _guard = CWD_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         f();
+    }
+
+    fn temp_dir(label: &str) -> std::path::PathBuf {
+        static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+        let millis = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time should be after epoch")
+            .as_millis();
+        let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "ninmu-file-ref-test-{label}-{}-{millis}-{counter}",
+            std::process::id()
+        ))
     }
 
     #[test]
@@ -319,7 +336,7 @@ mod tests {
     #[test]
     fn expand_existing_file() {
         with_cwd_lock(|| {
-            let dir = std::env::temp_dir().join("ninmu-file-ref-test-expand");
+            let dir = temp_dir("expand");
             let _ = fs::create_dir_all(&dir);
             fs::write(dir.join("hello.txt"), "hello world").expect("write test file");
 
@@ -354,7 +371,7 @@ mod tests {
     #[test]
     fn expand_multiple_refs() {
         with_cwd_lock(|| {
-            let dir = std::env::temp_dir().join("ninmu-file-ref-test-multi");
+            let dir = temp_dir("multi");
             let _ = fs::create_dir_all(&dir);
             fs::write(dir.join("a.txt"), "content A").expect("write a");
             fs::write(dir.join("b.txt"), "content B").expect("write b");
@@ -379,7 +396,7 @@ mod tests {
     #[test]
     fn complete_empty_partial() {
         with_cwd_lock(|| {
-            let dir = std::env::temp_dir().join("ninmu-file-ref-test-complete");
+            let dir = temp_dir("complete");
             let _ = fs::create_dir_all(&dir);
             fs::write(dir.join("alpha.rs"), "").expect("write");
             fs::write(dir.join("beta.txt"), "").expect("write");
@@ -405,7 +422,7 @@ mod tests {
     #[test]
     fn complete_partial_filename() {
         with_cwd_lock(|| {
-            let dir = std::env::temp_dir().join("ninmu-file-ref-test-partial");
+            let dir = temp_dir("partial");
             let _ = fs::create_dir_all(&dir);
             fs::write(dir.join("main.rs"), "").expect("write");
             fs::write(dir.join("model.rs"), "").expect("write");
@@ -428,7 +445,7 @@ mod tests {
     #[test]
     fn complete_with_directory_prefix() {
         with_cwd_lock(|| {
-            let dir = std::env::temp_dir().join("ninmu-file-ref-test-dir");
+            let dir = temp_dir("dir");
             let _ = fs::create_dir_all(dir.join("src"));
             fs::write(dir.join("src/main.rs"), "").expect("write");
             fs::write(dir.join("src/model.rs"), "").expect("write");
@@ -450,7 +467,7 @@ mod tests {
     #[test]
     fn complete_case_insensitive() {
         with_cwd_lock(|| {
-            let dir = std::env::temp_dir().join("ninmu-file-ref-test-case");
+            let dir = temp_dir("case");
             let _ = fs::create_dir_all(&dir);
             fs::write(dir.join("README.md"), "").expect("write");
 
@@ -470,7 +487,7 @@ mod tests {
     #[test]
     fn complete_respects_limit() {
         with_cwd_lock(|| {
-            let dir = std::env::temp_dir().join("ninmu-file-ref-test-limit");
+            let dir = temp_dir("limit");
             let _ = fs::create_dir_all(&dir);
             for i in 0..60 {
                 fs::write(dir.join(format!("file_{i:03}.txt")), "").expect("write");

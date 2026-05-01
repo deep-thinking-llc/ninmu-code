@@ -98,6 +98,22 @@ fn worker_connect_registers_executes_and_reports_leases() {
         "events: {:#?}",
         state.events
     );
+    let lease_1_events = state
+        .events
+        .iter()
+        .filter(|event| event["payload"]["lease_id"] == "lease-1")
+        .collect::<Vec<_>>();
+    let lease_1_kinds = lease_1_events
+        .iter()
+        .map(|event| event["kind"].as_str().expect("kind should be text"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lease_1_kinds,
+        vec!["task.started", "turn.started", "task.completed"]
+    );
+    for (index, event) in lease_1_events.iter().enumerate() {
+        assert_eq!(event["sequence"], json!(index + 1));
+    }
     assert_eq!(state.results.len(), 3, "results: {:#?}", state.results);
     assert_eq!(state.results[0]["result"]["status"], "completed");
     assert_eq!(state.results[1]["result"]["status"], "cancelled");
@@ -106,6 +122,62 @@ fn worker_connect_registers_executes_and_reports_leases() {
         state.results[2]["result"]["block_reason"],
         "project ID does not match worker project"
     );
+}
+
+#[test]
+fn worker_recovers_unacknowledged_lease_after_restart() {
+    let root = unique_temp_dir("worker-recovery");
+    let workspace = root.join("workspace");
+    let home = root.join("home");
+    let config_home = root.join("config");
+    fs::create_dir_all(&workspace).expect("workspace should exist");
+    fs::create_dir_all(&home).expect("home should exist");
+    fs::create_dir_all(&config_home).expect("config home should exist");
+    let service = RecoveryManagedService::start(workspace);
+
+    let first = worker_command(&home, &config_home, &service.base_url())
+        .output()
+        .expect("first worker run should start");
+    assert!(
+        !first.status.success(),
+        "first run should fail after service rejects completion"
+    );
+
+    let second = worker_command(&home, &config_home, &service.base_url())
+        .output()
+        .expect("second worker run should start");
+    assert_success(&second);
+    let stdout: Value = serde_json::from_slice(&second.stdout).expect("stdout should be JSON");
+    assert_eq!(stdout["recovered_leases"], 1);
+
+    let state = service.state();
+    assert_eq!(state.complete_attempts, 2);
+    assert_eq!(state.results.len(), 1, "results: {:#?}", state.results);
+    assert_eq!(state.results[0]["lease_id"], "lease-recover");
+    assert_eq!(state.results[0]["result"]["status"], "completed");
+}
+
+fn worker_command(home: &std::path::Path, config_home: &std::path::Path, server: &str) -> Command {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_ninmu"));
+    command
+        .current_dir(repo_root().join("rust"))
+        .env_clear()
+        .env("NINMU_CODE_TASK_MOCK_RUNTIME", "1")
+        .env("NINMU_CONFIG_HOME", config_home)
+        .env("HOME", home)
+        .env("NO_COLOR", "1")
+        .env("PATH", "/usr/bin:/bin")
+        .args([
+            "worker",
+            "connect",
+            "--project",
+            "project_123",
+            "--server",
+            server,
+            "--output-format",
+            "json",
+        ]);
+    command
 }
 
 #[derive(Clone, Default)]
@@ -305,4 +377,115 @@ fn json_response(value: &Value) -> String {
 
 fn empty_response(status: u16) -> String {
     format!("HTTP/1.1 {status} OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+}
+
+#[derive(Clone, Default)]
+struct RecoveryState {
+    lease_sent: bool,
+    next_count: usize,
+    complete_attempts: usize,
+    results: Vec<Value>,
+}
+
+struct RecoveryManagedService {
+    base_url: String,
+    state: Arc<Mutex<RecoveryState>>,
+    thread: Option<thread::JoinHandle<()>>,
+}
+
+impl RecoveryManagedService {
+    fn start(workspace: PathBuf) -> Self {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("test server should bind");
+        listener
+            .set_nonblocking(true)
+            .expect("listener should be nonblocking");
+        let base_url = format!("http://{}", listener.local_addr().expect("local addr"));
+        let state = Arc::new(Mutex::new(RecoveryState::default()));
+        let thread_state = Arc::clone(&state);
+        let thread = thread::spawn(move || {
+            let deadline = Instant::now() + Duration::from_secs(20);
+            while Instant::now() < deadline {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let request = read_request(&mut stream);
+                        let response = handle_recovery_request(&thread_state, &workspace, &request);
+                        let _ = stream.write_all(response.as_bytes());
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(_) => break,
+                }
+                let done = {
+                    let state = thread_state.lock().expect("state lock");
+                    state.results.len() == 1
+                        && state.complete_attempts == 2
+                        && state.next_count >= 2
+                };
+                if done {
+                    break;
+                }
+            }
+        });
+        Self {
+            base_url,
+            state,
+            thread: Some(thread),
+        }
+    }
+
+    fn base_url(&self) -> String {
+        self.base_url.clone()
+    }
+
+    fn state(mut self) -> RecoveryState {
+        if let Some(thread) = self.thread.take() {
+            thread.join().expect("server thread should finish");
+        }
+        self.state.lock().expect("state lock").clone()
+    }
+}
+
+fn handle_recovery_request(
+    state: &Arc<Mutex<RecoveryState>>,
+    workspace: &std::path::Path,
+    request: &str,
+) -> String {
+    let request_line = request.lines().next().unwrap_or_default();
+    let body = request
+        .split_once("\r\n\r\n")
+        .map(|(_, body)| body)
+        .unwrap_or_default();
+    match request_line {
+        "POST /workers/register HTTP/1.1" => json_response(&json!({"worker_id": "worker-test"})),
+        "POST /workers/worker-test/heartbeat HTTP/1.1"
+        | "POST /leases/lease-recover/events HTTP/1.1" => json_response(&json!({"status": "ok"})),
+        "GET /projects/project_123/leases/next HTTP/1.1" => {
+            let mut state = state.lock().expect("state lock");
+            state.next_count += 1;
+            if state.lease_sent {
+                empty_response(204)
+            } else {
+                state.lease_sent = true;
+                json_response(&json!({
+                    "lease_id": "lease-recover",
+                    "idempotency_key": "idem-recover",
+                    "task_request": task_request(workspace, "task-recover"),
+                    "cancelled": false
+                }))
+            }
+        }
+        "POST /leases/lease-recover/complete HTTP/1.1" => {
+            let mut state = state.lock().expect("state lock");
+            state.complete_attempts += 1;
+            if state.complete_attempts == 1 {
+                empty_response(500)
+            } else {
+                let result: Value = serde_json::from_str(body).expect("result JSON");
+                state.results.push(result);
+                json_response(&json!({"status": "ok"}))
+            }
+        }
+        _ => empty_response(404),
+    }
 }
