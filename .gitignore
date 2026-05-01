@@ -18,7 +18,24 @@ _docs/
 # Implementation pass documents (auto-generated)
 docs/implementation_pass.md
 
-DESIGN.md
+# Private planning/design docs live in the private docs submodule.
+/CODE_REVIEW.md
+/HANDOFF.md
+/SECURITY_IMPLEMENTATION_PLAN.md
+/TEST_COVERAGE_REPORT.md
+/DESIGN.md
+/docs/ROADMAP.md
+/docs/roadmaps/
+/docs/superpowers/plans/
+/docs/*DESIGN*.md
+/docs/*design*.md
+/docs/AGENT-INTEGRATION.md
+/docs/HARNESS-CONTRACT.md
+/docs/HUMAN-DX.md
+/rust/TUI-ENHANCEMENT-PLAN.md
+/rust/MOCK_PARITY_HARNESS.md
+/rust/PARITY.md
+/rust/.omc/plans/
 
 # macOS
 .DS_Store

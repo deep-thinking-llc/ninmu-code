@@ -55,7 +55,8 @@ def main() -> int:
     rust_root = script_path.parent.parent
     repo_root = rust_root.parent
     manifest = load_manifest(rust_root / "mock_parity_scenarios.json")
-    parity_text = load_parity_text(repo_root / "PARITY.md")
+    parity_source = repo_root / "docs/private/rust/PARITY.md"
+    parity_text = load_parity_text(parity_source)
 
     missing_refs = ensure_refs_exist(manifest, parity_text)
     if missing_refs:
@@ -73,7 +74,7 @@ def main() -> int:
     print("Mock parity diff checklist")
     print(f"Repo root: {repo_root}")
     print(f"Scenario manifest: {rust_root / 'mock_parity_scenarios.json'}")
-    print(f"PARITY source: {repo_root / 'PARITY.md'}")
+    print(f"PARITY source: {parity_source}")
     print()
 
     for entry in manifest:

@@ -1,0 +1,4 @@
+[submodule "docs/private"]
+	path = docs/private
+	url = git@github.com:deep-thinking-llc/ninmu-code-private-docs.git
+	branch = main

@@ -3,15 +3,15 @@
 **Agent-first autonomous coding harness.** A Rust SDK and CLI for building, orchestrating, and reviewing AI-driven coding workflows — designed primarily for machine consumers, with a human escape hatch. Ninmu Code provides the `ninmu` CLI and Ninmu SDK.
 
 <p align="center">
-  <a href="./docs/ROADMAP.md">Roadmap</a>
+  <a href="./docs/private/ROADMAP.md">Roadmap</a>
   ·
-  <a href="./docs/AGENT-INTEGRATION.md">Agent Integration</a>
+  <a href="./docs/private/design/AGENT-INTEGRATION.md">Agent Integration</a>
   ·
-  <a href="./docs/HUMAN-DX.md">Human Experience</a>
+  <a href="./docs/private/design/HUMAN-DX.md">Human Experience</a>
   ·
   <a href="./docs/TUI-USER-GUIDE.md">TUI Guide</a>
   ·
-  <a href="./docs/PI-MONO-PARITY-DESIGN.md">Architecture</a>
+  <a href="./docs/private/design/PI-MONO-PARITY-DESIGN.md">Architecture</a>
 </p>
 
 ---
@@ -252,10 +252,8 @@ ninmu-code/
 │       ├── telemetry/           # Session tracing + usage telemetry
 │       └── tools/               # Built-in tool implementations
 ├── docs/                        # Documentation
-│   ├── ROADMAP.md               # Project roadmap
-│   ├── AGENT-INTEGRATION.md     # Agent integration guide
-│   ├── HUMAN-DX.md              # Human experience design
-│   └── PI-MONO-PARITY-DESIGN.md # Architecture comparison
+│   ├── private/                 # Private docs submodule
+│   └── TUI-USER-GUIDE.md        # TUI guide
 └── CLAUDE.md                    # AI coding assistant guidance
 ```
 
@@ -263,10 +261,10 @@ ninmu-code/
 
 | Document | Purpose |
 |----------|---------|
-| [docs/ROADMAP.md](docs/ROADMAP.md) | Project direction and planned work |
-| [docs/AGENT-INTEGRATION.md](docs/AGENT-INTEGRATION.md) | How to integrate agents via SDK, CLI, and RPC |
-| [docs/HUMAN-DX.md](docs/HUMAN-DX.md) | Human review workflows, notifications, deployment previews |
-| [docs/PI-MONO-PARITY-DESIGN.md](docs/PI-MONO-PARITY-DESIGN.md) | Architecture comparison with pi-mono reference |
+| [docs/private/ROADMAP.md](docs/private/ROADMAP.md) | Project direction and planned work |
+| [docs/private/design/AGENT-INTEGRATION.md](docs/private/design/AGENT-INTEGRATION.md) | How to integrate agents via SDK, CLI, and RPC |
+| [docs/private/design/HUMAN-DX.md](docs/private/design/HUMAN-DX.md) | Human review workflows, notifications, deployment previews |
+| [docs/private/design/PI-MONO-PARITY-DESIGN.md](docs/private/design/PI-MONO-PARITY-DESIGN.md) | Architecture comparison with pi-mono reference |
 
 ## Development
 
