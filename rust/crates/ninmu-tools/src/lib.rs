@@ -9611,6 +9611,9 @@ printf 'pwsh:%s' "$1"
 
                 match listener.accept() {
                     Ok((mut stream, _)) => {
+                        stream
+                            .set_nonblocking(false)
+                            .expect("set blocking test connection");
                         let mut buffer = [0_u8; 4096];
                         let size = stream.read(&mut buffer).expect("read request");
                         let request = String::from_utf8_lossy(&buffer[..size]).into_owned();
@@ -9645,7 +9648,11 @@ printf 'pwsh:%s' "$1"
                 let _ = tx.send(());
             }
             if let Some(handle) = self.handle.take() {
-                handle.join().expect("join test server");
+                if let Err(payload) = handle.join() {
+                    if !std::thread::panicking() {
+                        std::panic::resume_unwind(payload);
+                    }
+                }
             }
         }
     }

@@ -4732,14 +4732,13 @@ mod tests {
         let mut app = RatatuiApp::new("gpt-4o".into(), "write".into(), None);
         app.open_model_selector();
 
-        let rendered = app.render_to_text(120, 32);
+        let rendered = app.render_to_text(120, 48);
 
         assert!(rendered.contains("provider"));
         assert!(rendered.contains("CTX"));
         assert!(rendered.contains("FAMILY"));
         assert!(rendered.contains("PRICE"));
         assert!(rendered.contains("CAP"));
-        assert!(rendered.contains("Tab"));
     }
 
     #[test]

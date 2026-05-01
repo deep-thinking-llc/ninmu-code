@@ -15,7 +15,14 @@ import pytest
 _DEFAULT_METHOD_RESPONSES: dict[str, dict[str, Any]] = {
     "ping": {"status": "ok", "version": "0.1.0"},
     "session.create": {"sessionId": "session-abc"},
-    "session.turn": {"sessionId": "session-abc", "status": "ok", "summary": "Hello back"},
+    "session.turn": {
+        "sessionId": "session-abc",
+        "status": "completed",
+        "summary": "Hello back",
+        "usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+        "tool_uses": [],
+        "tool_results": [],
+    },
     "session.list": {"sessions": [{"sessionId": "s1"}]},
     "session.destroy": {"status": "destroyed", "sessionId": "session-abc"},
     "session.tree.fork": {"sessionId": "session-def", "activeId": "session-def"},
@@ -121,6 +128,7 @@ class MockProcess:
 def mock_process(monkeypatch: pytest.MonkeyPatch) -> MockProcess:
     """Replace ``subprocess.Popen`` with a method-aware ``MockProcess``."""
     proc = MockProcess()
+    monkeypatch.setattr("shutil.which", lambda binary: f"/mock/bin/{binary}")
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: proc)
     return proc
 
@@ -147,6 +155,7 @@ class MockProcessEvents(MockProcess):
 def mock_process_queue(monkeypatch: pytest.MonkeyPatch) -> MockProcessEvents:
     """Mock process that produces event stream notifications."""
     proc = MockProcessEvents()
+    monkeypatch.setattr("shutil.which", lambda binary: f"/mock/bin/{binary}")
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: proc)
     return proc
 
@@ -159,8 +168,11 @@ class MockProcessLarge(MockProcess):
         responses = dict(_DEFAULT_METHOD_RESPONSES)
         responses["session.turn"] = {
             "sessionId": "session-abc",
-            "status": "ok",
+            "status": "completed",
             "summary": large_summary,
+            "usage": {"input_tokens": 1, "output_tokens": 2, "total_tokens": 3},
+            "tool_uses": [],
+            "tool_results": [],
         }
         super().__init__(responses)
 
@@ -169,6 +181,7 @@ class MockProcessLarge(MockProcess):
 def mock_process_large(monkeypatch: pytest.MonkeyPatch) -> MockProcessLarge:
     """Mock process with a large 5000-char response."""
     proc = MockProcessLarge()
+    monkeypatch.setattr("shutil.which", lambda binary: f"/mock/bin/{binary}")
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: proc)
     return proc
 
@@ -188,6 +201,7 @@ class MockProcessCrash(MockProcess):
 def mock_process_crash(monkeypatch: pytest.MonkeyPatch) -> MockProcessCrash:
     """Mock process that crashes immediately."""
     proc = MockProcessCrash()
+    monkeypatch.setattr("shutil.which", lambda binary: f"/mock/bin/{binary}")
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: proc)
     return proc
 
@@ -207,5 +221,6 @@ class MockProcessSlowExit(MockProcess):
 def mock_process_slow_exit(monkeypatch: pytest.MonkeyPatch) -> MockProcessSlowExit:
     """Mock process that simulates a slow exit (tests kill fallback)."""
     proc = MockProcessSlowExit()
+    monkeypatch.setattr("shutil.which", lambda binary: f"/mock/bin/{binary}")
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: proc)
     return proc

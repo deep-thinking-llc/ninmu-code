@@ -542,14 +542,20 @@ mod tests {
     use crate::config::ConfigLoader;
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir() -> std::path::PathBuf {
+        static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("time should be after epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("runtime-prompt-{nanos}"))
+        let counter = TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "runtime-prompt-{}-{nanos}-{counter}",
+            std::process::id()
+        ))
     }
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {

@@ -161,12 +161,12 @@ fn agents_command_emits_structured_agent_entries_when_requested() {
     assert_eq!(parsed["summary"]["active"], 2);
     assert_eq!(parsed["summary"]["shadowed"], 1);
     assert_eq!(parsed["agents"][0]["name"], "planner");
-    assert_eq!(parsed["agents"][0]["source"]["id"], "project_claw");
+    assert_eq!(parsed["agents"][0]["source"]["id"], "project_ninmu");
     assert_eq!(parsed["agents"][0]["active"], true);
     assert_eq!(parsed["agents"][1]["name"], "verifier");
     assert_eq!(parsed["agents"][2]["name"], "planner");
     assert_eq!(parsed["agents"][2]["active"], false);
-    assert_eq!(parsed["agents"][2]["shadowed_by"]["id"], "project_claw");
+    assert_eq!(parsed["agents"][2]["shadowed_by"]["id"], "project_ninmu");
 }
 
 #[test]

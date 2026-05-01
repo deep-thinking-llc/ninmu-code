@@ -1,0 +1,30 @@
+{
+  "protocol": "ninmu.harness/v1alpha1",
+  "mission_id": "mission-018f",
+  "task_id": "task-018f",
+  "objective": "Inspect the repository and report readiness for a coding task.",
+  "workdir": ".",
+  "model": "claude-opus-4-6",
+  "permission_mode": "read-only",
+  "allowed_tools": ["read_file", "grep_search"],
+  "acceptance_tests": ["cargo test -p ninmu-runtime --test harness_contract"],
+  "timeout_seconds": 300,
+  "sandbox": {
+    "allowed_roots": ["."],
+    "permission_mode": "read-only",
+    "network_policy": "disabled"
+  },
+  "skill_profile": {
+    "skills": [
+      {
+        "id": "superpowers:test-driven-development",
+        "version": "local",
+        "prompt_fragments": ["red-green-refactor"]
+      }
+    ]
+  },
+  "project_profile": {
+    "name": "ninmu-code"
+  },
+  "previous_context": null
+}

@@ -246,8 +246,6 @@ pub fn read_xai_base_url() -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Mutex, OnceLock};
-
     use super::ProviderClient;
     use crate::error::ApiError;
     use crate::providers::{detect_provider_kind, resolve_model_alias, ProviderKind};
@@ -256,10 +254,7 @@ mod tests {
     /// environment variables so concurrent test threads cannot observe
     /// each other's partially-applied state.
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        crate::test_env_lock()
     }
 
     #[test]

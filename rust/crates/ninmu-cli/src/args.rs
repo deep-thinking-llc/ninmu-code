@@ -129,6 +129,15 @@ pub(crate) enum CliAction {
     ModelsRefresh {
         output_format: CliOutputFormat,
     },
+    RunTask {
+        input: crate::run_task::PathOrStdin,
+        output_format: CliOutputFormat,
+        event_log: Option<PathBuf>,
+    },
+    Worker {
+        action: crate::worker_mode::WorkerAction,
+        output_format: CliOutputFormat,
+    },
     // #146: `ninmu config` and `ninmu diff` are pure-local read-only
     // introspection commands; wire them as standalone CLI subcommands.
     Config {
@@ -567,6 +576,8 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
         "login" | "logout" => Err(removed_auth_surface_error(rest[0].as_str())),
         "init" => Ok(CliAction::Init { output_format }),
         "models-refresh" => Ok(CliAction::ModelsRefresh { output_format }),
+        "run-task" => parse_run_task_args(&rest[1..], output_format),
+        "worker" => parse_worker_args(&rest[1..], output_format),
         "export" => parse_export_args(&rest[1..], output_format),
         "prompt" => {
             let prompt = rest[1..].join(" ");
@@ -636,6 +647,146 @@ pub(crate) fn parse_args(args: &[String]) -> Result<CliAction, String> {
             })
         }
     }
+}
+
+pub(crate) fn parse_worker_args(
+    args: &[String],
+    mut output_format: CliOutputFormat,
+) -> Result<CliAction, String> {
+    let Some(command) = args.first().map(String::as_str) else {
+        return Err("worker requires a subcommand: connect or status".to_string());
+    };
+    match command {
+        "status" => {
+            let mut index = 1;
+            while index < args.len() {
+                match args[index].as_str() {
+                    "--json" => {
+                        output_format = CliOutputFormat::Json;
+                        index += 1;
+                    }
+                    "--output-format" => {
+                        let value = args
+                            .get(index + 1)
+                            .ok_or_else(|| "missing value for --output-format".to_string())?;
+                        output_format = CliOutputFormat::parse(value)?;
+                        index += 2;
+                    }
+                    flag if flag.starts_with("--output-format=") => {
+                        output_format = CliOutputFormat::parse(&flag[16..])?;
+                        index += 1;
+                    }
+                    other => return Err(format!("unknown worker status option: {other}")),
+                }
+            }
+            Ok(CliAction::Worker {
+                action: crate::worker_mode::WorkerAction::Status,
+                output_format,
+            })
+        }
+        "connect" => {
+            let mut project = None;
+            let mut server = None;
+            let mut index = 1;
+            while index < args.len() {
+                match args[index].as_str() {
+                    "--project" => {
+                        project = Some(
+                            args.get(index + 1)
+                                .ok_or_else(|| "missing value for --project".to_string())?
+                                .clone(),
+                        );
+                        index += 2;
+                    }
+                    flag if flag.starts_with("--project=") => {
+                        project = Some(flag[10..].to_string());
+                        index += 1;
+                    }
+                    "--server" => {
+                        server = Some(
+                            args.get(index + 1)
+                                .ok_or_else(|| "missing value for --server".to_string())?
+                                .clone(),
+                        );
+                        index += 2;
+                    }
+                    flag if flag.starts_with("--server=") => {
+                        server = Some(flag[9..].to_string());
+                        index += 1;
+                    }
+                    "--json" => {
+                        output_format = CliOutputFormat::Json;
+                        index += 1;
+                    }
+                    "--output-format" => {
+                        let value = args
+                            .get(index + 1)
+                            .ok_or_else(|| "missing value for --output-format".to_string())?;
+                        output_format = CliOutputFormat::parse(value)?;
+                        index += 2;
+                    }
+                    flag if flag.starts_with("--output-format=") => {
+                        output_format = CliOutputFormat::parse(&flag[16..])?;
+                        index += 1;
+                    }
+                    other => return Err(format!("unknown worker connect option: {other}")),
+                }
+            }
+            Ok(CliAction::Worker {
+                action: crate::worker_mode::WorkerAction::Connect {
+                    project: project
+                        .filter(|value| !value.trim().is_empty())
+                        .ok_or_else(|| "worker connect requires --project <id>".to_string())?,
+                    server: server
+                        .filter(|value| !value.trim().is_empty())
+                        .ok_or_else(|| "worker connect requires --server <url>".to_string())?,
+                },
+                output_format,
+            })
+        }
+        other => Err(format!("unknown worker subcommand: {other}")),
+    }
+}
+
+pub(crate) fn parse_run_task_args(
+    args: &[String],
+    output_format: CliOutputFormat,
+) -> Result<CliAction, String> {
+    let mut input = None;
+    let mut event_log = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--input" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --input".to_string())?;
+                input = Some(crate::run_task::PathOrStdin::parse(value));
+                index += 2;
+            }
+            flag if flag.starts_with("--input=") => {
+                input = Some(crate::run_task::PathOrStdin::parse(&flag[8..]));
+                index += 1;
+            }
+            "--event-log" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --event-log".to_string())?;
+                event_log = Some(PathBuf::from(value));
+                index += 2;
+            }
+            flag if flag.starts_with("--event-log=") => {
+                event_log = Some(PathBuf::from(&flag[12..]));
+                index += 1;
+            }
+            other => return Err(format!("unknown run-task option: {other}")),
+        }
+    }
+    Ok(CliAction::RunTask {
+        input: input.ok_or_else(|| "run-task requires --input <path|->".to_string())?,
+        output_format,
+        event_log,
+    })
 }
 
 pub(crate) fn parse_local_help_action(rest: &[String]) -> Option<Result<CliAction, String>> {

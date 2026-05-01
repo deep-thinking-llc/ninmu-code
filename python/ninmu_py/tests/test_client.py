@@ -68,6 +68,37 @@ class TestRunTurn:
         assert result == "Hello back"
         client.shutdown()
 
+    def test_run_turn_result_returns_full_contract(self, mock_process: Any) -> None:
+        client = NinmuClient()
+        result = client.run_turn_result("session-abc", "hello")
+        assert result["status"] == "completed"
+        assert result["summary"] == "Hello back"
+        assert result["usage"]["total_tokens"] == 3
+        assert result["tool_uses"] == []
+        assert result["tool_results"] == []
+        client.shutdown()
+
+    def test_run_turn_result_preserves_task_failure(self, monkeypatch: Any) -> None:
+        from tests.conftest import MockProcess
+
+        proc = MockProcess({
+            "session.turn": {
+                "sessionId": "session-abc",
+                "status": "failed",
+                "summary": "provider unavailable",
+                "usage": {"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+                "tool_uses": [],
+                "tool_results": [],
+            }
+        })
+        monkeypatch.setattr("shutil.which", lambda binary: f"/mock/bin/{binary}")
+        monkeypatch.setattr(subprocess, "Popen", lambda *a, **kw: proc)
+        client = NinmuClient()
+        result = client.run_turn_result("session-abc", "hello")
+        assert result["status"] == "failed"
+        assert result["summary"] == "provider unavailable"
+        client.shutdown()
+
 
 class TestListSessions:
     def test_list_sessions(self, mock_process: Any) -> None:
