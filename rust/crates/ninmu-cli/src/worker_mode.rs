@@ -9,7 +9,7 @@ use ninmu_runtime::harness_contract::{
     TaskLease, TaskLeaseResult, WorkerCapability, WorkerHeartbeat, WorkerPolicyDecision,
     WorkerRegistration,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use crate::args::CliOutputFormat;
@@ -116,8 +116,8 @@ fn connect(project: &str, server: &str, output_format: CliOutputFormat) -> Resul
 
     let lease_store = LeaseStore::new(project)?;
     let mut recovered_leases = 0_u64;
-    for lease in lease_store.load_all()? {
-        process_lease(&client, server, project, &lease_store, lease, false)?;
+    for lease_state in lease_store.load_all()? {
+        process_lease(&client, server, project, &lease_store, lease_state, false)?;
         recovered_leases += 1;
     }
 
@@ -133,7 +133,14 @@ fn connect(project: &str, server: &str, output_format: CliOutputFormat) -> Resul
             break;
         }
         let lease: TaskLease = response.json().map_err(to_process)?;
-        process_lease(&client, server, project, &lease_store, lease, true)?;
+        process_lease(
+            &client,
+            server,
+            project,
+            &lease_store,
+            PersistedLease::pending(lease),
+            true,
+        )?;
         processed_leases += 1;
     }
 
@@ -160,26 +167,35 @@ fn process_lease(
     server: &str,
     project: &str,
     lease_store: &LeaseStore,
-    lease: TaskLease,
+    lease_state: PersistedLease,
     persist: bool,
 ) -> Result<(), WorkerError> {
+    let lease = lease_state.lease;
     lease.validate().map_err(to_contract)?;
     if persist {
-        lease_store.save(&lease)?;
+        lease_store.save_pending(&lease)?;
     }
-    let policy = policy_decision(project, &lease);
-    policy.validate().map_err(to_contract)?;
-    let result = if !policy.accepted {
-        blocked_result(
-            &lease.task_request,
-            policy.reason.as_deref().unwrap_or("policy rejected lease"),
-        )
-    } else if lease.cancelled {
-        cancelled_result(&lease.task_request)
-    } else {
-        run_task::execute_task_request(&lease.task_request).map_err(run_task_error)?
-    };
-    post_events(client, server, &lease, &result)?;
+    let (result, events) =
+        if let (Some(result), Some(events)) = (lease_state.result, lease_state.events) {
+            (result, events)
+        } else {
+            let policy = policy_decision(project, &lease);
+            policy.validate().map_err(to_contract)?;
+            let result = if !policy.accepted {
+                blocked_result(
+                    &lease.task_request,
+                    policy.reason.as_deref().unwrap_or("policy rejected lease"),
+                )
+            } else if lease.cancelled {
+                cancelled_result(&lease.task_request)
+            } else {
+                run_task::execute_task_request(&lease.task_request).map_err(run_task_error)?
+            };
+            let events = build_events(&lease, &result);
+            lease_store.save_prepared(&lease, &result, &events)?;
+            (result, events)
+        };
+    post_events(client, server, &lease, &events)?;
     let lease_result = TaskLeaseResult {
         protocol: HarnessProtocolVersion::V1Alpha1,
         lease_id: lease.lease_id.clone(),
@@ -201,9 +217,9 @@ fn post_events(
     client: &reqwest::blocking::Client,
     server: &str,
     lease: &TaskLease,
-    result: &HarnessTaskResult,
+    events: &[HarnessEvent],
 ) -> Result<(), WorkerError> {
-    for event in build_events(lease, result) {
+    for event in events {
         event.validate().map_err(to_contract)?;
         client
             .post(format!("{server}/leases/{}/events", lease.lease_id))
@@ -509,6 +525,40 @@ struct LeaseStore {
     root: PathBuf,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedLease {
+    lease: TaskLease,
+    #[serde(default)]
+    result: Option<HarnessTaskResult>,
+    #[serde(default)]
+    events: Option<Vec<HarnessEvent>>,
+}
+
+impl PersistedLease {
+    fn pending(lease: TaskLease) -> Self {
+        Self {
+            lease,
+            result: None,
+            events: None,
+        }
+    }
+
+    fn prepared(lease: &TaskLease, result: &HarnessTaskResult, events: &[HarnessEvent]) -> Self {
+        Self {
+            lease: lease.clone(),
+            result: Some(result.clone()),
+            events: Some(events.to_vec()),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum LeaseFile {
+    Persisted(Box<PersistedLease>),
+    Legacy(Box<TaskLease>),
+}
+
 impl LeaseStore {
     fn new(project: &str) -> Result<Self, WorkerError> {
         let root = config_home()
@@ -518,15 +568,28 @@ impl LeaseStore {
         Ok(Self { root })
     }
 
-    fn save(&self, lease: &TaskLease) -> Result<(), WorkerError> {
-        let path = self.path_for(&lease.lease_id);
+    fn save_pending(&self, lease: &TaskLease) -> Result<(), WorkerError> {
+        self.save_state(&PersistedLease::pending(lease.clone()))
+    }
+
+    fn save_prepared(
+        &self,
+        lease: &TaskLease,
+        result: &HarnessTaskResult,
+        events: &[HarnessEvent],
+    ) -> Result<(), WorkerError> {
+        self.save_state(&PersistedLease::prepared(lease, result, events))
+    }
+
+    fn save_state(&self, state: &PersistedLease) -> Result<(), WorkerError> {
+        let path = self.path_for(&state.lease.lease_id);
         let tmp = path.with_extension("json.tmp");
-        fs::write(&tmp, serde_json::to_vec_pretty(lease).map_err(to_process)?)
+        fs::write(&tmp, serde_json::to_vec_pretty(state).map_err(to_process)?)
             .map_err(to_process)?;
         fs::rename(tmp, path).map_err(to_process)
     }
 
-    fn load_all(&self) -> Result<Vec<TaskLease>, WorkerError> {
+    fn load_all(&self) -> Result<Vec<PersistedLease>, WorkerError> {
         let mut leases = Vec::new();
         for entry in fs::read_dir(&self.root).map_err(to_process)? {
             let path = entry.map_err(to_process)?.path();
@@ -534,9 +597,13 @@ impl LeaseStore {
                 continue;
             }
             let raw = fs::read_to_string(path).map_err(to_process)?;
-            leases.push(serde_json::from_str(&raw).map_err(to_process)?);
+            let state = match serde_json::from_str(&raw).map_err(to_process)? {
+                LeaseFile::Persisted(state) => *state,
+                LeaseFile::Legacy(lease) => PersistedLease::pending(*lease),
+            };
+            leases.push(state);
         }
-        leases.sort_by(|left: &TaskLease, right: &TaskLease| left.lease_id.cmp(&right.lease_id));
+        leases.sort_by(|left, right| left.lease.lease_id.cmp(&right.lease.lease_id));
         Ok(leases)
     }
 

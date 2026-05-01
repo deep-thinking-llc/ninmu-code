@@ -130,10 +130,11 @@ fn worker_recovers_unacknowledged_lease_after_restart() {
     let workspace = root.join("workspace");
     let home = root.join("home");
     let config_home = root.join("config");
+    let execution_count = root.join("execution-count.txt");
     fs::create_dir_all(&workspace).expect("workspace should exist");
     fs::create_dir_all(&home).expect("home should exist");
     fs::create_dir_all(&config_home).expect("config home should exist");
-    let service = RecoveryManagedService::start(workspace);
+    let service = RecoveryManagedService::start(workspace, execution_count.clone());
 
     let first = worker_command(&home, &config_home, &service.base_url())
         .output()
@@ -155,6 +156,24 @@ fn worker_recovers_unacknowledged_lease_after_restart() {
     assert_eq!(state.results.len(), 1, "results: {:#?}", state.results);
     assert_eq!(state.results[0]["lease_id"], "lease-recover");
     assert_eq!(state.results[0]["result"]["status"], "completed");
+    let execution_count =
+        fs::read_to_string(execution_count).expect("task side effect should be written");
+    assert_eq!(
+        execution_count, "x",
+        "recovery should reuse the persisted result instead of re-running task execution"
+    );
+    assert_eq!(
+        state.events.len(),
+        10,
+        "two replay attempts should each post the same five events: {:#?}",
+        state.events
+    );
+    let first_attempt_event_ids = event_ids(&state.events[0..5]);
+    let second_attempt_event_ids = event_ids(&state.events[5..10]);
+    assert_eq!(
+        first_attempt_event_ids, second_attempt_event_ids,
+        "replayed events should preserve event IDs so server-side idempotency can dedupe them"
+    );
 }
 
 fn worker_command(home: &std::path::Path, config_home: &std::path::Path, server: &str) -> Command {
@@ -360,6 +379,16 @@ fn task_request(workspace: &std::path::Path, task_id: &str) -> Value {
     })
 }
 
+fn task_request_with_execution_counter(
+    workspace: &std::path::Path,
+    task_id: &str,
+    execution_count: &std::path::Path,
+) -> Value {
+    let mut request = task_request(workspace, task_id);
+    request["acceptance_tests"] = json!([format!("printf x >> {}", execution_count.display())]);
+    request
+}
+
 fn rejected_task_request(workspace: &std::path::Path, task_id: &str) -> Value {
     let mut request = task_request(workspace, task_id);
     request["project_profile"] = json!({"project_id": "wrong_project"});
@@ -384,6 +413,7 @@ struct RecoveryState {
     lease_sent: bool,
     next_count: usize,
     complete_attempts: usize,
+    events: Vec<Value>,
     results: Vec<Value>,
 }
 
@@ -394,7 +424,7 @@ struct RecoveryManagedService {
 }
 
 impl RecoveryManagedService {
-    fn start(workspace: PathBuf) -> Self {
+    fn start(workspace: PathBuf, execution_count: PathBuf) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("test server should bind");
         listener
             .set_nonblocking(true)
@@ -408,7 +438,12 @@ impl RecoveryManagedService {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
                         let request = read_request(&mut stream);
-                        let response = handle_recovery_request(&thread_state, &workspace, &request);
+                        let response = handle_recovery_request(
+                            &thread_state,
+                            &workspace,
+                            &execution_count,
+                            &request,
+                        );
                         let _ = stream.write_all(response.as_bytes());
                     }
                     Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
@@ -449,6 +484,7 @@ impl RecoveryManagedService {
 fn handle_recovery_request(
     state: &Arc<Mutex<RecoveryState>>,
     workspace: &std::path::Path,
+    execution_count: &std::path::Path,
     request: &str,
 ) -> String {
     let request_line = request.lines().next().unwrap_or_default();
@@ -458,8 +494,12 @@ fn handle_recovery_request(
         .unwrap_or_default();
     match request_line {
         "POST /workers/register HTTP/1.1" => json_response(&json!({"worker_id": "worker-test"})),
-        "POST /workers/worker-test/heartbeat HTTP/1.1"
-        | "POST /leases/lease-recover/events HTTP/1.1" => json_response(&json!({"status": "ok"})),
+        "POST /workers/worker-test/heartbeat HTTP/1.1" => json_response(&json!({"status": "ok"})),
+        "POST /leases/lease-recover/events HTTP/1.1" => {
+            let event: Value = serde_json::from_str(body).expect("event JSON");
+            state.lock().expect("state lock").events.push(event);
+            json_response(&json!({"status": "ok"}))
+        }
         "GET /projects/project_123/leases/next HTTP/1.1" => {
             let mut state = state.lock().expect("state lock");
             state.next_count += 1;
@@ -470,7 +510,11 @@ fn handle_recovery_request(
                 json_response(&json!({
                     "lease_id": "lease-recover",
                     "idempotency_key": "idem-recover",
-                    "task_request": task_request(workspace, "task-recover"),
+                    "task_request": task_request_with_execution_counter(
+                        workspace,
+                        "task-recover",
+                        execution_count,
+                    ),
                     "cancelled": false
                 }))
             }
@@ -488,4 +532,16 @@ fn handle_recovery_request(
         }
         _ => empty_response(404),
     }
+}
+
+fn event_ids(events: &[Value]) -> Vec<String> {
+    events
+        .iter()
+        .map(|event| {
+            event["event_id"]
+                .as_str()
+                .expect("event_id should be text")
+                .to_string()
+        })
+        .collect()
 }
