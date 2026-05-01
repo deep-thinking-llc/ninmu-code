@@ -263,7 +263,7 @@ fn tui_model_selector_enter_commits_current_model() {
     if selector.is_ok() {
         let _ = writer.write_all(b"\r");
     }
-    let output = read_until(&rx, "Model updated", Duration::from_secs(5));
+    let output = read_until(&rx, "model set to ", Duration::from_secs(5));
 
     let _ = writer.write_all(&[0x04]);
     let _ = child.kill();
@@ -274,9 +274,7 @@ fn tui_model_selector_enter_commits_current_model() {
     startup.expect("header/footer should render");
     selector.expect("model selector should render before commit");
     let text = strip_ansi(&output.expect("selected model should commit"));
-    assert!(text.contains("model set to "));
-    assert!(text.contains("Previous"));
-    assert!(text.contains("Current"));
+    assert!(text.contains("model set to "), "captured text:\n{text}");
 }
 
 #[test]

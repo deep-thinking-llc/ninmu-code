@@ -129,14 +129,17 @@ mod tests {
     use super::*;
     use std::fs;
     use std::process::Command;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir() -> std::path::PathBuf {
+        static NEXT_ID: AtomicU64 = AtomicU64::new(0);
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("time should be after epoch")
             .as_nanos();
-        std::env::temp_dir().join(format!("runtime-stale-base-{nanos}"))
+        let unique_id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("runtime-stale-base-{nanos}-{unique_id}"))
     }
 
     fn init_repo(path: &std::path::Path) {

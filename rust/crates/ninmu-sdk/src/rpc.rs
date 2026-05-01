@@ -13,7 +13,7 @@ use crate::session::{AgentSession, AgentSessionBuilder, BoxedApiClient};
 use crate::tool_registry::ToolRegistry;
 use crate::EventBus;
 use crate::SessionTree;
-use ninmu_runtime::Session;
+use ninmu_runtime::{ContentBlock, ConversationMessage, Session, TurnSummary};
 
 // ---------------------------------------------------------------------------
 // JSON-RPC types
@@ -313,6 +313,14 @@ impl<R: BufRead, W: Write> RpcServer<R, W> {
                 Ok(serde_json::json!({
                     "sessionId": session_id,
                     "status": "completed",
+                    "summary": final_assistant_text(&summary),
+                    "usage": {
+                        "input_tokens": summary.usage.input_tokens,
+                        "output_tokens": summary.usage.output_tokens,
+                        "total_tokens": summary.usage.input_tokens + summary.usage.output_tokens,
+                    },
+                    "tool_uses": collect_tool_uses(&summary),
+                    "tool_results": collect_tool_results(&summary),
                     "tokensUsed": summary.usage.input_tokens + summary.usage.output_tokens,
                 }))
             }
@@ -320,8 +328,16 @@ impl<R: BufRead, W: Write> RpcServer<R, W> {
                 // Don't modify the tree on failure — active_id stays at the last good node
                 Ok(serde_json::json!({
                     "sessionId": session_id,
-                    "status": "error",
+                    "status": "failed",
+                    "summary": e.to_string(),
                     "error": e.to_string(),
+                    "usage": {
+                        "input_tokens": 0,
+                        "output_tokens": 0,
+                        "total_tokens": 0,
+                    },
+                    "tool_uses": [],
+                    "tool_results": [],
                 }))
             }
         }
@@ -493,10 +509,101 @@ impl<R: BufRead, W: Write> RpcServer<R, W> {
     }
 }
 
+fn final_assistant_text(summary: &TurnSummary) -> String {
+    summary
+        .assistant_messages
+        .iter()
+        .rev()
+        .find_map(message_text)
+        .unwrap_or_default()
+}
+
+fn message_text(message: &ConversationMessage) -> Option<String> {
+    let text = message
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            ContentBlock::Text { text } => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    if text.is_empty() {
+        None
+    } else {
+        Some(text)
+    }
+}
+
+fn collect_tool_uses(summary: &TurnSummary) -> Vec<Value> {
+    summary
+        .assistant_messages
+        .iter()
+        .flat_map(|message| &message.blocks)
+        .filter_map(|block| match block {
+            ContentBlock::ToolUse { id, name, input } => Some(serde_json::json!({
+                "id": id,
+                "name": name,
+                "input": input,
+            })),
+            _ => None,
+        })
+        .collect()
+}
+
+fn collect_tool_results(summary: &TurnSummary) -> Vec<Value> {
+    summary
+        .tool_results
+        .iter()
+        .flat_map(|message| &message.blocks)
+        .filter_map(|block| match block {
+            ContentBlock::ToolResult {
+                tool_use_id,
+                tool_name,
+                output,
+                is_error,
+            } => Some(serde_json::json!({
+                "tool_use_id": tool_use_id,
+                "tool_name": tool_name,
+                "output": output,
+                "is_error": is_error,
+            })),
+            _ => None,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Cursor;
+
+    #[derive(Clone)]
+    struct TextApiClient;
+
+    impl ninmu_runtime::ApiClient for TextApiClient {
+        fn stream(
+            &mut self,
+            _request: ninmu_runtime::ApiRequest,
+        ) -> Result<Vec<ninmu_runtime::AssistantEvent>, ninmu_runtime::RuntimeError> {
+            Ok(vec![
+                ninmu_runtime::AssistantEvent::TextDelta("rpc summary text".to_string()),
+                ninmu_runtime::AssistantEvent::MessageStop,
+            ])
+        }
+    }
+
+    #[derive(Clone)]
+    struct FailingApiClient;
+
+    impl ninmu_runtime::ApiClient for FailingApiClient {
+        fn stream(
+            &mut self,
+            _request: ninmu_runtime::ApiRequest,
+        ) -> Result<Vec<ninmu_runtime::AssistantEvent>, ninmu_runtime::RuntimeError> {
+            Err(ninmu_runtime::RuntimeError::new("provider unavailable"))
+        }
+    }
 
     #[test]
     fn parses_session_create_request() {
@@ -605,6 +712,85 @@ mod tests {
         let sessions = result2["sessions"].as_array().expect("should be array");
         assert_eq!(sessions.len(), 1);
         assert_eq!(sessions[0]["sessionId"], session_id);
+    }
+
+    #[test]
+    fn session_turn_returns_harness_compatible_result_fields() {
+        let session_id = "session-rpc-contract".to_string();
+        let input = format!(
+            "{{\"jsonrpc\":\"2.0\",\"method\":\"session.turn\",\"params\":{{\"session_id\":\"{session_id}\",\"input\":\"hello\"}},\"id\":2}}\n"
+        );
+        let reader = Cursor::new(input.into_bytes());
+        let mut output = Cursor::new(Vec::new());
+        let mut server = RpcServer::new(
+            reader,
+            &mut output,
+            Some(Box::new(|_| BoxedApiClient::new(TextApiClient))),
+        );
+        let (session, event_bus) = server
+            .build_session("claude-sonnet-4-6", Vec::new(), None)
+            .expect("session should build");
+        let mut tree = SessionTree::new();
+        tree.set_root(&session_id, "system", None);
+        server.sessions.insert(
+            session_id.clone(),
+            ManagedSession {
+                session,
+                tree,
+                event_bus,
+            },
+        );
+
+        server.run().expect("server should run");
+        let response: JsonRpcResponse =
+            serde_json::from_slice(output.get_ref()).expect("turn response should parse");
+        let result = response.result.expect("turn result");
+        assert_eq!(result["sessionId"], session_id);
+        assert_eq!(result["status"], "completed", "result: {result:#}");
+        assert_eq!(result["summary"], "rpc summary text");
+        assert!(result["usage"].is_object());
+        assert!(result["tool_uses"].is_array());
+        assert!(result["tool_results"].is_array());
+    }
+
+    #[test]
+    fn session_turn_failure_is_task_result_not_json_rpc_error() {
+        let session_id = "session-rpc-failed".to_string();
+        let input = format!(
+            "{{\"jsonrpc\":\"2.0\",\"method\":\"session.turn\",\"params\":{{\"session_id\":\"{session_id}\",\"input\":\"hello\"}},\"id\":2}}\n"
+        );
+        let reader = Cursor::new(input.into_bytes());
+        let mut output = Cursor::new(Vec::new());
+        let mut server = RpcServer::new(
+            reader,
+            &mut output,
+            Some(Box::new(|_| BoxedApiClient::new(FailingApiClient))),
+        );
+        let (session, event_bus) = server
+            .build_session("claude-sonnet-4-6", Vec::new(), None)
+            .expect("session should build");
+        let mut tree = SessionTree::new();
+        tree.set_root(&session_id, "system", None);
+        server.sessions.insert(
+            session_id.clone(),
+            ManagedSession {
+                session,
+                tree,
+                event_bus,
+            },
+        );
+
+        server.run().expect("server should run");
+        let response: JsonRpcResponse =
+            serde_json::from_slice(output.get_ref()).expect("turn response should parse");
+        assert!(response.error.is_none(), "runtime failure should be result");
+        let result = response.result.expect("turn result");
+        assert_eq!(result["sessionId"], session_id);
+        assert_eq!(result["status"], "failed");
+        assert_eq!(result["summary"], "provider unavailable");
+        assert!(result["usage"].is_object());
+        assert!(result["tool_uses"].is_array());
+        assert!(result["tool_results"].is_array());
     }
 
     #[test]

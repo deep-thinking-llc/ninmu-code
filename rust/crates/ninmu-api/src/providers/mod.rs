@@ -855,7 +855,6 @@ pub(crate) fn dotenv_value(key: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;
-    use std::sync::{Mutex, OnceLock};
 
     use serde_json::json;
 
@@ -876,10 +875,7 @@ mod tests {
     /// each other's partially-applied state while probing the foreign
     /// provider credential sniffer.
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+        crate::test_env_lock()
     }
 
     /// Snapshot-restore guard for a single environment variable. Captures

@@ -426,6 +426,44 @@ mod tests {
     use rustyline::hint::Hinter;
     use rustyline::history::{DefaultHistory, History};
     use rustyline::Context;
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn cwd_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_cwd_lock()
+    }
+
+    fn temp_dir(label: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time should be after epoch")
+            .as_nanos();
+        std::env::temp_dir().join(format!("ninmu-input-{label}-{nanos}"))
+    }
+
+    fn with_current_dir<T>(cwd: &Path, f: impl FnOnce() -> T) -> T {
+        let previous =
+            std::env::current_dir().unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+        std::env::set_current_dir(cwd).expect("cwd should change");
+        let result = f();
+        if std::env::set_current_dir(&previous).is_err() {
+            std::env::set_current_dir(env!("CARGO_MANIFEST_DIR")).expect("cwd should restore");
+        }
+        result
+    }
+
+    fn file_completion_workspace(label: &str) -> PathBuf {
+        let workspace = temp_dir(label);
+        std::fs::create_dir_all(workspace.join("src")).expect("src should exist");
+        std::fs::write(workspace.join("src").join("main.rs"), "fn main() {}\n")
+            .expect("main fixture should write");
+        std::fs::write(
+            workspace.join("Cargo.toml"),
+            "[package]\nname = \"fixture\"\n",
+        )
+        .expect("cargo fixture should write");
+        workspace
+    }
 
     #[test]
     fn extracts_terminal_slash_command_prefixes_with_arguments() {
@@ -581,12 +619,16 @@ mod tests {
 
     #[test]
     fn completes_at_file_ref_in_helper() {
+        let _guard = cwd_lock();
+        let workspace = file_completion_workspace("helper");
         let helper = SlashCommandHelper::new(Vec::new(), CompletionProvider::default());
         let history = DefaultHistory::new();
         let ctx = Context::new(&history);
-        let (start, matches) = helper
-            .complete("@src", 4, &ctx)
-            .expect("completion should work");
+        let (start, matches) = with_current_dir(&workspace, || {
+            helper
+                .complete("@src", 4, &ctx)
+                .expect("completion should work")
+        });
 
         // start should be 1 (right after @), replacements should be just the path
         assert_eq!(start, 1);
@@ -599,12 +641,16 @@ mod tests {
 
     #[test]
     fn completes_at_file_ref_with_prefix() {
+        let _guard = cwd_lock();
+        let workspace = file_completion_workspace("prefix");
         let helper = SlashCommandHelper::new(Vec::new(), CompletionProvider::default());
         let history = DefaultHistory::new();
         let ctx = Context::new(&history);
-        let (start, matches) = helper
-            .complete("read @Cargo", 11, &ctx)
-            .expect("completion should work");
+        let (start, matches) = with_current_dir(&workspace, || {
+            helper
+                .complete("read @Cargo", 11, &ctx)
+                .expect("completion should work")
+        });
 
         // "read @Cargo" -> prefix="Cargo", start=6 (after @), pos=11
         assert_eq!(start, 6);
@@ -628,10 +674,12 @@ mod tests {
 
     #[test]
     fn at_file_hint_shows_first_match_suffix() {
+        let _guard = cwd_lock();
+        let workspace = file_completion_workspace("hint");
         let helper = SlashCommandHelper::new(Vec::new(), CompletionProvider::default());
         let history = DefaultHistory::new();
         let ctx = Context::new(&history);
-        let hint = helper.hint("@src", 4, &ctx);
+        let hint = with_current_dir(&workspace, || helper.hint("@src", 4, &ctx));
 
         // Should hint with remaining path after "src"
         assert!(hint.is_some(), "hint should appear for @src prefix");

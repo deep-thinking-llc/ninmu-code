@@ -144,23 +144,41 @@ async fn handle_connection(
     requests: Arc<Mutex<Vec<CapturedRequest>>>,
 ) -> io::Result<()> {
     let (method, path, headers, raw_body) = read_http_request(&mut socket).await?;
-    let request: MessageRequest = serde_json::from_str(&raw_body)
-        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+    let request = parse_message_request(&raw_body)?;
     let scenario = detect_scenario(&request)
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "missing parity scenario"))?;
 
     requests.lock().await.push(CapturedRequest {
         method,
-        path,
+        path: path.clone(),
         headers,
         scenario: scenario.name().to_string(),
         stream: request.stream,
         raw_body,
     });
 
-    let response = build_http_response(&request, scenario);
+    let response = if path == "/v1/messages/count_tokens" {
+        build_count_tokens_response(&request, scenario)
+    } else {
+        build_http_response(&request, scenario)
+    };
     socket.write_all(response.as_bytes()).await?;
     Ok(())
+}
+
+fn parse_message_request(raw_body: &str) -> io::Result<MessageRequest> {
+    let mut value = serde_json::from_str::<Value>(raw_body)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+    if let Some(object) = value.as_object_mut() {
+        if object
+            .get("system")
+            .is_some_and(|system| !system.is_string())
+        {
+            object.remove("system");
+        }
+    }
+    serde_json::from_value(value)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))
 }
 
 async fn read_http_request(
@@ -327,6 +345,32 @@ fn build_http_response(request: &MessageRequest, scenario: Scenario) -> String {
         &serde_json::to_string(&response).expect("message response should serialize"),
         &[("request-id", request_id_for(scenario))],
     )
+}
+
+fn build_count_tokens_response(request: &MessageRequest, scenario: Scenario) -> String {
+    let input_tokens = count_request_tokens(request);
+    http_response(
+        "200 OK",
+        "application/json",
+        &json!({ "input_tokens": input_tokens }).to_string(),
+        &[("request-id", request_id_for(scenario))],
+    )
+}
+
+fn count_request_tokens(request: &MessageRequest) -> u32 {
+    let message_chars: usize = request
+        .messages
+        .iter()
+        .flat_map(|message| &message.content)
+        .map(|block| serde_json::to_string(block).map_or(0, |json| json.len()))
+        .sum();
+    let system_chars = request.system.as_ref().map_or(0, String::len);
+    let tool_chars: usize = request.tools.as_ref().map_or(0, |tools| {
+        serde_json::to_string(tools).map_or(0, |json| json.len())
+    });
+
+    let rough_tokens = (message_chars + system_chars + tool_chars).div_ceil(4);
+    u32::try_from(rough_tokens.max(1)).unwrap_or(u32::MAX)
 }
 
 #[allow(clippy::too_many_lines)]

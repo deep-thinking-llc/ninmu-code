@@ -1,0 +1,49 @@
+{
+  "protocol": "ninmu.harness/v1alpha1",
+  "mission_id": "mission-018f",
+  "task_id": "task-018f",
+  "status": "completed",
+  "summary": "Validated the task request and produced a stub harness result.",
+  "output": {
+    "message": "Task mode contract stub completed without provider execution."
+  },
+  "changed_files": [],
+  "artifacts": [],
+  "tests": [],
+  "usage": {
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "total_tokens": 0
+  },
+  "estimated_cost": 0.0,
+  "retryable": false,
+  "block_reason": null,
+  "sandbox": {
+    "actual_workdir": ".",
+    "allowed_roots": ["."],
+    "permission_mode": "read-only",
+    "network_policy": "disabled",
+    "denied_paths": [],
+    "policy_violations": []
+  },
+  "evidence": {
+    "items": ["request validated"],
+    "acceptance_tests_passed": null,
+    "changed_files_observed": false,
+    "unresolved_blockers": []
+  },
+  "confidence": {
+    "score": 0.25,
+    "level": "low"
+  },
+  "status_reason": "stub result",
+  "orchestrator_recommendation": "review",
+  "diff": null,
+  "commit_sha": null,
+  "risk": null,
+  "tool_uses": [],
+  "tool_results": [],
+  "applied_skills": ["superpowers:test-driven-development"],
+  "skill_confidence_delta": 0.0,
+  "skill_evaluations": []
+}

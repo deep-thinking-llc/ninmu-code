@@ -230,14 +230,19 @@ class NinmuClient:
         return result["sessionId"]
 
     def run_turn(self, session_id: str, input_text: str) -> str:
-        """Run a single turn in a session and return the result."""
+        """Run a single turn in a session and return the summary text."""
+        result = self.run_turn_result(session_id, input_text)
+        return result.get("summary", "")
+
+    def run_turn_result(self, session_id: str, input_text: str) -> dict[str, Any]:
+        """Run a single turn in a session and return the full result."""
         result = self._send_request("session.turn", {
             "session_id": session_id,
             "input": input_text,
         })
         if result.get("status") == "error":
             raise NinmuRuntimeError(result.get("error", "unknown error"))
-        return result.get("summary", "")
+        return result
 
     def list_sessions(self) -> list[dict[str, Any]]:
         """List all active sessions."""

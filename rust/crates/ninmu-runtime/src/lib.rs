@@ -15,6 +15,7 @@ mod conversation;
 mod file_ops;
 mod git_context;
 pub mod green_contract;
+pub mod harness_contract;
 mod hooks;
 mod json;
 mod lane_events;

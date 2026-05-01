@@ -40,7 +40,20 @@ mod init;
 mod input;
 mod render;
 mod rpc_client;
+mod run_task;
+mod task_events;
+mod task_evidence;
+mod task_sandbox;
 mod tui;
+mod worker_mode;
+
+#[cfg(test)]
+fn test_cwd_lock() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 // Re-exports from extracted format modules so existing code still compiles.
 // After Phase 0 is complete, this import brings all extracted items into scope
@@ -382,6 +395,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 },
             }
         }
+        CliAction::RunTask {
+            input,
+            output_format,
+            event_log,
+        } => {
+            if let Err(error) = run_task::run_task(input, output_format, event_log) {
+                run_task::write_error_and_exit(error);
+            }
+        }
+        CliAction::Worker {
+            action,
+            output_format,
+        } => worker_mode::run_worker(action, output_format)?,
         // #146: dispatch pure-local introspection. Text mode uses existing
         // render_config_report/render_diff_report; JSON mode uses the
         // corresponding _json helpers already exposed for resume sessions.
@@ -819,6 +845,8 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         "acp" => parse_acp_args(&rest[1..], output_format),
         "login" | "logout" => Err(removed_auth_surface_error(rest[0].as_str())),
         "init" => Ok(CliAction::Init { output_format }),
+        "run-task" => parse_run_task_args(&rest[1..], output_format),
+        "worker" => parse_worker_args(&rest[1..], output_format),
         "export" => parse_export_args(&rest[1..], output_format),
         "prompt" => {
             let prompt = rest[1..].join(" ");
@@ -887,6 +915,146 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 allow_broad_cwd,
             })
         }
+    }
+}
+
+fn parse_run_task_args(
+    args: &[String],
+    output_format: CliOutputFormat,
+) -> Result<CliAction, String> {
+    let mut input = None;
+    let mut event_log = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--input" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --input".to_string())?;
+                input = Some(run_task::PathOrStdin::parse(value));
+                index += 2;
+            }
+            flag if flag.starts_with("--input=") => {
+                input = Some(run_task::PathOrStdin::parse(&flag[8..]));
+                index += 1;
+            }
+            "--event-log" => {
+                let value = args
+                    .get(index + 1)
+                    .ok_or_else(|| "missing value for --event-log".to_string())?;
+                event_log = Some(PathBuf::from(value));
+                index += 2;
+            }
+            flag if flag.starts_with("--event-log=") => {
+                event_log = Some(PathBuf::from(&flag[12..]));
+                index += 1;
+            }
+            other => return Err(format!("unknown run-task option: {other}")),
+        }
+    }
+    Ok(CliAction::RunTask {
+        input: input.ok_or_else(|| "run-task requires --input <path|->".to_string())?,
+        output_format,
+        event_log,
+    })
+}
+
+fn parse_worker_args(
+    args: &[String],
+    mut output_format: CliOutputFormat,
+) -> Result<CliAction, String> {
+    let Some(command) = args.first().map(String::as_str) else {
+        return Err("worker requires a subcommand: connect or status".to_string());
+    };
+    match command {
+        "status" => {
+            let mut index = 1;
+            while index < args.len() {
+                match args[index].as_str() {
+                    "--json" => {
+                        output_format = CliOutputFormat::Json;
+                        index += 1;
+                    }
+                    "--output-format" => {
+                        let value = args
+                            .get(index + 1)
+                            .ok_or_else(|| "missing value for --output-format".to_string())?;
+                        output_format = CliOutputFormat::parse(value)?;
+                        index += 2;
+                    }
+                    flag if flag.starts_with("--output-format=") => {
+                        output_format = CliOutputFormat::parse(&flag[16..])?;
+                        index += 1;
+                    }
+                    other => return Err(format!("unknown worker status option: {other}")),
+                }
+            }
+            Ok(CliAction::Worker {
+                action: worker_mode::WorkerAction::Status,
+                output_format,
+            })
+        }
+        "connect" => {
+            let mut project = None;
+            let mut server = None;
+            let mut index = 1;
+            while index < args.len() {
+                match args[index].as_str() {
+                    "--project" => {
+                        project = Some(
+                            args.get(index + 1)
+                                .ok_or_else(|| "missing value for --project".to_string())?
+                                .clone(),
+                        );
+                        index += 2;
+                    }
+                    flag if flag.starts_with("--project=") => {
+                        project = Some(flag[10..].to_string());
+                        index += 1;
+                    }
+                    "--server" => {
+                        server = Some(
+                            args.get(index + 1)
+                                .ok_or_else(|| "missing value for --server".to_string())?
+                                .clone(),
+                        );
+                        index += 2;
+                    }
+                    flag if flag.starts_with("--server=") => {
+                        server = Some(flag[9..].to_string());
+                        index += 1;
+                    }
+                    "--json" => {
+                        output_format = CliOutputFormat::Json;
+                        index += 1;
+                    }
+                    "--output-format" => {
+                        let value = args
+                            .get(index + 1)
+                            .ok_or_else(|| "missing value for --output-format".to_string())?;
+                        output_format = CliOutputFormat::parse(value)?;
+                        index += 2;
+                    }
+                    flag if flag.starts_with("--output-format=") => {
+                        output_format = CliOutputFormat::parse(&flag[16..])?;
+                        index += 1;
+                    }
+                    other => return Err(format!("unknown worker connect option: {other}")),
+                }
+            }
+            Ok(CliAction::Worker {
+                action: worker_mode::WorkerAction::Connect {
+                    project: project
+                        .filter(|value| !value.trim().is_empty())
+                        .ok_or_else(|| "worker connect requires --project <id>".to_string())?,
+                    server: server
+                        .filter(|value| !value.trim().is_empty())
+                        .ok_or_else(|| "worker connect requires --server <url>".to_string())?,
+                },
+                output_format,
+            })
+        }
+        other => Err(format!("unknown worker subcommand: {other}")),
     }
 }
 
@@ -2501,7 +2669,6 @@ mod tests {
     use std::net::TcpListener;
     use std::path::{Path, PathBuf};
     use std::process::Command;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
     use std::thread;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -2708,25 +2875,29 @@ mod tests {
         );
     }
 
-    fn env_lock() -> MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn with_current_dir<T>(cwd: &Path, f: impl FnOnce() -> T) -> T {
-        let _guard = cwd_lock()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let previous = std::env::current_dir().expect("cwd should load");
+        let _guard = cwd_guard();
+        let previous = safe_current_dir();
         std::env::set_current_dir(cwd).expect("cwd should change");
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f));
-        std::env::set_current_dir(previous).expect("cwd should restore");
+        if std::env::set_current_dir(&previous).is_err() {
+            std::env::set_current_dir(env!("CARGO_MANIFEST_DIR")).expect("cwd should restore");
+        }
         match result {
             Ok(value) => value,
             Err(payload) => std::panic::resume_unwind(payload),
         }
+    }
+
+    fn safe_current_dir() -> PathBuf {
+        std::env::current_dir().unwrap_or_else(|_| PathBuf::from(env!("CARGO_MANIFEST_DIR")))
     }
 
     fn write_skill_fixture(root: &Path, name: &str, description: &str) {
@@ -3264,8 +3435,11 @@ mod tests {
 
     #[test]
     fn rejects_unknown_allowed_tools() {
-        let error = parse_args(&["--allowedTools".to_string(), "teleport".to_string()])
-            .expect_err("tool should be rejected");
+        let _env_guard = env_lock();
+        let error = with_current_dir(&PathBuf::from(env!("CARGO_MANIFEST_DIR")), || {
+            parse_args(&["--allowedTools".to_string(), "teleport".to_string()])
+                .expect_err("tool should be rejected")
+        });
         assert!(error.contains("unsupported tool in --allowedTools: teleport"));
     }
 
@@ -4490,9 +4664,16 @@ mod tests {
 
     #[test]
     fn prompt_subcommand_allows_literal_typo_word() {
-        assert_eq!(
+        let _guard = env_lock();
+        let root = temp_dir();
+        let cwd = root.join("project");
+        std::fs::create_dir_all(&cwd).expect("project dir should exist");
+        let parsed = with_current_dir(&cwd, || {
             parse_args(&["prompt".to_string(), "doctorr".to_string()])
-                .expect("explicit prompt subcommand should allow literal typo word"),
+                .expect("explicit prompt subcommand should allow literal typo word")
+        });
+        assert_eq!(
+            parsed,
             CliAction::Prompt {
                 prompt: "doctorr".to_string(),
                 model: DEFAULT_MODEL.to_string(),
@@ -5120,16 +5301,21 @@ mod tests {
 
     #[test]
     fn config_report_supports_section_views() {
-        let report = render_config_report(Some("env")).expect("config report should render");
+        let report = with_current_dir(Path::new(env!("CARGO_MANIFEST_DIR")), || {
+            render_config_report(Some("env")).expect("config report should render")
+        });
         assert!(report.contains("Merged section: env"));
-        let plugins_report =
-            render_config_report(Some("plugins")).expect("plugins config report should render");
+        let plugins_report = with_current_dir(Path::new(env!("CARGO_MANIFEST_DIR")), || {
+            render_config_report(Some("plugins")).expect("plugins config report should render")
+        });
         assert!(plugins_report.contains("Merged section: plugins"));
     }
 
     #[test]
     fn memory_report_uses_sectioned_layout() {
-        let report = render_memory_report().expect("memory report should render");
+        let report = with_current_dir(Path::new(env!("CARGO_MANIFEST_DIR")), || {
+            render_memory_report().expect("memory report should render")
+        });
         assert!(report.contains("Memory"));
         assert!(report.contains("Working directory"));
         assert!(report.contains("Instruction files"));
@@ -5138,7 +5324,9 @@ mod tests {
 
     #[test]
     fn config_report_uses_sectioned_layout() {
-        let report = render_config_report(None).expect("config report should render");
+        let report = with_current_dir(Path::new(env!("CARGO_MANIFEST_DIR")), || {
+            render_config_report(None).expect("config report should render")
+        });
         assert!(report.contains("Config"));
         assert!(report.contains("Discovered files"));
         assert!(report.contains("Merged JSON"));
@@ -5382,7 +5570,7 @@ UU conflicted.rs",
         let _guard = cwd_guard();
         let workspace = temp_workspace("session-resolution");
         std::fs::create_dir_all(&workspace).expect("workspace should create");
-        let previous = std::env::current_dir().expect("cwd");
+        let previous = safe_current_dir();
         std::env::set_current_dir(&workspace).expect("switch cwd");
 
         let handle = create_managed_session_handle("session-alpha").expect("jsonl handle");
@@ -5412,7 +5600,9 @@ UU conflicted.rs",
                 .expect("legacy path should exist")
         );
 
-        std::env::set_current_dir(previous).expect("restore cwd");
+        if std::env::set_current_dir(&previous).is_err() {
+            std::env::set_current_dir(env!("CARGO_MANIFEST_DIR")).expect("restore cwd");
+        }
         std::fs::remove_dir_all(workspace).expect("workspace should clean up");
     }
 
@@ -5421,7 +5611,7 @@ UU conflicted.rs",
         let _guard = cwd_guard();
         let workspace = temp_workspace("latest-session-alias");
         std::fs::create_dir_all(&workspace).expect("workspace should create");
-        let previous = std::env::current_dir().expect("cwd");
+        let previous = safe_current_dir();
         std::env::set_current_dir(&workspace).expect("switch cwd");
 
         let older = create_managed_session_handle("session-older").expect("older handle");
@@ -5445,7 +5635,9 @@ UU conflicted.rs",
             newer.path.canonicalize().expect("newer path should exist")
         );
 
-        std::env::set_current_dir(previous).expect("restore cwd");
+        if std::env::set_current_dir(&previous).is_err() {
+            std::env::set_current_dir(env!("CARGO_MANIFEST_DIR")).expect("restore cwd");
+        }
         std::fs::remove_dir_all(workspace).expect("workspace should clean up");
     }
 
@@ -5456,7 +5648,7 @@ UU conflicted.rs",
         let workspace_b = temp_workspace("session-mismatch-b");
         std::fs::create_dir_all(&workspace_a).expect("workspace a should create");
         std::fs::create_dir_all(&workspace_b).expect("workspace b should create");
-        let previous = std::env::current_dir().expect("cwd");
+        let previous = safe_current_dir();
         std::env::set_current_dir(&workspace_b).expect("switch cwd");
 
         let session_path = workspace_a.join(".ninmu/sessions/legacy-cross.jsonl");
@@ -5491,7 +5683,9 @@ UU conflicted.rs",
             "expected originating workspace in error: {error}"
         );
 
-        std::env::set_current_dir(previous).expect("restore cwd");
+        if std::env::set_current_dir(&previous).is_err() {
+            std::env::set_current_dir(env!("CARGO_MANIFEST_DIR")).expect("restore cwd");
+        }
         std::fs::remove_dir_all(workspace_a).expect("workspace a should clean up");
         std::fs::remove_dir_all(workspace_b).expect("workspace b should clean up");
     }
@@ -5520,15 +5714,8 @@ UU conflicted.rs",
         assert!(usage.contains("/session list"));
     }
 
-    fn cwd_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
-    fn cwd_guard() -> MutexGuard<'static, ()> {
-        cwd_lock()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    fn cwd_guard() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_cwd_lock()
     }
 
     #[test]
@@ -5553,9 +5740,7 @@ UU conflicted.rs",
 
     #[test]
     fn init_template_mentions_detected_rust_workspace() {
-        let _guard = cwd_lock()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _guard = cwd_guard();
         let workspace_root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
         let rendered = crate::init::render_init_claude_md(&workspace_root);
         assert!(rendered.contains("# CLAUDE.md"));

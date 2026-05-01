@@ -446,6 +446,22 @@ impl LiveCli {
         }
     }
 
+    pub(crate) fn run_turn_summary(
+        &mut self,
+        input: &str,
+    ) -> Result<ninmu_runtime::TurnSummary, Box<dyn std::error::Error>> {
+        let expansion = crate::file_ref::expand_file_refs(input);
+        let input = expansion.expanded;
+        let (mut runtime, hook_abort_monitor) = self.prepare_turn_runtime(false)?;
+        let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
+        let result = runtime.run_turn(input, Some(&mut permission_prompter));
+        hook_abort_monitor.stop();
+        let summary = result?;
+        self.replace_runtime(runtime)?;
+        self.persist_session()?;
+        Ok(summary)
+    }
+
     /// Run a turn in TUI mode. Returns a receiver for streaming events
     /// that the ratatui loop consumes on the main thread.
     pub(crate) fn run_turn_tui_channels(
